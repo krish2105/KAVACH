@@ -1,0 +1,36 @@
+[project]
+name = "kavach-brain"
+version = "0.1.0"
+description = "KAVACH Brain layer — kill switch, voice loop, reasoning router"
+requires-python = ">=3.11"
+dependencies = [
+    # Global hotkey + menubar panic item. pyobjc over pynput/rumps:
+    # rumps' last release was 2022-10, and pynput silently drops ctrl/alt
+    # hotkeys on macOS (moses-palmer/pynput#297) — disqualifying for a
+    # kill switch. Both pyobjc frameworks were updated 2026-08-11.
+    "pyobjc-framework-Cocoa>=12.2.2",
+    "pyobjc-framework-Quartz>=12.2.2",
+]
+
+# Phase 2-3 deps are deliberately absent until their phase:
+#   claude-agent-sdk, pvporcupine (needs a Picovoice account), kokoro-onnx
+
+[project.scripts]
+kavach = "kavach.killswitch.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kavach"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

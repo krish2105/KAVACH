@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "orb",
+      "runtimeExecutable": "/Users/krishnamathurm4pro/.nvm/versions/node/v24.19.0/bin/npm",
+      "runtimeArgs": ["--prefix", "apps/orb", "run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
