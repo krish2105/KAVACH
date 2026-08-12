@@ -3,6 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createOrbScene, type OrbSceneApi } from "@/lib/orbScene";
 import { HandTracker, type TrackerStatus } from "@/lib/handTracker";
+import {
+  INITIAL_SNAPSHOT,
+  createMockSource,
+  type KavachSnapshot,
+  type KavachSource,
+} from "@/lib/kavachState";
+import { StatusPanel } from "@/components/hud/StatusPanel";
+import { TranscriptPanel } from "@/components/hud/TranscriptPanel";
+import { ToolCallLog } from "@/components/hud/ToolCallLog";
+import { ToolCallPackets } from "@/components/hud/ToolCallPackets";
 
 type CameraState = "off" | "starting" | "on" | "error";
 
@@ -18,23 +28,62 @@ export default function JarvisOrb() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<OrbSceneApi | null>(null);
   const trackerRef = useRef<HandTracker | null>(null);
+  const sourceRef = useRef<KavachSource | null>(null);
+  const toolPanelRef = useRef<HTMLDivElement>(null);
 
   const [camera, setCamera] = useState<CameraState>("off");
   const [status, setStatus] = useState<TrackerStatus>({ hands: 0, mode: "idle" });
   const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<KavachSnapshot>(INITIAL_SNAPSHOT);
+
+  // The keydown listener is registered once, so it would otherwise close over
+  // the first snapshot forever.
+  const snapshotRef = useRef(snapshot);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const scene = createOrbScene(container);
     sceneRef.current = scene;
+
+    // Suit-up sequence first (§4 #1); the mock Brain only starts once the
+    // shells have assembled and the core has ignited.
+    const source = createMockSource();
+    sourceRef.current = source;
+
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    void scene.playBoot().then(() => {
+      if (cancelled) return;
+      unsubscribe = source.subscribe(setSnapshot);
+    });
+
     return () => {
+      cancelled = true;
+      unsubscribe?.();
+      source.stop();
+      sourceRef.current = null;
       trackerRef.current?.stop();
       trackerRef.current = null;
       scene.dispose();
       sceneRef.current = null;
     };
   }, []);
+
+  // The orb is a view of the snapshot — the scene never owns agent state.
+  // Driving it through refs rather than React props keeps this off the
+  // render path; these fire at animation rate.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || scene.getState() === "boot") return;
+    scene.setState(snapshot.state);
+    scene.setAmplitude(snapshot.amplitude);
+    scene.setConfidence(snapshot.confidence);
+  }, [snapshot.state, snapshot.amplitude, snapshot.confidence]);
 
   const stopGestures = useCallback(() => {
     trackerRef.current?.stop();
@@ -97,6 +146,26 @@ export default function JarvisOrb() {
         case "G":
           toggleGestures();
           break;
+        case "k":
+        case "K":
+          // Stand-in for the real kill switch until Phase 4 bridges the
+          // daemon socket into the browser. Same latch semantics: no
+          // auto-recovery, explicit re-arm only.
+          if (sourceRef.current) {
+            if (snapshotRef.current.killSwitch === "armed") sourceRef.current.halt();
+            else sourceRef.current.rearm();
+          }
+          break;
+        case "Escape":
+          // §5: an assistant that can't be interrupted feels like a hung
+          // process. Cancels the current turn without latching.
+          sourceRef.current?.rearm();
+          break;
+        case " ":
+          // Push-to-talk override (§4). Phase 2 wires this to the mic;
+          // for now it just proves the key is claimed and does not scroll.
+          e.preventDefault();
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -113,7 +182,31 @@ export default function JarvisOrb() {
       <div className="overlay-grain" />
       <div className="overlay-scanlines" />
 
-      <div className="hud hud-title">U.L.T.R.O.N.</div>
+      <div className="hud hud-title">
+        <span className="title-mark">KAVACH</span>
+        <span className="title-sub">कवच · local-first presence</span>
+      </div>
+
+      <ToolCallPackets toolCalls={snapshot.toolCalls} targetRef={toolPanelRef} />
+
+      <div className="hud hud-stack hud-stack-left">
+        <StatusPanel
+          state={snapshot.state}
+          route={snapshot.route}
+          confidence={snapshot.confidence}
+          killSwitch={snapshot.killSwitch}
+          amplitude={snapshot.amplitude}
+        />
+        <TranscriptPanel
+          transcript={snapshot.transcript}
+          partial={snapshot.partial}
+          state={snapshot.state}
+        />
+      </div>
+
+      <div className="hud hud-stack hud-stack-right" ref={toolPanelRef}>
+        <ToolCallLog toolCalls={snapshot.toolCalls} />
+      </div>
 
       <div className="hud hud-hint">
         <div>
@@ -127,9 +220,10 @@ export default function JarvisOrb() {
           </div>
         ) : (
           <div>
-            <span className="key">G</span> hand gestures&nbsp;&nbsp;
+            <span className="key">G</span> gestures&nbsp;&nbsp;
             <span className="key">R</span> reset&nbsp;&nbsp;
-            <span className="key">+/−</span> zoom
+            <span className="key">K</span> kill switch&nbsp;&nbsp;
+            <span className="key">ESC</span> interrupt
           </div>
         )}
       </div>

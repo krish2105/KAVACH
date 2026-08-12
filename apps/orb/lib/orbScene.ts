@@ -5,6 +5,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
+/**
+ * What the orb is doing, expressed visually (spec §4).
+ *
+ * `halted` is KAVACH's own addition: when the kill switch latches, the orb
+ * goes cold and nearly still. The guardrail should be visible in the product,
+ * not just true in the logs.
+ */
+export type OrbState =
+  | "boot"
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "acting"
+  | "speaking"
+  | "halted";
+
 export interface OrbSceneApi {
   /** Rotate the camera around the orb by the given angles (radians). */
   rotateBy(deltaTheta: number, deltaPhi: number): void;
@@ -13,16 +29,63 @@ export interface OrbSceneApi {
   zoomIn(): void;
   zoomOut(): void;
   resetView(): void;
+
+  /** Drive the orb's behaviour. Transitions are eased, never snapped. */
+  setState(state: OrbState): void;
+  /**
+   * Mic amplitude while listening, or the TTS envelope while speaking (0–1).
+   * Feeds the pulse rings and bloom so the orb breathes with the audio.
+   */
+  setAmplitude(value: number): void;
+  /**
+   * Reasoning confidence (0–1) → outer shell opacity (§4 differentiator #3).
+   * In practice a proxy for whether the fast local model handled it or it had
+   * to escalate to Claude.
+   */
+  setConfidence(value: number): void;
+  /** Run the suit-up sequence: shells assemble, core ignites last. */
+  playBoot(): Promise<void>;
+  /** Current state, for callers that need to read back. */
+  getState(): OrbState;
+
   dispose(): void;
 }
+
+interface StateProfile {
+  /** Rotation speed multiplier applied to every layer. */
+  spin: number;
+  /** Base bloom strength before the amplitude term. */
+  bloom: number;
+  /** Gain on the core's own pulse. */
+  core: number;
+  /** How strongly amplitude drives the pulse rings. */
+  ring: number;
+}
+
+const STATE_PROFILES: Record<OrbState, StateProfile> = {
+  // Shells are still assembling; keep everything quiet underneath.
+  boot: { spin: 0.3, bloom: 0.6, core: 0.2, ring: 0 },
+  idle: { spin: 1.0, bloom: 1.6, core: 1.0, ring: 0 },
+  // Rings expand outward in time with the mic.
+  listening: { spin: 1.25, bloom: 2.0, core: 1.15, ring: 1.0 },
+  // Inner core spins hard — the "working" read.
+  thinking: { spin: 2.6, bloom: 1.85, core: 1.35, ring: 0.15 },
+  acting: { spin: 1.9, bloom: 2.2, core: 1.25, ring: 0.3 },
+  // Bloom pulses with the TTS envelope.
+  speaking: { spin: 1.15, bloom: 2.35, core: 1.4, ring: 0.75 },
+  // Latched: cold, near-frozen, unmistakably stopped.
+  halted: { spin: 0.04, bloom: 0.35, core: 0.15, ring: 0 },
+};
 
 const HOME_POSITION = new THREE.Vector3(0, 0.5, 5.5);
 const MIN_DISTANCE = 0.6;
 const MAX_DISTANCE = 40;
 
 export function createOrbScene(container: HTMLElement): OrbSceneApi {
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  // Fall back to the viewport if the container has not been laid out yet —
+  // a 0×0 renderer starts with an incomplete framebuffer it never recovers from.
+  const width = container.clientWidth || window.innerWidth;
+  const height = container.clientHeight || window.innerHeight;
 
   // ——— SCENE ———
   const scene = new THREE.Scene();
@@ -95,11 +158,14 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   controls.enablePan = false;
 
   // ——— COLORS ———
-  const C_BRIGHT = 0xffaa30;
-  const C_MID = 0xdd7700;
-  const C_DIM = 0x884400;
-  const C_FAINT = 0x553300;
-  const C_HOT = 0xffcc66;
+  // KAVACH (कवच, "armor") reads cold: steel and cyan rather than the fork's
+  // amber. Values step in luminance, not just hue, so the additive blending
+  // still separates the layers when many lines overlap near the core.
+  const C_BRIGHT = 0x62e0ff;
+  const C_MID = 0x1f9fd0;
+  const C_DIM = 0x0e5a78;
+  const C_FAINT = 0x07344a;
+  const C_HOT = 0xdbf6ff;
 
   // ——— ORB ROOT ———
   // Every part of the orb (shells, core, orbiting debris, text, dust, rings)
@@ -434,7 +500,10 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     const ctx = c.getContext("2d")!;
     ctx.font = "bold 14px Courier New";
     const alpha = 0.35 + Math.random() * 0.55;
-    ctx.fillStyle = `rgba(255, ${(130 + Math.random() * 80) | 0}, ${(20 + Math.random() * 30) | 0}, ${alpha})`;
+    // Code sprites are canvas textures, so they don't pick up the C_ constants
+    // above — their colour has to be written here too. Cyan channel spread
+    // mirrors the amber original's: fixed high channel, two varying.
+    ctx.fillStyle = `rgba(${(70 + Math.random() * 60) | 0}, ${(190 + Math.random() * 55) | 0}, 255, ${alpha})`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 128, 16);
@@ -693,6 +762,155 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   // ═══════════════════════════════════════════════
   // ANIMATION
   // ═══════════════════════════════════════════════
+  // ═══════════════════════════════════════════════
+  // AGENT STATE DRIVE
+  // Nothing here snaps. Every visual quantity is a target that the frame loop
+  // eases toward, so a state change reads as the orb *reacting* rather than
+  // cutting. The one exception is the halt, which is meant to feel abrupt.
+  // ═══════════════════════════════════════════════
+
+  type TrackedMat = { mat: THREE.Material & { opacity: number }; base: number };
+
+  /** Snapshot every material under `root` with the opacity it was authored at,
+   *  so we can scale them as a group without losing the hand-tuned mix. */
+  function collectMats(root: THREE.Object3D): TrackedMat[] {
+    const out: TrackedMat[] = [];
+    root.traverse((obj) => {
+      const material = (obj as THREE.Mesh).material;
+      if (!material) return;
+      for (const mat of Array.isArray(material) ? material : [material]) {
+        if (mat && "opacity" in mat) {
+          out.push({ mat: mat as TrackedMat["mat"], base: mat.opacity });
+        }
+      }
+    });
+    return out;
+  }
+
+  const outerMats = collectMats(outerShell);
+  // The core's own materials are animated per-frame below, so they are driven
+  // explicitly rather than through the group multiplier — otherwise the two
+  // would fight and the core would flicker.
+  const structureMats = [
+    ...outerMats,
+    ...collectMats(panelGroup),
+    ...collectMats(shell2),
+    ...collectMats(innerCore),
+  ];
+
+  // ——— PULSE RINGS (listening / speaking) ———
+  // Expand outward from the shell in time with audio amplitude.
+  const PULSE_RING_COUNT = 3;
+  const pulseRings: THREE.Line[] = [];
+  {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 128; i++) {
+      const a = (i / 128) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    for (let i = 0; i < PULSE_RING_COUNT; i++) {
+      const ring = new THREE.Line(geo, lineMat(C_BRIGHT, 0));
+      ring.rotation.x = Math.PI / 2;
+      ring.visible = false;
+      pulseRings.push(ring);
+      orbGroup.add(ring);
+    }
+  }
+
+  const DANGER = new THREE.Color(0xff3b3b);
+  const coreBaseColor = coreSphereMat.color.clone();
+  const glowBaseColor = glowSphereMat.color.clone();
+  const icoBaseColor = icoWireMat.color.clone();
+
+  const drive = {
+    state: "idle" as OrbState,
+    // eased values
+    spin: 1,
+    bloom: 1.6,
+    core: 1,
+    ring: 0,
+    halt: 0,
+    amplitude: 0,
+    confidence: 1,
+    // raw inputs
+    targetAmplitude: 0,
+    targetConfidence: 1,
+    // boot
+    bootProgress: 1,
+    booting: false,
+  };
+
+  /** Frame-rate independent easing — a fixed lerp factor would ease at
+   *  different speeds on a 60Hz and a 120Hz display. */
+  function approach(current: number, target: number, rate: number, dt: number) {
+    return current + (target - current) * (1 - Math.exp(-rate * dt));
+  }
+
+  function setState(state: OrbState) {
+    drive.state = state;
+  }
+
+  function setAmplitude(value: number) {
+    drive.targetAmplitude = Math.min(1, Math.max(0, value));
+  }
+
+  function setConfidence(value: number) {
+    drive.targetConfidence = Math.min(1, Math.max(0, value));
+  }
+
+  // ——— SUIT-UP BOOT SEQUENCE (§4 differentiator #1) ———
+  // Shells assemble from scattered fragments; the core ignites last.
+  const BOOT_MS = 2200;
+  const bootLayers: { group: THREE.Group; offset: THREE.Vector3; delay: number }[] = [
+    { group: outerShell, offset: new THREE.Vector3(0, 0, 0), delay: 0.30 },
+    { group: panelGroup, offset: new THREE.Vector3(0, 0, 0), delay: 0.22 },
+    { group: shell2, offset: new THREE.Vector3(0, 0, 0), delay: 0.14 },
+    { group: innerCore, offset: new THREE.Vector3(0, 0, 0), delay: 0.06 },
+  ];
+  for (const layer of bootLayers) {
+    // Scatter direction is deterministic per layer, not random per load —
+    // the sequence should look the same in every take of the demo video.
+    const seed = layer.delay * 37.7;
+    layer.offset.set(Math.cos(seed) * 9, Math.sin(seed * 1.7) * 6, Math.sin(seed) * 9);
+  }
+
+  const easeOutExpo = (x: number) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+
+  let bootResolve: (() => void) | null = null;
+
+  function playBoot(): Promise<void> {
+    drive.bootProgress = 0;
+    drive.booting = true;
+    setState("boot");
+    return new Promise<void>((resolve) => {
+      bootResolve = resolve;
+    });
+  }
+
+  function applyBoot() {
+    const p = drive.bootProgress;
+    for (const layer of bootLayers) {
+      // Each layer runs its own sub-window of the timeline, so they land in
+      // sequence (core first, outer shell last) rather than all at once.
+      const local = Math.min(1, Math.max(0, (p - layer.delay) / (1 - layer.delay)));
+      const eased = easeOutExpo(local);
+      layer.group.position.copy(layer.offset).multiplyScalar(1 - eased);
+      const scale = 0.35 + 0.65 * eased;
+      layer.group.scale.setScalar(scale);
+    }
+    // Core ignition is the last beat — held dark until the shells have landed.
+    const ignition = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+    drive.core = ignition * (1 + (1 - ignition) * 2.5); // brief overshoot = flash
+  }
+
+  function clearBoot() {
+    for (const layer of bootLayers) {
+      layer.group.position.set(0, 0, 0);
+      layer.group.scale.setScalar(1);
+    }
+  }
+
   const clock = new THREE.Clock();
   let flickerTimer = 0;
   let rafId = 0;
@@ -701,28 +919,56 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   function animate() {
     if (disposed) return;
     rafId = requestAnimationFrame(animate);
+    const dt = Math.min(0.05, clock.getDelta()); // clamp: tab-switch spikes
     const t = clock.getElapsedTime();
 
+    // ——— advance the state drive ———
+    if (drive.booting) {
+      drive.bootProgress = Math.min(1, drive.bootProgress + (dt * 1000) / BOOT_MS);
+      applyBoot();
+      if (drive.bootProgress >= 1) {
+        drive.booting = false;
+        clearBoot();
+        setState("idle");
+        bootResolve?.();
+        bootResolve = null;
+      }
+    }
+
+    const profile = STATE_PROFILES[drive.state];
+    // The halt is the one transition allowed to feel abrupt.
+    const rate = drive.state === "halted" ? 9 : 3.2;
+    drive.spin = approach(drive.spin, profile.spin, rate, dt);
+    drive.bloom = approach(drive.bloom, profile.bloom, rate, dt);
+    drive.ring = approach(drive.ring, profile.ring, rate, dt);
+    drive.halt = approach(drive.halt, drive.state === "halted" ? 1 : 0, rate, dt);
+    drive.amplitude = approach(drive.amplitude, drive.targetAmplitude, 14, dt);
+    drive.confidence = approach(drive.confidence, drive.targetConfidence, 2.5, dt);
+    if (!drive.booting) drive.core = approach(drive.core, profile.core, rate, dt);
+
+    const spin = drive.spin;
+
     // Outer shell rotation
-    outerShell.rotation.y += 0.0015;
+    outerShell.rotation.y += 0.0015 * spin;
     outerShell.rotation.x = Math.sin(t * 0.08) * 0.05;
 
     // Panel group follows shell but with slight offset
-    panelGroup.rotation.y += 0.0018;
+    panelGroup.rotation.y += 0.0018 * spin;
     panelGroup.rotation.x = Math.sin(t * 0.08 + 0.5) * 0.04;
 
     // Secondary shell counter-rotates slowly
-    shell2.rotation.y -= 0.001;
+    shell2.rotation.y -= 0.001 * spin;
     shell2.rotation.z = Math.sin(t * 0.12) * 0.03;
 
-    // Inner core — opposite, faster
-    innerCore.rotation.y -= 0.005;
-    innerCore.rotation.z += 0.002;
+    // Inner core — opposite, faster. Spins hardest while thinking, which is
+    // what sells "working" without any text on screen.
+    innerCore.rotation.y -= 0.005 * spin;
+    innerCore.rotation.z += 0.002 * spin;
     innerCore.rotation.x = Math.cos(t * 0.1) * 0.08;
 
     // Innermost wireframe
-    icoWire.rotation.x += 0.008;
-    icoWire.rotation.y += 0.012;
+    icoWire.rotation.x += 0.008 * spin;
+    icoWire.rotation.y += 0.012 * spin;
 
     // Core pulse — dramatic surges but mostly transparent
     const wave1 = Math.sin(t * 1.2);
@@ -737,12 +983,13 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
       0,
       (0.08 + wave1 * 0.05 + surge * 0.2) * (1 - fadeOut * 0.95),
     );
-    coreSphereMat.opacity = Math.min(0.6, coreOpacity);
+    coreSphereMat.opacity = Math.min(0.85, coreOpacity * drive.core);
     glowSphere.scale.setScalar(1 + surge * 0.8);
-    glowSphereMat.opacity = Math.max(0, (0.03 + surge * 0.08) * (1 - fadeOut * 0.9));
+    glowSphereMat.opacity =
+      Math.max(0, (0.03 + surge * 0.08) * (1 - fadeOut * 0.9)) * drive.core;
     // Icosahedron wireframe stays visible even when glow fades
     icoWire.scale.setScalar(1 + surge * 0.6);
-    icoWireMat.opacity = Math.min(1, 0.5 + surge * 0.4);
+    icoWireMat.opacity = Math.min(1, (0.5 + surge * 0.4) * drive.core);
 
     // Debris orbits
     debris.forEach((d) => {
@@ -802,8 +1049,52 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
       });
     }
 
-    // Bloom pulse
-    bloom.strength = 1.6 + Math.sin(t * 0.8) * 0.3;
+    // ——— state-driven opacity, rings and tint ———
+
+    // Confidence maps to the outer shell (§4 #3). Floor at 0.35 so low
+    // confidence reads as "thinner", never as a rendering fault.
+    const shellMul = (0.35 + 0.65 * drive.confidence) * (1 - drive.halt * 0.6);
+    for (const { mat, base } of outerMats) mat.opacity = base * shellMul;
+
+    // Everything else dims together when halted, and while booting.
+    const structureMul =
+      (drive.booting ? easeOutExpo(Math.min(1, drive.bootProgress / 0.8)) : 1) *
+      (1 - drive.halt * 0.55);
+    if (structureMul < 0.999 || drive.halt > 0.001) {
+      for (const { mat, base } of structureMats) mat.opacity = base * structureMul;
+    }
+
+    // Pulse rings ride the audio envelope outward.
+    const ringGain = drive.ring * (0.25 + drive.amplitude * 0.75);
+    for (let i = 0; i < pulseRings.length; i++) {
+      const ring = pulseRings[i];
+      if (ringGain < 0.02) {
+        ring.visible = false;
+        continue;
+      }
+      ring.visible = true;
+      // Staggered phases so the rings chase each other rather than pulsing
+      // in lockstep.
+      const phase = (t * 0.55 + i / pulseRings.length) % 1;
+      const radius = R1 * (0.85 + phase * 1.5);
+      ring.scale.setScalar(radius);
+      // Fade in at birth, out at death — no popping at either end.
+      const envelope = Math.sin(phase * Math.PI);
+      (ring.material as THREE.LineBasicMaterial).opacity = envelope * ringGain * 0.5;
+    }
+
+    // Halted: the core goes red and cold. Three materials, so this is cheap.
+    if (drive.halt > 0.001) {
+      coreSphereMat.color.copy(coreBaseColor).lerp(DANGER, drive.halt);
+      glowSphereMat.color.copy(glowBaseColor).lerp(DANGER, drive.halt);
+      icoWireMat.color.copy(icoBaseColor).lerp(DANGER, drive.halt);
+    }
+
+    // Bloom pulse — base from the state, breathing from the audio.
+    bloom.strength =
+      drive.bloom +
+      Math.sin(t * 0.8) * 0.3 * (1 - drive.halt) +
+      drive.amplitude * drive.ring * 0.9;
 
     // Update chromatic aberration time
     chromaticPass.uniforms.uTime.value = t;
@@ -818,18 +1109,28 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   function onResize() {
     const w = container.clientWidth;
     const h = container.clientHeight;
+    // A collapsed or hidden pane reports 0, and sizing the renderer to zero
+    // leaves the framebuffer permanently incomplete — WebGL then spams
+    // GL_INVALID_FRAMEBUFFER_OPERATION and never recovers when the pane
+    // returns. Keep the last good size instead.
+    if (w === 0 || h === 0) return;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
   }
   window.addEventListener("resize", onResize);
+  // The container can change size without the window doing so (a docked
+  // preview pane, a split editor), which `resize` alone would miss.
+  const resizeObserver = new ResizeObserver(onResize);
+  resizeObserver.observe(container);
 
   // ——— CLEANUP ———
   function dispose() {
     disposed = true;
     cancelAnimationFrame(rafId);
     window.removeEventListener("resize", onResize);
+    resizeObserver.disconnect();
     controls.dispose();
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -853,6 +1154,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     zoomIn: () => zoomBy(0.65),
     zoomOut: () => zoomBy(1.55),
     resetView,
+    setState,
+    setAmplitude,
+    setConfidence,
+    playBoot,
+    getState: () => drive.state,
     dispose,
   };
 }

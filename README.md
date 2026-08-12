@@ -21,8 +21,8 @@ Working agreement: [`CLAUDE.md`](CLAUDE.md).
 | Phase | State |
 |---|---|
 | **0 — Setup, orb forked, MCP installed, kill switch tested** | **complete** |
-| 1 — Presence polish (HUD, boot sequence) | not started |
-| 2 — Local voice loop (Porcupine → Whisper.cpp → Kokoro) | not started |
+| **1 — Presence polish (HUD, state-reactive orb, boot sequence)** | **complete** |
+| 2 — Local voice loop (wake word → Whisper.cpp → Kokoro) | not started |
 | 3 — Brain + router | not started |
 | 4 — Hands + guardrail enforcement | not started |
 | 5 — Integration + demo | not started |
@@ -68,6 +68,32 @@ See it work end to end — a real subprocess and a real async task, really kille
 ```bash
 cd brain && uv run python -m kavach.killswitch.demo
 ```
+
+---
+
+## The Presence layer
+
+The orb is a *view of the agent's state*, never its owner. `lib/kavachState.ts`
+defines what the Brain will publish; Phase 1 ships a mock that produces it, so
+Phase 3 adds a WebSocket source beside the mock and changes no HUD code.
+
+What the orb tells you without any text on screen:
+
+| State | Orb |
+|---|---|
+| `idle` | slow ambient rotation |
+| `listening` | pulse rings expand outward with mic amplitude |
+| `thinking` | inner core spins hard, bloom tightens |
+| `acting` | packets travel core → tool-call panel and back |
+| `speaking` | bloom breathes with the TTS envelope |
+| `halted` | **core extinguished, orb frozen, everything cold and red** |
+
+The outer shell's opacity tracks reasoning confidence (§4 #3) — a thinner shell
+means it was less sure. A suit-up boot sequence assembles the shells on launch
+and ignites the core last.
+
+Keys: `G` gestures · `R` reset · `+`/`−` zoom · **`K` kill switch** · `Esc`
+interrupt · `Space` push-to-talk (Phase 2).
 
 ---
 

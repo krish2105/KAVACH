@@ -34,7 +34,18 @@ substitute.
 | `macos-mcp` (CursorTouch) | 0.3.17, PyPI | `uvx macos-mcp`, py >=3.11. Needs Accessibility **+ Screen Recording** |
 | `claude-agent-sdk` (py) | 0.2.137 | py >=3.10 |
 | `pyobjc-framework-Cocoa`/`-Quartz` | 12.2.2 | Used for hotkey + menubar |
-| `pvporcupine` | 4.0.3 | **Requires a free Picovoice AccessKey (account)** |
+| `pvporcupine` | 4.0.3 | ⚠️ **DEAD END — see below** |
+| `next` | 16.3.0 | patched; 0 advisories |
+| `motion` | 13.1.0 | spec §4 says "v12"; 13 is current, `motion/react` import unchanged |
+
+**⚠️ Porcupine is out.** Picovoice **discontinued the free tier on 2026-06-30**
+and disabled existing free AccessKeys: *"we'll be focusing on our core business,
+enterprise deployments. There is no non-commercial tier planned."* Signup now
+yields a 7-day enterprise trial. This kills spec §3's "Porcupine (free personal
+tier)". Phase 2 must pick a replacement — candidates are **openWakeWord**
+(Apache-2.0, ONNX, but last PyPI release 2024-02), **livekit-wakeword** (newer,
+openWakeWord-compatible ONNX), and **local-wake** (no training). **Verify all
+three before choosing — this is not yet decided.**
 
 **Corrections already applied to the spec:** §6/§10's `npx -y macos-automator-mcp`
 is a 404 (needs the `@steipete/` scope); §6's "now under openclaw" applies to
@@ -93,8 +104,8 @@ user's global nvm default stays on 20 — do not change it.
 | Phase | State |
 |---|---|
 | 0 — Setup, orb forked, MCP installed, kill switch tested | **complete** (tag `phase-0`) |
-| 1 — Presence polish (HUD, 21st MCP — **needs API key, ask first**) | not started |
-| 2 — Local voice loop (**Porcupine needs an account, ask first**; ollama + cmake not installed) | not started |
+| 1 — Presence polish (HUD, state-reactive orb, boot sequence, packets) | **complete** (tag `phase-1`) |
+| 2 — Local voice loop (**wake word engine undecided — Porcupine is dead**; ollama + cmake not installed) | not started |
 | 3 — Brain + router | not started |
 | 4 — Hands + guardrail enforcement | not started |
 | 5 — Integration + demo | not started |
@@ -112,3 +123,19 @@ docs/        permissions-setup.md, demo-script.md, attribution.md
 ```
 
 **Python:** `uv` in `brain/`. **Node:** `nvm use` (24) in `apps/orb/`.
+
+### Presence layer notes (Phase 1)
+
+- `lib/orbScene.ts` owns the visuals; `OrbSceneApi` now takes `setState`,
+  `setAmplitude`, `setConfidence`, `playBoot`. The scene **never** owns agent
+  state — it renders whatever the snapshot says.
+- `lib/kavachState.ts` is the contract between Presence and the Brain.
+  Phase 3 adds a WebSocket `KavachSource` beside `createMockSource()` and
+  deletes nothing. **Do not let the HUD talk to anything but a `KavachSource`.**
+- The palette lives in **two** places that must change together: `C_*`
+  constants in `orbScene.ts` and `--kv-*` custom properties in `globals.css`.
+- 21st MCP is connected on the **free tier: 2 component retrievals/day**
+  (search is unmetered). Ask before spending one.
+- The HUD's `K` key is a *stand-in* for the kill switch. Phase 4 bridges the
+  real daemon socket into the browser; until then the browser knows nothing
+  about the Python latch.
