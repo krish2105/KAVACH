@@ -92,7 +92,7 @@ user's global nvm default stays on 20 — do not change it.
 
 | Phase | State |
 |---|---|
-| 0 — Setup, orb forked, MCP installed, kill switch tested | in progress |
+| 0 — Setup, orb forked, MCP installed, kill switch tested | **complete** (tag `phase-0`) |
 | 1 — Presence polish (HUD, 21st MCP — **needs API key, ask first**) | not started |
 | 2 — Local voice loop (**Porcupine needs an account, ask first**; ollama + cmake not installed) | not started |
 | 3 — Brain + router | not started |
