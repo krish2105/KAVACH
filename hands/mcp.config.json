@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "macos-automator": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "@steipete/macos-automator-mcp@0.4.6",
+        "macos-automator-mcp"
+      ],
+      "env": {
+        "LOG_LEVEL": "INFO",
+        "KB_PARSING": "lazy"
+      }
+    },
+    "macos-accessibility": {
+      "command": "uvx",
+      "args": ["macos-mcp@0.3.17", "serve", "--transport", "stdio"],
+      "env": {}
+    },
+    "peekaboo": {
+      "command": "npx",
+      "args": ["-y", "@steipete/peekaboo@4.0.0", "mcp"],
+      "env": {
+        "PEEKABOO_LOG_LEVEL": "info"
+      }
+    }
+  }
+}

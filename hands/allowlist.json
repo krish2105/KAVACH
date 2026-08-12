@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "App allowlist (spec §7). An ALLOWLIST, not a blocklist: an app KAVACH has",
+    "never heard of is denied by default, which is the only ordering that fails",
+    "safe. Ask before adding anything here.",
+    "",
+    "Bundle IDs were read off this machine, not guessed — note Calendar is",
+    "com.apple.iCal, not com.apple.Calendar.",
+    "",
+    "Phase 0 establishes this file and its check. Phase 4 wires it into the",
+    "real MCP dispatch path, behind KillSwitch.guard()."
+  ],
+  "version": 1,
+  "allowed": [
+    { "name": "Safari",   "bundle_id": "com.apple.Safari" },
+    { "name": "Notes",    "bundle_id": "com.apple.Notes" },
+    { "name": "Calendar", "bundle_id": "com.apple.iCal" },
+    { "name": "Finder",   "bundle_id": "com.apple.finder" }
+  ],
+  "confirm_always": [
+    "send", "reply", "forward", "delete", "trash", "purchase", "buy",
+    "submit", "post", "publish", "share", "install", "uninstall",
+    "shutdown", "restart", "logout", "system_setting"
+  ]
+}
