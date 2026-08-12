@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import logging
 import signal
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -71,6 +72,34 @@ class SocketThread:
             self.loop.call_soon_threadsafe(self.loop.stop)
 
 
+def start_demo_workload(ks: KillSwitch, socket_thread: "SocketThread") -> dict:
+    """Start a real subprocess and a real async task, both registered.
+
+    Stands in for Phase 4's device control so a kill can be *seen* killing
+    something. The async task must be created on the socket thread's loop —
+    that is the only loop running — so it is scheduled across via
+    ``run_coroutine_threadsafe``.
+    """
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(3600)"],
+        start_new_session=True,  # own process group, so killpg reaches children
+    )
+    ks.register_process(child)
+
+    async def pretend_agent_turn() -> None:
+        step = 0
+        while True:
+            await asyncio.sleep(1)
+            step += 1
+            print(f"  [agent-turn] still running… step {step}", flush=True)
+
+    async def _spawn() -> None:
+        ks.register_task(asyncio.create_task(pretend_agent_turn()))
+
+    asyncio.run_coroutine_threadsafe(_spawn(), socket_thread.loop).result(timeout=5)
+    return {"child": child}
+
+
 def _banner(ks: KillSwitch, socket_path: Path, hotkey_ok: bool,
             hotkey_msg: str, gui: bool) -> None:
     from . import hotkey as hotkey_mod
@@ -103,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log", default=str(DEFAULT_LOG_PATH))
     parser.add_argument("--no-gui", action="store_true",
                         help="socket only; no hotkey or menu bar")
+    parser.add_argument("--demo", action="store_true",
+                        help="also start a real subprocess and a real async "
+                             "task, so a kill can be seen actually killing "
+                             "something")
     parser.add_argument("--request-permission", action="store_true",
                         help="prompt for Input Monitoring, then exit")
     args = parser.parse_args(argv)
@@ -125,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     socket_thread = SocketThread(ks, socket_path)
     socket_thread.start()
     ks.log.append("daemon.start", socket=str(socket_path), gui=not args.no_gui)
+
+    demo = start_demo_workload(ks, socket_thread) if args.demo else None
 
     if args.no_gui:
         _banner(ks, socket_path, False, "", gui=False)
@@ -171,9 +206,34 @@ def main(argv: list[str] | None = None) -> int:
     _banner(ks, socket_path, hotkey_ok, hotkey_msg, gui=True)
 
     # Keep the menu bar title honest when a kill arrives over the socket
-    # rather than through the GUI.
+    # rather than through the GUI, and report the demo kill once it lands.
+    reported = {"done": False}
+
     def poll_state(timer) -> None:
         controller.refresh()
+        if demo is None or reported["done"] or ks.is_armed:
+            return
+
+        reported["done"] = True
+        child = demo["child"]
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        status = ks.status()
+        last = status.get("last_trigger") or {}
+        print()
+        print("─" * 62)
+        print("  KILL SWITCH FIRED")
+        print("─" * 62)
+        print(f"  triggered by:      {last.get('source', '?')}")
+        print(f"  cancelled tasks:   {last.get('cancelled_tasks', 0)}")
+        print(f"  child pid {child.pid} exit: {child.returncode}  (-9 = SIGKILL)")
+        print(f"  state:             {status['state'].upper()} (latched)")
+        print(f"  action log:        {status['log_path']}")
+        print("─" * 62)
+        print("  Re-arm from the menu bar, or: kavach rearm")
+        sys.stdout.flush()
 
     Cocoa.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, poll_state)
 
