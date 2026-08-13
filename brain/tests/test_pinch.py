@@ -241,3 +241,77 @@ def test_movement_across_a_dropped_frame_is_not_a_jump():
 
     assert move.engaged
     assert abs(move.dx) < 0.05, f"jumped {move.dx} after a dropped frame"
+
+
+# ═══ 6. two-finger scroll ═══
+#
+# Chosen because it reads like a two-finger trackpad swipe and cannot be
+# confused with a pinch — fingers apart rather than together. It takes over
+# the ✌️ shape, which previously started a turn; TALK and the wake word still
+# do that, so nothing is lost.
+
+def two_fingers(index=(0.5, 0.4), middle=(0.55, 0.4), wrist=(0.5, 0.9)):
+    """A hand with index and middle extended, thumb tucked."""
+    points = [(0.5, 0.7, 0.0) for _ in range(21)]
+    points[0] = (wrist[0], wrist[1], 0.0)
+    points[4] = (0.42, 0.72, 0.0)              # thumb tucked
+    points[5] = (0.48, 0.62, 0.0)              # index base
+    points[8] = (index[0], index[1], 0.0)      # index tip
+    points[12] = (middle[0], middle[1], 0.0)   # middle tip
+    return points
+
+
+def test_two_extended_fingers_are_a_scroll_pose():
+    from kavach.gestures.pinch import is_scrolling
+
+    assert is_scrolling(two_fingers())
+
+
+def test_a_pinch_is_not_a_scroll_pose():
+    from kavach.gestures.pinch import is_scrolling
+
+    assert not is_scrolling(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+
+
+def test_moving_two_fingers_reports_vertical_scroll():
+    from kavach.gestures.pinch import ScrollTracker
+
+    tracker = ScrollTracker()
+    tracker.update(two_fingers(index=(0.50, 0.40), middle=(0.55, 0.40)))
+
+    move = tracker.update(two_fingers(index=(0.50, 0.50), middle=(0.55, 0.50)))
+
+    assert move.engaged and move.dy > 0
+
+
+def test_the_first_scroll_frame_does_not_jump():
+    from kavach.gestures.pinch import ScrollTracker
+
+    tracker = ScrollTracker()
+    move = tracker.update(two_fingers())
+
+    assert move.engaged and move.dy == 0.0
+
+
+def test_dropping_the_pose_stops_scrolling():
+    from kavach.gestures.pinch import ScrollTracker
+
+    tracker = ScrollTracker()
+    tracker.update(two_fingers())
+
+    move = tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+
+    assert not move.engaged
+
+
+def test_scrolling_is_refused_while_a_confirmation_is_pending():
+    """Same rule as the pinch, for the same reason."""
+    from kavach.gestures.pinch import ScrollTracker
+
+    tracker = ScrollTracker()
+    tracker.update(two_fingers())
+
+    move = tracker.update(two_fingers(index=(0.50, 0.60), middle=(0.55, 0.60)),
+                          confirmation_pending=True)
+
+    assert not move.engaged

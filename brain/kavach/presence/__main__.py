@@ -200,8 +200,20 @@ def main(argv: list[str] | None = None) -> int:
                         log.info("hand seen, not pinched (gap %.2f, "
                                  "needs <= 0.45)", move.ratio)
 
+            scroll_state = {"logged": 0.0}
+
+            def on_scroll(move) -> None:
+                import time as _time
+
+                overlay.pending_scroll = move
+                now = _time.monotonic()
+                if now - scroll_state["logged"] > 0.5:
+                    scroll_state["logged"] = now
+                    log.info("scroll dy=%+.3f", move.dy)
+
             def make_tracker():
-                t = HandTracker(on_event=on_gesture, on_pinch=on_pinch)
+                t = HandTracker(on_event=on_gesture, on_pinch=on_pinch,
+                                on_scroll=on_scroll)
                 t.start()
                 return t
 

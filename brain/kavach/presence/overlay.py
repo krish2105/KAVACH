@@ -241,6 +241,8 @@ class OverlayWindow:
         #: on the main thread, so no AppKit or WebKit object is touched from
         #: anywhere else.
         self.pending_control = None
+        #: Latest two-finger scroll, same hand-off rule as the pinch.
+        self.pending_scroll = None
         #: Set by the presence process so the panel's Quit button works.
         self.on_quit = None
         #: Bounded, so a genuinely-down server becomes a loud error rather
@@ -581,6 +583,18 @@ class OverlayWindow:
                 self.web.evaluateJavaScript_completionHandler_(
                     "window.__kavachControl && window.__kavachControl("
                     f"{move.dx:.5f},{move.dy:.5f},{move.scale:.5f})",
+                    lambda *_: None,
+                )
+
+        scroll, self.pending_scroll = self.pending_scroll, None
+        if scroll is not None and getattr(scroll, "engaged", False):
+            if not self._visible:
+                self.show()
+            self._hide_at = None
+            if scroll.dy or scroll.dx:
+                self.web.evaluateJavaScript_completionHandler_(
+                    "window.__kavachScroll && window.__kavachScroll("
+                    f"{scroll.dx:.5f},{scroll.dy:.5f})",
                     lambda *_: None,
                 )
 

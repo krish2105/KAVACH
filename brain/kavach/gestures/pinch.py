@@ -37,12 +37,20 @@ WRIST = 0
 THUMB_TIP = 4
 INDEX_BASE = 5
 INDEX_TIP = 8
+MIDDLE_TIP = 12
+MIDDLE_BASE = 9
 
 #: Pinch closed when the gap is under this fraction of the hand's own span.
-ENGAGE_RATIO = 0.45
+#:
+#: Measured from real grips, not chosen: engagements landed at 0.09, 0.26,
+#: 0.33, 0.39 and 0.45 — the last of those scraping a 0.45 limit, which is
+#: almost certainly why some pinches never registered at all. 0.55 accepts a
+#: lighter, more comfortable pinch, at the price of the occasional grab when
+#: fingers happen to be close.
+ENGAGE_RATIO = 0.55
 #: And open again only past this. The gap between the two is what stops a hand
 #: resting on the boundary from flickering in and out of control.
-RELEASE_RATIO = 0.62
+RELEASE_RATIO = 0.72
 
 #: The most a single frame may zoom.
 #:
@@ -174,3 +182,81 @@ class PinchTracker:
         self._last = (x, y)
         self._last_width = width
         return PinchMove(engaged=True, dx=dx, dy=dy, scale=scale, ratio=width)
+
+
+#: Two extended fingers must be at least this far apart, relative to hand span,
+#: to count as the scroll pose rather than a closed hand.
+SCROLL_MIN_SPREAD = 0.15
+#: And no further than this, so a splayed open palm — which is STOP — is not
+#: mistaken for two deliberate fingers.
+SCROLL_MAX_SPREAD = 0.95
+
+
+def is_scrolling(points) -> bool:
+    """Index and middle extended together — the two-finger swipe pose.
+
+    Distinct from a pinch by construction: a pinch brings the THUMB to the
+    index, this separates index from MIDDLE, so the two can never be read as
+    each other. It takes over the shape that used to start a turn; the TALK
+    button and the wake word still do that, so nothing was lost.
+    """
+    span = _hand_span(points)
+    ix, iy = points[INDEX_TIP][0], points[INDEX_TIP][1]
+    mx, my = points[MIDDLE_TIP][0], points[MIDDLE_TIP][1]
+    spread = math.hypot(mx - ix, my - iy) / span
+    if not (SCROLL_MIN_SPREAD <= spread <= SCROLL_MAX_SPREAD):
+        return False
+
+    # Both must actually be extended — reaching above their own knuckles —
+    # or a loose fist with fingers slightly apart would scroll.
+    base_y = points[MIDDLE_BASE][1]
+    return iy < base_y and my < base_y
+
+
+@dataclass(frozen=True)
+class ScrollMove:
+    engaged: bool
+    dx: float = 0.0
+    dy: float = 0.0
+
+
+class ScrollTracker:
+    """Two extended fingers moving = scroll, with the same engage rules as the
+    pinch: no jump on the first frame, and nothing at all while a confirmation
+    is waiting."""
+
+    def __init__(self) -> None:
+        self._engaged = False
+        self._last: tuple[float, float] | None = None
+        self._missing = 0
+
+    def _release(self) -> ScrollMove:
+        self._engaged = False
+        self._last = None
+        self._missing = 0
+        return ScrollMove(engaged=False)
+
+    def update(self, points, confirmation_pending: bool = False) -> ScrollMove:
+        if points is None:
+            if self._engaged and self._missing < LOST_FRAME_GRACE:
+                self._missing += 1
+                return ScrollMove(engaged=True)
+            return self._release()
+
+        if confirmation_pending or not is_scrolling(points):
+            return self._release()
+
+        self._missing = 0
+        # Midpoint of the two fingertips, for the same reason the pinch uses
+        # the midpoint of thumb and index: one fingertip alone wobbles.
+        x = (points[INDEX_TIP][0] + points[MIDDLE_TIP][0]) / 2
+        y = (points[INDEX_TIP][1] + points[MIDDLE_TIP][1]) / 2
+
+        if not self._engaged or self._last is None:
+            self._engaged = True
+            self._last = (x, y)
+            return ScrollMove(engaged=True)
+
+        dx, dy = x - self._last[0], y - self._last[1]
+        self._last = (x, y)
+        return ScrollMove(engaged=True, dx=dx, dy=dy)

@@ -200,6 +200,23 @@ export default function JarvisOrb() {
       if (scale && Math.abs(scale - 1) > 0.005) scene.zoomBy(scale);
     };
 
+    // Two-finger scroll. Moves the camera up and down rather than scrolling a
+    // document, because the orb is the thing on screen — the frontmost-app
+    // version of this is a separate, permission-gated piece of work.
+    const ws = window as unknown as {
+      __kavachScroll?: (dx: number, dy: number) => void;
+    };
+    ws.__kavachScroll = (dx: number, dy: number) => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      setHandControl(true);
+      window.clearTimeout(handTimerRef.current);
+      handTimerRef.current = window.setTimeout(() => setHandControl(false), 500);
+      // Vertical hand movement tilts the camera; horizontal spins it. Same
+      // multiplier as the pinch so both gestures feel like one control.
+      scene.rotateBy(dx * 6, dy * 6);
+    };
+
     const w = window as unknown as { __kavachSetRendering?: (on: boolean) => void };
     w.__kavachSetRendering = (on: boolean) => {
       sceneRef.current?.setRendering(on);
@@ -207,7 +224,11 @@ export default function JarvisOrb() {
       // the compositor busy even with the WebGL loop stopped.
       document.documentElement.classList.toggle("kv-paused", !on);
     };
-    return () => { delete w.__kavachSetRendering; delete wc.__kavachControl; };
+    return () => {
+      delete w.__kavachSetRendering;
+      delete wc.__kavachControl;
+      delete ws.__kavachScroll;
+    };
   }, [overlayMode]);
 
   // The orb is a view of the snapshot — the scene never owns agent state.

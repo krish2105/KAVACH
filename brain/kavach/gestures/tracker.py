@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from .pinch import PinchTracker
+from .pinch import PinchTracker, ScrollTracker
 from .recognise import Gesture, classify
 
 log = logging.getLogger("kavach.gestures.tracker")
@@ -67,12 +67,15 @@ class HandTracker(threading.Thread):
     daemon = True
 
     def __init__(self, on_event: Callable[[GestureEvent], None], camera: int = 0,
-                 on_pinch: Callable | None = None):
+                 on_pinch: Callable | None = None,
+                 on_scroll: Callable | None = None):
         super().__init__(name="kavach-gestures")
         self.on_event = on_event
         #: Continuous rotate/zoom. Optional — nothing changes when unset.
         self.on_pinch = on_pinch
+        self.on_scroll = on_scroll
         self._pinch = PinchTracker()
+        self._scroll = ScrollTracker()
         #: Set by the presence process while KAVACH waits on a §7 answer, so a
         #: hand moving near the prompt cannot be read as a thumbs-up.
         self.confirmation_pending = False
@@ -157,6 +160,16 @@ class HandTracker(threading.Thread):
                         )
                         if move is not None:
                             self.on_pinch(move)
+                        # Scroll only when not gripping: a hand cannot be
+                        # pinched and two-fingered at once, but checking makes
+                        # the precedence explicit rather than emergent.
+                        if not (move is not None and move.engaged):
+                            scroll = self._scroll.update(
+                                points or None,
+                                confirmation_pending=self.confirmation_pending,
+                            )
+                            if scroll.engaged and self.on_scroll is not None:
+                                self.on_scroll(scroll)
                     except Exception:
                         log.debug("pinch update failed", exc_info=True)
 
