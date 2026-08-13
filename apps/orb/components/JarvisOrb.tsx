@@ -511,11 +511,18 @@ export default function JarvisOrb() {
           }}
           onBrainCommand={(payload) => sourceRef.current?.command?.(payload)}
         />
-        <TranscriptPanel
-          transcript={snapshot.transcript}
-          partial={snapshot.partial}
-          state={snapshot.state}
-        />
+        {/* Only when there is something to say.
+            At panel size the stack has to earn its space, and a TRANSCRIPT
+            box reading "Say KAVACH to wake" permanently is the least urgent
+            thing on screen. It returns the moment anything is spoken. */}
+        {(snapshot.transcript || snapshot.partial ||
+          snapshot.state === "listening" || snapshot.state === "thinking") && (
+          <TranscriptPanel
+            transcript={snapshot.transcript}
+            partial={snapshot.partial}
+            state={snapshot.state}
+          />
+        )}
       </div>
 
       <div className="hud hud-stack hud-stack-right" ref={toolPanelRef}>

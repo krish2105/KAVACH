@@ -30,7 +30,13 @@ GEOMETRY_PATH = Path.home() / ".kavach" / "overlay.json"
 
 #: Named sizes, in points. Small is glanceable; large is for the demo video.
 SIZES = {"small": 280.0, "medium": 400.0, "large": 560.0, "huge": 760.0}
-DEFAULT_SIZE = "large"
+# Medium.
+#
+# Large fits the full HUD and is too much screen; small cannot hold it. 400pt
+# with the compact HUD — no routing-reason line, no transcript while idle, and
+# the controls behind the 🛡 rather than stacked — is the size where the orb is
+# still the thing you are looking at.
+DEFAULT_SIZE = "medium"
 
 MIN_SIZE = 200.0
 MAX_SIZE = 1200.0
