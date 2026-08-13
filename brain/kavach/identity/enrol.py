@@ -22,12 +22,23 @@ from ..voice.mic import TARGET_RATE, MicStream
 from .voiceprint import MIN_ENROLMENT_SECONDS, Voiceprint
 
 #: Varied phonetically so the profile is not overfitted to one sentence.
+#: Each take pairs a phrase with a *delivery*, because a voiceprint built from
+#: five clips at one distance in one sitting describes the easiest possible
+#: case. Measured consequence of doing that: this user's live speech scored
+#: 0.45-0.60 against a threshold of 0.67 calibrated on such clips, so the
+#: system refused its own owner about half the time.
+#:
+#: Varying distance, volume and pace deliberately widens the profile to cover
+#: how someone actually talks rather than how they talk when being recorded.
 PHRASES = [
-    "KAVACH, open my calendar for tomorrow",
-    "The quick brown fox jumps over the lazy dog",
-    "Delete the draft in Notes — yes, confirm that",
-    "What is the weather going to be like this weekend",
-    "Six thick slabs of blue granite were quarried early",
+    ("KAVACH, open my calendar for tomorrow", "normally, as if asking it something"),
+    ("The quick brown fox jumps over the lazy dog", "a little faster than normal"),
+    ("Delete the draft in Notes — yes, confirm that", "quietly, as if someone is asleep nearby"),
+    ("What is the weather going to be like this weekend", "leaning back, further from the mic"),
+    ("Six thick slabs of blue granite were quarried early", "clearly, as if across a room"),
+    ("KAVACH, what is on my screen right now", "casually, half mumbled"),
+    ("Open Safari and search for the weather", "normally again"),
+    ("Yes, confirm that", "firmly, like you mean it"),
 ]
 
 CLIP_SECONDS = 3.5
@@ -92,9 +103,9 @@ def _run_spoken(voiceprint: Voiceprint, phrases: list[str]) -> int:
     mic = MicStream().start()
     clips: list[np.ndarray] = []
     try:
-        for i, phrase in enumerate(phrases, 1):
+        for i, (phrase, manner) in enumerate(phrases, 1):
             print(f"\n  [{i}/{len(phrases)}]  \"{phrase}\"", flush=True)
-            say(f"Phrase {i}. {phrase}")
+            say(f"Phrase {i}. {phrase}.  Say it {manner}.")
             tone()
             # Drop everything buffered while KAVACH was talking, so its own
             # voice cannot end up inside your voiceprint.
@@ -205,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     mic = MicStream().start()
     clips: list[np.ndarray] = []
     try:
-        for i, phrase in enumerate(phrases, 1):
+        for i, (phrase, manner) in enumerate(phrases, 1):
             input(f"\n  [{i}/{len(phrases)}]  \"{phrase}\"\n         press Enter, then speak…")
             mic.forget()  # drop whatever was buffered while you were reading
             print("         ● recording…", end="", flush=True)

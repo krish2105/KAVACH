@@ -8,7 +8,8 @@ are doing and fades out when the turn ends.
 Three ways to control it, because they suit different moments:
 
     🛡 menu bar        sizes, minimise, move/resize, quit
-    ⌃⌥⌘M              toggle move/resize
+    ⌃⌥⌘Space          talk to KAVACH
+    ⌃⌥⌘M              toggle resize
     ⌃⌥⌘H              minimise / restore
     ⌃⌥⌘= / ⌃⌥⌘-       step size up / down
 
@@ -97,6 +98,14 @@ def main(argv: list[str] | None = None) -> int:
             if (event.modifierFlags() & MODIFIERS) != MODIFIERS:
                 return
             key = (event.charactersIgnoringModifiers() or "").lower()
+            if key == " ":
+                # Talk. The panel never takes focus, so the page cannot hear a
+                # key — this is the only way to start a turn while looking at
+                # the orb rather than at a browser window.
+                overlay.show()
+                if listener.send({"cmd": "talk"}):
+                    log.info("talk requested")
+                return
             if key == "m":
                 overlay.set_interactive(not overlay.interactive)
             elif key == "h":
@@ -129,7 +138,8 @@ def main(argv: list[str] | None = None) -> int:
           f"{'  (minimised)' if overlay.geometry.hidden else ''}")
     print("  behaviour  hidden while idle, fades in when listening,")
     print(f"             lingers {LINGER_SECONDS}s after a turn")
-    print("  controls   🛡 menu bar · ⌃⌥⌘M move/resize · ⌃⌥⌘H minimise")
+    print("  talk       ⌃⌥⌘Space   (Space alone cannot reach a panel that\n                          never takes focus)")
+    print("  controls   🛡 menu bar · ⌘-drag to move · ⌃⌥⌘H minimise")
     print("             ⌃⌥⌘= larger · ⌃⌥⌘- smaller")
     print("  click-through and never takes focus, except in move/resize mode")
     print(RULE)

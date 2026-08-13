@@ -11,7 +11,8 @@ Protocol
 --------
 server → client   the snapshot, shape-identical to `KavachSnapshot` in
                   apps/orb/lib/kavachState.ts
-client → server   {"cmd": "halt" | "rearm" | "interrupt" | "ptt", "pressed": bool}
+client → server   {"cmd": "halt" | "rearm" | "interrupt" | "talk"}
+                  {"cmd": "ptt", "pressed": bool}
 """
 
 from __future__ import annotations
@@ -101,6 +102,11 @@ class Bridge:
             self.ks.rearm(source="orb")
         elif cmd == "interrupt":
             self.voice.interrupt()
+        elif cmd == "talk":
+            # One-shot: begins a turn that ends on silence. The
+            # floating panel never takes focus, so a held key is
+            # not available to it.
+            self.voice.start_turn()
         elif cmd == "ptt":
             self.voice.push_to_talk(bool(payload.get("pressed")))
         elif cmd == "confirm":

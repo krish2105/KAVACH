@@ -138,6 +138,8 @@ class VoiceLoop:
         self._thread: threading.Thread | None = None
         self._running = False
         self._ptt = threading.Event()
+        #: Set by a global hotkey; ends on silence rather than release.
+        self._talk_requested = threading.Event()
         # Set by a held gesture from the orb while a confirmation is
         # pending. None means nobody has answered yet.
         self._gesture_answer: bool | None = None
@@ -290,6 +292,16 @@ class VoiceLoop:
         self._gesture_answer = None
         self._gesture_event.clear()
 
+    def start_turn(self) -> None:
+        """Begin a turn that ends on silence, with no key to hold.
+
+        Push-to-talk needs the *page* to have keyboard focus, and the floating
+        panel is deliberately non-activating — so Space could never reach it,
+        and pressing it over the panel did nothing at all. A global hotkey in
+        the presence process can always be heard; this is what it calls.
+        """
+        self._talk_requested.set()
+
     def interrupt(self) -> None:
         """Esc / spoken 'stop' — cut playback, return to idle, stay armed."""
         tts_mod.stop_playback()
@@ -316,7 +328,13 @@ class VoiceLoop:
                     self.set_state("idle")
 
                 triggered = False
-                if self._ptt.is_set():
+                # A global hotkey asked for a turn. Same path as the wake
+                # word, so it ends on silence rather than on a key release —
+                # there is no key to release.
+                if self._talk_requested.is_set():
+                    self._talk_requested.clear()
+                    triggered = True
+                elif self._ptt.is_set():
                     triggered = True
                 elif self.wake is not None:
                     if self.wake.push(block) is not None:

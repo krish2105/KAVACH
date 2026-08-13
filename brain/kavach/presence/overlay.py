@@ -442,5 +442,23 @@ class BridgeListener(threading.Thread):
 
         pump()
 
+    def send(self, payload: dict) -> bool:
+        """Fire a one-shot command at the bridge.
+
+        Its own short-lived connection: the listener's socket is parked in a
+        blocking read on the receive side, and sharing it would mean
+        synchronising two threads around one socket for a message sent once
+        every few minutes.
+        """
+        try:
+            from websockets.sync.client import connect
+
+            with connect(self.url, open_timeout=2) as ws:
+                ws.send(json.dumps(payload))
+            return True
+        except Exception as exc:
+            log.warning("could not reach the brain: %s", exc)
+            return False
+
     def stop(self) -> None:
         self._stop.set()
