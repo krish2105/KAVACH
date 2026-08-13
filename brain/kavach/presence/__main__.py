@@ -97,6 +97,18 @@ def main(argv: list[str] | None = None) -> int:
     # only an NSApplication can raise it. A plain CLI process asks and nothing
     # appears — the request returns "not yet asked" forever, which reads as a
     # broken camera. Gestures go to the brain over the same bridge.
+    # §14. The camera lives in THIS process, not the voice loop — so ghost
+    # mode reaches it here, over the same snapshot stream the menu bar uses.
+    #
+    # Found in live testing, not in the tests: the voice loop's ghost stopped
+    # the mic and reported `stopped: ["mic"]` with no camera in the list,
+    # because there was no tracker in that process to stop. The unit test
+    # passed because it attached a fake tracker in-process. A ghost mode that
+    # leaves the camera running is exactly the lie this phase is about.
+    from ..privacy.camera_gate import CameraGate
+
+    camera_gate = CameraGate()
+
     if not args.no_gestures:
         from ..gestures.permission import camera_status, request_camera
         from ..gestures.tracker import HandTracker
@@ -110,14 +122,34 @@ def main(argv: list[str] | None = None) -> int:
                     })
                 overlay.pending_gesture = (event.gesture.value, event.progress)
 
-            tracker = HandTracker(on_event=on_gesture)
-            tracker.start()
+            # Rebuilt rather than resumed when ghost mode ends: HandTracker is
+            # a Thread, and a stopped thread cannot be restarted.
+            def make_tracker():
+                t = HandTracker(on_event=on_gesture)
+                t.start()
+                return t
+
+            camera_gate.make_tracker = make_tracker
+            camera_gate.start()
         else:
             log.warning("gestures off — no camera access")
+
+    # The menubar's ghost toggle needs a way to reach the brain. The listener
+    # already owns that channel, so it is handed over rather than a second
+    # websocket client being opened here.
+    overlay.send_command = listener.send
 
     controller = MenuBarController.alloc().initWithOverlay_onQuit_(overlay, on_quit)
     # Keep the menu tick honest when move/resize times out on its own.
     overlay._on_interactive_change = controller.refresh
+    # §17. Called on the main thread from overlay.tick() with each snapshot,
+    # which is the only place it is safe to touch the status item from.
+    def on_snapshot(snapshot: dict) -> None:
+        controller.apply_snapshot(snapshot)
+
+        camera_gate.apply(bool(snapshot.get("ghost")))
+
+    overlay.on_snapshot = on_snapshot
 
     # ——— global hotkeys ———
     # Same mechanism as the kill switch: a global monitor only ever sees keys

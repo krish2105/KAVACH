@@ -26,6 +26,7 @@ from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import LocalModel
 from ..hands.confirm import VoiceConfirmer
 from ..api.confirm import ApiConfirmer, EitherConfirmer, PendingRegistry
+from ..privacy.meetings import MeetingWatcher
 from ..api.server import ApiServer
 from ..identity.voiceprint import Voiceprint
 from ..hands.gate import ToolGate
@@ -92,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stt-model", default="large-v3-turbo")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-meetings", action="store_true",
+                        help="do not auto-mute the wake word during calls")
     parser.add_argument("--no-api", action="store_true",
                         help="do not start the local HTTP API")
     parser.add_argument("--api-port", type=int, default=8770)
@@ -162,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         voice.agent = ClaudeAgent(gate=gate)
+
+    # §15: watch for calls and stop listening for the wake word during them.
+    # Given the ghost and the switch so it can never resume a microphone that
+    # either of them turned off.
+    meetings = MeetingWatcher(loop=voice, ghost=voice.ghost, kill_switch=ks,
+                              log_=ks.log)
+    if not args.no_meetings:
+        meetings.start()
 
     if args.bench:
         return _bench(voice, args.bench, args.bench_rounds)

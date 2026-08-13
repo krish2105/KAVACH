@@ -100,6 +100,30 @@ class Bridge:
             self.ks.trigger(source="orb", reason="halt from Presence layer")
         elif cmd == "rearm":
             self.ks.rearm(source="orb")
+        elif cmd == "ghost":
+            # Both directions, unlike POST /ghost. This socket is bound to
+            # 127.0.0.1, so anything reaching it is already at the machine —
+            # which is exactly the condition for being allowed to turn the
+            # microphone back on.
+            want = payload.get("on")
+            source = str(payload.get("source", "orb"))
+            if want is None:
+                self.voice.ghost.toggle(source=source)
+            elif want:
+                self.voice.ghost.enter(source=source)
+            else:
+                self.voice.ghost.leave(source=source)
+        elif cmd == "export":
+            # §16. The buffer lives in this process, so the export happens here
+            # and the path comes back to the caller.
+            try:
+                where = self.voice.session.export(payload.get("path") or None)
+                self._fanout({"export": {
+                    "path": str(where),
+                    "entries": len(self.voice.session.entries()),
+                }})
+            except Exception as exc:
+                self._fanout({"export": {"error": str(exc)[:200]}})
         elif cmd == "interrupt":
             self.voice.interrupt()
         elif cmd == "gesture":

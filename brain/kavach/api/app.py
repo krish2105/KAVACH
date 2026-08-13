@@ -33,6 +33,8 @@ from ..killswitch.core import KillSwitch, KillSwitchDisarmed
 from .confirm import PendingRegistry
 from .models import (
     CommandRequest,
+    GhostRequest,
+    GhostResponse,
     KillRequest,
     KillResponse,
     CommandResponse,
@@ -118,6 +120,7 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
             wake_word=_wake_word_state(loop),
             voiceprint=_voiceprint_state(loop),
             pending=len(registry.list()),
+            ghost=bool(getattr(getattr(loop, "ghost", None), "is_active", False)),
         )
 
     @app.get("/log", response_model=LogResponse, dependencies=guard)
@@ -159,6 +162,18 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         # music, then a model. There is deliberately no second route to the
         # tools that skips the gate.
         reply = await asyncio.to_thread(loop.respond, text)
+
+        # §16. Typed commands belong in the session buffer too — it is a record
+        # of the session, not of the microphone. Recorded here rather than
+        # inside respond(), which also runs for confirmation follow-ups and
+        # would double-count every spoken turn.
+        session = getattr(loop, "session", None)
+        if session is not None:
+            try:
+                session.record_turn(text, reply,
+                                    route=loop.state.as_dict().get("route"))
+            except Exception:
+                log.debug("could not record the turn", exc_info=True)
 
         waiting = registry.list()
         if waiting:
@@ -258,6 +273,30 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
             # rather than assumed.
             killed_processes=len(record.get("killed_processes") or []),
             rearm="Re-arm at the Mac — no route does it.",
+        )
+
+    @app.post("/ghost", response_model=GhostResponse, dependencies=guard)
+    def ghost(request: GhostRequest, http: Request = None) -> GhostResponse:
+        """Suspend every input: mic, camera, action logging.
+
+        **Enter only, and that is the whole point.** Turning your own
+        microphone back on from another device is the one direction that should
+        require being at the machine — the same asymmetry as `/kill` having no
+        `/rearm`. Every remote control here can make KAVACH deafer; none can
+        make it listen again.
+
+        Not gated by the kill switch: this makes KAVACH sense *less*, which is
+        never the thing an emergency stop is trying to prevent.
+        """
+        mode = getattr(loop, "ghost", None)
+        if mode is None:
+            raise HTTPException(status_code=503, detail="Ghost mode unavailable.")
+
+        origin = origin_of(http)
+        mode.enter(source=f"api ({origin})" if origin != "local" else "api")
+        return GhostResponse(
+            ghost=True,
+            resume="Leave ghost mode at the Mac — no route does it.",
         )
 
     # ——— streaming ———

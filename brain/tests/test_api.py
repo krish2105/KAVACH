@@ -29,7 +29,10 @@ class FakeLoop:
     """Stands in for VoiceLoop. Records what it was asked to do."""
 
     def __init__(self):
+        from kavach.privacy.ghost import GhostMode
+
         self.commands: list[str] = []
+        self.ghost = GhostMode()
         self.state = type("S", (), {
             "as_dict": lambda self: {
                 "state": "idle", "transcript": "", "partial": "",
@@ -290,6 +293,8 @@ def make_loop(registry, kill_switch, router=None, local=None):
     loop.memory = None
     loop.voiceprint = None
     loop.pending = registry
+    from kavach.privacy.ghost import GhostMode
+    loop.ghost = GhostMode(log=kill_switch.log)
     loop.publish_fn = lambda _: None
     return loop
 
@@ -590,3 +595,40 @@ def test_a_forged_origin_is_still_recorded_as_claimed_not_trusted(client, kill_s
 
     origin = _origins(kill_switch)[0]
     assert origin.startswith("tailnet:"), "origin must say how it was learned"
+
+
+# ═══ 11. ghost mode over the API (Phase 14) ═══
+#
+# Enter only. Turning your own microphone back ON from somewhere else is the
+# one direction that should require being at the machine — the same asymmetry
+# as /kill having no /rearm.
+
+def test_ghost_can_be_entered_over_the_api(client, loop):
+    response = client.post("/ghost", headers=auth(), json={})
+
+    assert response.status_code == 200
+    assert response.json()["ghost"] is True
+    assert loop.ghost.is_active
+
+
+def test_ghost_cannot_be_left_over_the_api(client, loop):
+    """No route turns the microphone back on remotely."""
+    client.post("/ghost", headers=auth(), json={})
+
+    paths = {r.path for r in client.app.routes}
+    for forbidden in ("/unghost", "/ghost/off", "/listen", "/resume"):
+        assert forbidden not in paths
+
+    # Nor by passing a flag to the same endpoint.
+    client.post("/ghost", headers=auth(), json={"active": False})
+    assert loop.ghost.is_active, "the API turned the mic back on"
+
+
+def test_ghost_over_the_api_needs_the_token(client, loop):
+    assert client.post("/ghost", json={}).status_code == 401
+    assert not loop.ghost.is_active
+
+
+def test_status_reports_ghost(client, loop):
+    loop.ghost.enter(source="test")
+    assert client.get("/status", headers=auth()).json()["ghost"] is True

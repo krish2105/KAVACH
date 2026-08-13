@@ -268,7 +268,10 @@ export default function JarvisOrb() {
 
   return (
     <>
-      <div ref={containerRef} className="orb-root" />
+      <div
+        ref={containerRef}
+        className={`orb-root${snapshot.ghost ? " is-ghost" : ""}`}
+      />
 
       <div className="overlay-vignette" />
       <div className="overlay-grain" />
@@ -299,6 +302,13 @@ export default function JarvisOrb() {
             <span className="state-dot" aria-hidden="true" />
             {STATE_LABEL[snapshot.state]}
           </span>
+          {/* Ghost outranks every other badge. "Is it listening?" is the one
+              question about KAVACH that must never need interpreting, so this
+              says the answer in words rather than relying on the orb's colour
+              alone — colour is exactly what a glance gets wrong. */}
+          {snapshot.ghost && (
+            <span className="kill-badge is-ghost">👻 GHOST — NOT LISTENING</span>
+          )}
           {snapshot.killSwitch === "disarmed" && (
             <span className="kill-badge is-disarmed">⛔ DISARMED</span>
           )}
@@ -375,7 +385,8 @@ export default function JarvisOrb() {
           confidence={snapshot.confidence}
           killSwitch={snapshot.killSwitch}
           amplitude={snapshot.amplitude}
-        />
+        ghost={snapshot.ghost}
+          />
         <TranscriptPanel
           transcript={snapshot.transcript}
           partial={snapshot.partial}

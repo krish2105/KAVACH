@@ -196,6 +196,13 @@ class OverlayWindow:
         self._hide_at: float | None = None
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
+        #: §17. The full snapshot, for the menubar. Same hand-off rule as
+        #: pending_state: written by the bridge thread, read on the main
+        #: thread, never touched by AppKit from anywhere else.
+        self.pending_snapshot: dict | None = None
+        #: Set by the presence process; called on the main thread with each
+        #: snapshot so the status item can follow along.
+        self.on_snapshot = None
         #: (gesture, progress) from the tracker thread.
         self.pending_gesture = None
         self._drag_view = None
@@ -415,6 +422,14 @@ class OverlayWindow:
         if state is not None:
             self.apply_state(state)
 
+        snapshot, self.pending_snapshot = self.pending_snapshot, None
+        if snapshot is not None and self.on_snapshot is not None:
+            # Main thread, so the callback may safely touch the status item.
+            try:
+                self.on_snapshot(snapshot)
+            except Exception:
+                log.debug("snapshot callback failed", exc_info=True)
+
         if self._hide_at is not None and time.monotonic() >= self._hide_at:
             self._hide_at = None
             self.hide()
@@ -455,9 +470,12 @@ class BridgeListener(threading.Thread):
                             if self._stop.is_set():
                                 return
                             try:
-                                state = (json.loads(message) or {}).get("state")
+                                snapshot = json.loads(message) or {}
+                                state = snapshot.get("state")
                             except Exception:
                                 continue
+                            if isinstance(snapshot, dict) and snapshot:
+                                self.overlay.pending_snapshot = snapshot
                             if state:
                                 # Hand the state over by assignment only.
                                 #

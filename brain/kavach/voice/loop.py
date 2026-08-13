@@ -36,6 +36,9 @@ from . import stt as stt_mod
 from . import vad
 from .stt import SpeechToText
 from .tts import TextToSpeech
+from ..memory.session import SessionRecorder
+from ..single import WakeWordLock
+from ..privacy.ghost import GhostMode
 from .wake import WakeWordDetector
 
 log = logging.getLogger("kavach.voice.loop")
@@ -104,6 +107,9 @@ class VoiceState:
     route: str | None = None
     toolCalls: list[dict] = field(default_factory=list)
     killSwitch: str = "armed"
+    #: Ghost mode (§14). True means every input is off — the orb renders this
+    #: unmistakably, because "is it listening?" must never be a guess.
+    ghost: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -115,6 +121,7 @@ class VoiceState:
             "route": self.route,
             "toolCalls": self.toolCalls,
             "killSwitch": self.killSwitch,
+            "ghost": self.ghost,
         }
 
 
@@ -158,6 +165,23 @@ class VoiceLoop:
         self.voiceprint = voiceprint
         #: Confirmations awaiting an answer, shared with the API.
         self.pending = None
+        #: Ghost mode (§14). Attached to the mic here; the camera attaches
+        #: later, when the tracker is started, which is why attach() is
+        #: incremental rather than a constructor argument.
+        self.ghost = GhostMode(log=kill_switch.log, kill_switch=kill_switch,
+                               publish=lambda: self.set_state(self.state.state))
+        self.ghost.attach(mic=self.mic)
+        #: Set by MeetingWatcher (§15) while you are on a call. Separate from
+        #: ghost mode: the mic keeps running (so push-to-talk still works if
+        #: you deliberately reach for it) but KAVACH stops listening for its
+        #: name — which is what actually goes wrong on a call.
+        self.wake_suspended = False
+        #: §16. Rolling 15-minute buffer, in memory, honouring ghost mode.
+        #: Nothing reaches disk until you run `kavach-export`.
+        self.session = SessionRecorder(ghost=self.ghost)
+        #: §18. Acquired only when the wake word is actually loaded, so an
+        #: instance running push-to-talk only never blocks a real listener.
+        self.wake_lock = WakeWordLock()
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -177,6 +201,10 @@ class VoiceLoop:
         self.publish_fn(self.state.as_dict())
 
     def set_state(self, state: str, **fields) -> None:
+        # Ghost is read from the source of truth on every publish rather than
+        # tracked separately — two places holding "is the mic off" is how they
+        # end up disagreeing, and this is the one flag that must not lie.
+        fields.setdefault("ghost", self.ghost.is_active)
         self.state.state = state
         for key, value in fields.items():
             setattr(self.state, key, value)
@@ -219,6 +247,16 @@ class VoiceLoop:
         self.tts.load()
         if self.wake is not None:
             if self.wake.available and self._wake_word_is_trustworthy():
+                # §18: exactly one listener. Two processes both waiting for
+                # "KAVACH" fight over the mic and both answer.
+                if not self.wake_lock.acquire():
+                    log.warning(
+                        "another KAVACH already holds the wake-word listener "
+                        "(%s) — push-to-talk only in this instance",
+                        self.wake_lock.describe_holder(),
+                    )
+                    self.wake = None
+                    return
                 self.wake.load()
             else:
                 log.warning(
@@ -236,6 +274,12 @@ class VoiceLoop:
         self._thread.start()
 
     def stop(self) -> None:
+        # Release before shutdown so a restart is not locked out for a minute
+        # waiting for its own stale heartbeat to expire.
+        try:
+            self.wake_lock.release()
+        except Exception:
+            log.debug("could not release the wake lock", exc_info=True)
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=3)
@@ -375,12 +419,19 @@ class VoiceLoop:
                 # A global hotkey asked for a turn. Same path as the wake
                 # word, so it ends on silence rather than on a key release —
                 # there is no key to release.
-                if self._talk_requested.is_set():
+                if self.ghost.is_active:
+                    # Belt and braces. The mic is already stopped, but the TALK
+                    # button and the global hotkey set these events directly
+                    # and would otherwise start a turn against a dead stream.
+                    self._talk_requested.clear()
+                    self._ptt.clear()
+                    triggered = False
+                elif self._talk_requested.is_set():
                     self._talk_requested.clear()
                     triggered = True
                 elif self._ptt.is_set():
                     triggered = True
-                elif self.wake is not None:
+                elif self.wake is not None and not self.wake_suspended:
                     if self.wake.push(block) is not None:
                         triggered = True
 
@@ -397,6 +448,11 @@ class VoiceLoop:
 
     def _handle_turn(self) -> None:
         timer = TurnTimer()
+        if self.ghost.is_active:
+            # Last line of defence. Nothing should reach here in ghost mode;
+            # if something does, it stops here rather than recording audio.
+            log.warning("turn attempted in ghost mode — refused")
+            return
         try:
             self.ks.guard("voice turn")
         except KillSwitchDisarmed:
@@ -515,6 +571,9 @@ class VoiceLoop:
                 )
             except Exception:
                 log.debug("could not store turn in memory", exc_info=True)
+        self.session.record_turn(result.text, reply,
+                                 route=self.state.route)
+
         log.info(
             "turn: stt=%dms respond=%dms tts=%dms → perceived %dms",
             record["stt_ms"], record["respond_ms"], record["tts_ms"],

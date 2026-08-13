@@ -134,11 +134,34 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
 | 12 — Speaker ID | built (Resemblyzer, threshold 0.613, margin 0.196). The **config toggle** is the missing piece. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
 | 13 — Explainability | half built — `RoutingDecision.reason` exists and is logged, just never surfaced |
-| 14–18 | **skipped** — never recorded in the repo and lost to context; the user chose to drop them rather than re-paste |
+| 14 — Ghost mode | **complete** — `kavach/privacy/ghost.py`. Stops mic **and** camera, suppresses *perception* logging only |
+| 15 — Meeting-aware muting | **complete** — `kavach/privacy/meetings.py`. Window-title detection; needs a real call to finish verifying |
+| 16 — Session recorder | **complete** — `kavach/memory/session.py`. Rolling 15 min, `kavach-export`, no network path |
+| 17 — Desktop widget | **complete as a menubar** — WidgetKit needs Xcode. `status_title()` in `presence/controls.py` |
+| 18 — Multi-Mac awareness | **complete** — `kavach/single.py`. Lock + heartbeat, ownership per lock *object* not per PID |
 | 19 — Dynamic Island / Live Activities | **BLOCKED — needs a native app, which needs Xcode.** Also needs push for remote updates, which needs the paid membership |
 | 20 — Garage mode | not started; depends on 9. Get the user's definition before planning |
 
 **CarPlay was cut by the user and must not be built.**
+
+### Ghost mode — the boundary that matters (§14)
+
+Ghost suppresses **perception**, never **action**. `ActionLog.SUPPRESSED_IN_GHOST`
+lists only `router.decision`, `voice.turn`, `voice.rejected` — the events
+carrying what KAVACH heard or saw.
+
+It was originally the other way round (suspend everything, exempt a few), and
+**live testing found a typed API command reaching a tool with no log record at
+all**. §7 says every tool call and argument is recorded; ghost mode does not get
+to suspend that. A deny-list is also the right shape here: with an allowlist, a
+*new* event defaults to hidden, and the events most worth adding are the ones
+recording KAVACH doing something.
+
+**The camera lives in the presence process, not the brain.** `GhostMode` in the
+voice loop can only stop the mic; `privacy/camera_gate.py` closes it from the
+other side, driven by the same snapshot stream the menu bar uses. The unit
+tests missed this for a while because they attached a *fake* tracker in-process
+— green tests, live camera.
 
 ### Apple constraints verified 2026-08-13 (do not re-derive)
 

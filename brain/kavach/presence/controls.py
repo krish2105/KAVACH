@@ -126,8 +126,51 @@ class DragView(AppKit.NSView):
         self.window().performWindowDragWithEvent_(event)
 
 
+#: What the status item shows per state (§17).
+#:
+#: WidgetKit was the original plan and is impossible here — a Widget Extension
+#: has to be archived from Xcode, and this machine has Command Line Tools only.
+#: The stated intent was "KAVACH's status without the orb window open", and a
+#: menu bar item delivers exactly that with no Xcode and no download.
+#:
+#: Ghost and the latched switch spell themselves out in words rather than
+#: relying on a glyph. Whether KAVACH is listening is the one thing about it
+#: that must never need interpreting, and an emoji at menu-bar size is easy to
+#: misread at a glance.
+STATUS_TITLES = {
+    "boot": "🛡",
+    "idle": "🛡",
+    "listening": "🛡 ●",
+    "thinking": "🛡 ⋯",
+    "acting": "🛡 ⚡",
+    "speaking": "🛡 ▶",
+    "halted": "⛔ STOPPED",
+}
+GHOST_TITLE = "👻 GHOST"
+LATCHED_TITLE = "⛔ STOPPED"
+
+
+def status_title(snapshot: dict) -> str:
+    """The menu-bar title for a snapshot.
+
+    Pure, and separate from the AppKit call, so the precedence rules can be
+    tested without a status bar to put them in.
+
+    Precedence is deliberate and not alphabetical: a latched kill switch
+    outranks everything, then ghost mode, then whatever KAVACH is doing. Both
+    of those are conditions you need to see *regardless* of the activity
+    underneath — "listening" while latched would be a lie, and "thinking" while
+    in ghost mode would be worse.
+    """
+    if snapshot.get("killSwitch") == "disarmed":
+        return LATCHED_TITLE
+    if snapshot.get("ghost"):
+        return GHOST_TITLE
+    return STATUS_TITLES.get(str(snapshot.get("state", "idle")), "🛡")
+
+
 class MenuBarController(AppKit.NSObject):
-    """The 🛡 menu: sizes, minimise, interactive toggle, quit."""
+    """The 🛡 menu: live status, ghost mode, sizes, minimise, quit."""
 
     def initWithOverlay_onQuit_(self, overlay, on_quit):
         self = objc.super(MenuBarController, self).init()
@@ -140,6 +183,7 @@ class MenuBarController(AppKit.NSObject):
         self._item = bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
         self._item.button().setTitle_("🛡")
 
+        self._ghost_active = False
         self._menu = AppKit.NSMenu.alloc().init()
         self._build()
         self._item.setMenu_(self._menu)
@@ -215,10 +259,42 @@ class MenuBarController(AppKit.NSObject):
         self._add("  Reset position", b"resetPosition:")
 
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        ghost = self._add(
+            "  Ghost mode  —  stop listening" if not self._ghost_active
+            else "  Ghost mode  —  RESUME listening",
+            b"toggleGhost:",
+        )
+        ghost.setState_(
+            AppKit.NSControlStateValueOn if self._ghost_active
+            else AppKit.NSControlStateValueOff
+        )
+
+        self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._add("  Quit orb", b"quit:")
 
     def refresh(self) -> None:
         self._build()
+
+    @objc.python_method
+    def apply_snapshot(self, snapshot: dict) -> None:
+        """Show the current state in the menu bar. **Main thread only.**
+
+        Called from `OverlayWindow.tick()`, which is a main-thread timer.
+        AppKit is not thread-safe and touching the status item from the bridge
+        thread takes the process down with no traceback at all — so the
+        snapshot is handed over by attribute assignment and read here.
+        """
+        ghost = bool(snapshot.get("ghost"))
+        title = status_title(snapshot)
+
+        try:
+            self._item.button().setTitle_(title)
+        except Exception:
+            pass
+
+        if ghost != self._ghost_active:
+            self._ghost_active = ghost
+            self._build()
 
     # ——— actions ———
 
@@ -245,6 +321,21 @@ class MenuBarController(AppKit.NSObject):
     def resetPosition_(self, _sender):
         self._overlay.reset_position()
         self.refresh()
+
+    def toggleGhost_(self, _sender):
+        """Both directions — this is the local control, at the machine.
+
+        `POST /ghost` can only enter ghost mode; turning the microphone back on
+        deliberately requires being here.
+        """
+        want = not self._ghost_active
+        sender = getattr(self._overlay, "send_command", None)
+        if sender is not None:
+            sender({"cmd": "ghost", "on": want, "source": "menubar"})
+        # The real state arrives back over the bridge; this only stops the menu
+        # looking stale between now and the next snapshot.
+        self._ghost_active = want
+        self._build()
 
     def quit_(self, _sender):
         self._on_quit()

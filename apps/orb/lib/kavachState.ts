@@ -46,6 +46,14 @@ export interface KavachSnapshot {
   /** Newest first. */
   toolCalls: ToolCall[];
   killSwitch: KillSwitchState;
+  /**
+   * Ghost mode (§14): every input suspended — mic, camera, action logging.
+   *
+   * Rendered as an unmistakable dead state rather than a subtle cue. Whether
+   * KAVACH is listening is the one thing about it that must never be
+   * ambiguous, so this deliberately overrides the look of every other state.
+   */
+  ghost: boolean;
 }
 
 export interface KavachSource {
@@ -80,6 +88,7 @@ export const INITIAL_SNAPSHOT: KavachSnapshot = {
   route: null,
   toolCalls: [],
   killSwitch: "armed",
+  ghost: false,
 };
 
 // ───────────────────────────────────────────────────────────────

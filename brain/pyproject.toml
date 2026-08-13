@@ -86,6 +86,9 @@ kavach-waketune = "kavach.voice.waketune_cli:main"
 kavach-overlay = "kavach.presence.__main__:main"
 kavach-doctor = "kavach.doctor:main"
 kavach-memory = "kavach.memory.cli:main"
+kavach-ghost = "kavach.privacy.ghost_cli:main"
+kavach-meetings = "kavach.privacy.meetings_cli:main"
+kavach-export = "kavach.memory.export_cli:main"
 
 [dependency-groups]
 dev = [

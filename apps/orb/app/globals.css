@@ -947,3 +947,44 @@ body {
     zoom: 0.7;
   }
 }
+
+
+/* ── Ghost mode (§14) ────────────────────────────────────────────
+   Every input is off. The badge says so in words; this makes the orb
+   itself look switched off, because someone glancing at a screen reads
+   the picture long before they read the label.
+
+   Deliberately heavy-handed — greyscale, dimmed, and no glow at all.
+   A subtle ghost state would be worse than none: it would still look
+   like something that might be listening. */
+.orb-root.is-ghost {
+  filter: grayscale(1) brightness(0.35) contrast(0.8);
+  opacity: 0.55;
+  transition: filter 260ms ease, opacity 260ms ease;
+}
+
+.kill-badge.is-ghost {
+  background: color-mix(in srgb, var(--kv-dim, #8a8f98) 22%, transparent);
+  border-color: color-mix(in srgb, var(--kv-dim, #8a8f98) 55%, transparent);
+  color: #d6dae0;
+  letter-spacing: 0.06em;
+}
+
+/* Ghost mode said in words, in the panel that every layout shows (§14).
+   The orb going grey is the glance-level signal; this is the one that
+   cannot be misread. */
+.ghost-banner {
+  margin: 0 0 0.55rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--kv-dim, #8a8f98) 55%, transparent);
+  background: color-mix(in srgb, var(--kv-dim, #8a8f98) 18%, transparent);
+  color: #dfe3e8;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.status-panel.is-ghost {
+  border-color: color-mix(in srgb, var(--kv-dim, #8a8f98) 60%, transparent);
+}

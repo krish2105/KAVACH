@@ -59,6 +59,19 @@ class KillResponse(BaseModel):
     rearm: str
 
 
+class GhostRequest(BaseModel):
+    #: Deliberately has no "active" field. This endpoint only ever turns
+    #: sensing OFF — see the route for why.
+    reason: str = Field("", max_length=500)
+
+
+class GhostResponse(BaseModel):
+    ghost: Literal[True]
+    #: Spelled out in the response because a client that assumes it can toggle
+    #: needs to find out here, not by wondering why the mic never came back.
+    resume: str
+
+
 class PendingItem(BaseModel):
     id: str
     prompt: str
@@ -91,3 +104,4 @@ class StatusResponse(BaseModel):
     wake_word: str
     voiceprint: str
     pending: int
+    ghost: bool
