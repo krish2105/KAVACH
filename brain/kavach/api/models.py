@@ -44,6 +44,21 @@ class ConfirmResponse(BaseModel):
     reply: str | None = None
 
 
+class KillRequest(BaseModel):
+    #: Optional, and it goes straight into the action log. Worth writing:
+    #: "why did KAVACH stop at 3am" is answered by this field or by nothing.
+    reason: str = Field("", max_length=500)
+
+
+class KillResponse(BaseModel):
+    kill_switch: Literal["disarmed"]
+    cancelled_tasks: int
+    killed_processes: int
+    #: Said out loud in the response because the asymmetry is the point: this
+    #: route stops KAVACH and no route starts it again.
+    rearm: str
+
+
 class PendingItem(BaseModel):
     id: str
     prompt: str

@@ -33,6 +33,8 @@ from ..killswitch.core import KillSwitch, KillSwitchDisarmed
 from .confirm import PendingRegistry
 from .models import (
     CommandRequest,
+    KillRequest,
+    KillResponse,
     CommandResponse,
     ConfirmRequest,
     ConfirmResponse,
@@ -200,6 +202,38 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         return ConfirmResponse(id=request.id, approved=request.approved,
                                status="answered")
 
+    @app.post("/kill", response_model=KillResponse, dependencies=guard)
+    def kill(request: KillRequest) -> KillResponse:
+        """Halt KAVACH from anywhere. The one route the kill switch does not gate.
+
+        Three properties this deliberately has:
+
+        * **Not guarded.** Every other acting route calls `kill_switch.guard()`
+          first. This one must work precisely when everything else is refusing,
+          so it does not — a stop button that can be stopped is not one.
+        * **Idempotent.** `trigger()` latches first and is safe to call
+          repeatedly. From a pocket, "did that go through?" has to be
+          answerable by pressing it again, so a second kill is a confirmation
+          rather than an error.
+        * **One-way.** There is no re-arming route, by name or by any other
+          name, and a test asserts it over the route table. Stopping KAVACH
+          from a device that is not in the room is safe; starting it again from
+          one is not. Re-arming stays a deliberate act at this Mac.
+        """
+        record = kill_switch.trigger(
+            source="api",
+            reason=request.reason or "halted from the API",
+        )
+        log.warning("halted from the API: %s", request.reason or "(no reason)")
+        return KillResponse(
+            kill_switch="disarmed",
+            cancelled_tasks=record.get("cancelled_tasks", 0),
+            # A list of what was killed, not a count — read off the record
+            # rather than assumed.
+            killed_processes=len(record.get("killed_processes") or []),
+            rearm="Re-arm at the Mac — no route does it.",
+        )
+
     # ——— streaming ———
 
     @app.websocket("/ws")
@@ -238,7 +272,9 @@ def _wake_word_state(loop) -> str:
         wake = getattr(loop, "wake", None)
         if wake is None:
             return "off"
-        if load_calibration() is None:
+        from ..voice.loop import find_wake_model
+
+        if load_calibration(model=find_wake_model()) is None:
             return "uncalibrated"
         return "ready"
     except Exception:

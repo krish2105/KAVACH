@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
 import socket
 import subprocess
 import sys
@@ -183,7 +184,9 @@ def check_wake_word() -> list[Check]:
     model = find_wake_model()
     if not model.exists():
         return [Check("voice", "wake word", WARN, "not trained — push-to-talk only")]
-    calibrated = load_calibration()
+    from kavach.voice.loop import find_wake_model
+
+    calibrated = load_calibration(model=find_wake_model())
     if calibrated is None:
         return [Check("voice", "wake word calibrated", WARN,
                       "trained but not calibrated on your voice → not loaded. "
@@ -317,6 +320,80 @@ def check_api() -> list[Check]:
     return out
 
 
+def check_tailscale() -> list[Check]:
+    """The phone's route in (Phase 7).
+
+    Reports honestly at every step: not installed is a WARN, not a FAIL —
+    KAVACH works fine on this Mac without it, and only the phone needs it.
+    """
+    out: list[Check] = []
+
+    binary = shutil.which("tailscale") or (
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+        if Path("/Applications/Tailscale.app").exists() else None
+    )
+    if not binary:
+        out.append(Check("reach", "tailscale installed", WARN,
+                         "not installed — the phone cannot reach KAVACH. "
+                         "See SETUP.md"))
+        return out
+    out.append(Check("reach", "tailscale installed", PASS))
+
+    def _run(*args: str) -> tuple[int, str]:
+        try:
+            done = subprocess.run([binary, *args], capture_output=True,
+                                  text=True, timeout=8)
+            return done.returncode, (done.stdout or done.stderr).strip()
+        except Exception as exc:
+            return 1, str(exc)[:80]
+
+    code, status = _run("status", "--json")
+    if code != 0:
+        out.append(Check("reach", "tailscale logged in", WARN,
+                         "run `tailscale up` — see SETUP.md"))
+        return out
+
+    try:
+        data = json.loads(status)
+    except Exception:
+        data = {}
+    backend = data.get("BackendState", "")
+    online = backend == "Running"
+    out.append(Check("reach", "tailnet connected", PASS if online else WARN,
+                     "" if online else f"state: {backend or 'unknown'}"))
+
+    name = (data.get("Self") or {}).get("DNSName", "").rstrip(".")
+    if name:
+        out.append(Check("reach", "this machine on the tailnet", PASS, name))
+
+    code, serve = _run("serve", "status")
+    proxied = "8770" in serve
+    out.append(Check("reach", "api served to the tailnet",
+                     PASS if proxied else WARN,
+                     f"https://{name}/" if proxied and name else
+                     "run `tailscale serve --bg 8770` — see SETUP.md"))
+
+    # Serving to the tailnet must NOT have quietly widened the binding. This is
+    # the whole reason Serve was chosen over binding to the LAN, so it is
+    # checked here rather than assumed.
+    if proxied:
+        lan = ""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                probe.settimeout(0.4)
+                probe.connect(("8.8.8.8", 80))
+                lan = probe.getsockname()[0]
+        except Exception:
+            pass
+        if lan and not lan.startswith("127."):
+            exposed = _port_open(8770, lan)
+            out.append(Check("reach", "still not on the LAN",
+                             FAIL if exposed else PASS,
+                             f"reachable on {lan}:8770" if exposed
+                             else "tailnet only, as intended"))
+    return out
+
+
 def check_mcp() -> list[Check]:
     config = BRAIN.parent / "hands" / "mcp.config.json"
     if not config.exists():
@@ -359,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
         checks += check_mcp()
         checks += check_services()
         checks += check_api()
+        checks += check_tailscale()
         checks += check_wake_word()
         if not args.skip_slow:
             checks += check_voice_gates()

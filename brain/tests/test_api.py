@@ -77,6 +77,7 @@ def auth(token: str = TOKEN) -> dict:
     ("get", "/pending"),
     ("post", "/command"),
     ("post", "/confirm"),
+    ("post", "/kill"),
 ])
 def test_every_endpoint_refuses_without_a_token(client, method, path):
     call = getattr(client, method)
@@ -424,3 +425,90 @@ def test_an_unclear_reply_is_not_consent(real_loop, registry):
 
     assert "delete the draft in Notes" not in real_loop.local.ran
     assert len(registry.list()) == 1, "the question was silently dropped"
+
+
+# ═══ 9. the kill switch, from a pocket (Phase 7) ═══
+#
+# The phone can stop KAVACH from anywhere. It deliberately cannot start it
+# again — §C's latch means an ambiguous state stays stopped, and "ambiguous"
+# very much includes a request arriving from a device that is not in the room.
+
+def test_kill_latches_the_switch(client, kill_switch):
+    assert kill_switch.is_armed
+    response = client.post("/kill", headers=auth(), json={})
+
+    assert response.status_code == 200
+    assert response.json()["kill_switch"] == "disarmed"
+    assert not kill_switch.is_armed
+
+
+def test_after_a_kill_commands_are_refused(client, kill_switch, loop):
+    client.post("/kill", headers=auth(), json={})
+    response = client.post("/command", headers=auth(),
+                           json={"text": "what time is it"})
+
+    assert response.status_code == 409
+    assert loop.commands == []
+
+
+def test_kill_is_idempotent(client, kill_switch):
+    """From a pocket, "did that go through?" must be answerable by pressing
+    it again. A second kill is confirmation, not an error."""
+    first = client.post("/kill", headers=auth(), json={})
+    second = client.post("/kill", headers=auth(), json={})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["kill_switch"] == "disarmed"
+    assert not kill_switch.is_armed
+
+
+def test_kill_is_not_blocked_by_the_kill_switch(client, kill_switch):
+    """The one route that must work when everything else is refusing."""
+    kill_switch.trigger(source="test", reason="already latched")
+    assert client.post("/kill", headers=auth(), json={}).status_code == 200
+
+
+def test_the_kill_is_logged_with_its_source(client, kill_switch):
+    """The action log has to say where the halt came from."""
+    client.post("/kill", headers=auth(),
+                json={"reason": "phone: stop what you are doing"})
+
+    # Matched on the real record shape: ActionLog.append() writes the name
+    # under "event", not "action". The first version of this passed via a
+    # loose fallback, which would have kept passing if the event name changed.
+    entries = kill_switch.log.read_all()
+    kills = [e for e in entries if e.get("event") == "killswitch.trigger"]
+
+    assert len(kills) == 1, f"expected one kill record, got {kills}"
+    assert kills[0]["source"] == "api"
+    assert kills[0]["reason"] == "phone: stop what you are doing"
+
+    # And the command refused afterwards is recorded too, so the log explains
+    # not just the halt but everything the halt then prevented.
+    client.post("/command", headers=auth(), json={"text": "what time is it"})
+    blocked = [e for e in kill_switch.log.read_all()
+               if e.get("event") == "killswitch.blocked"]
+    assert blocked, "a refused command left no trace"
+
+
+def test_no_route_re_arms_the_switch(client):
+    """Asserted over the real route table, so nobody adds one later.
+
+    Stopping KAVACH from another device is safe; starting it again from one is
+    not. Re-arming stays a deliberate act at the Mac, and the way to keep that
+    true is to make adding a route fail this test.
+    """
+    paths = {r.path for r in client.app.routes}
+    for forbidden in ("/rearm", "/arm", "/resume", "/start", "/reset"):
+        assert forbidden not in paths, f"{forbidden} re-arms remotely"
+
+    # Nor by another name: no route may CALL rearm(). Checked as a call
+    # rather than as a substring — the first version of this matched its own
+    # docstring, which made it a test of my prose instead of the code.
+    import inspect
+
+    from kavach.api import app as app_mod
+
+    source = inspect.getsource(app_mod.create_app)
+    assert ".rearm(" not in source, "a route re-arms the kill switch"

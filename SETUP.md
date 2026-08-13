@@ -118,7 +118,54 @@ English, then continue in whatever language you like.
 
 ---
 
-## 6 · Run it at login *(optional)*
+## 6 · Command KAVACH from your iPhone  *(10 minutes)*
+
+The reverse of §3: your phone telling KAVACH what to do, rather than KAVACH
+driving your phone. Two Apple Shortcuts — **no Xcode, no Apple Developer
+account, nothing to re-sign every seven days.**
+
+The API is bound to `127.0.0.1` and stays that way. Tailscale Serve proxies
+from your private tailnet to that localhost port, so nothing is exposed to your
+Wi-Fi or the internet — this is Tailscale's own recommended shape, not a
+workaround.
+
+**This needs a free Tailscale account, which is a new account** — you approved
+it, but it is yours to create; I won't sign you up for anything.
+
+```bash
+brew install --cask tailscale
+```
+
+Then open Tailscale, sign in, and install it on your iPhone from the App Store
+signed into the same account. Once both show as connected:
+
+```bash
+tailscale serve --bg 8770
+```
+
+`--bg` survives reboots, and TLS certificates are provisioned automatically —
+there is nothing to configure in the admin console.
+
+Check the Mac side:
+
+```bash
+cd brain && uv run kavach-doctor          # the REACH section
+```
+
+Then follow [`docs/iphone-setup.md`](docs/iphone-setup.md) for the two
+shortcuts. It gives you a `curl` command for each one, so you can prove the
+server works before building anything on the phone.
+
+**One limitation, stated up front:** without push notifications — which need
+the $99/year Apple Developer Program — your phone cannot be *woken* when
+KAVACH needs an approval. Approvals are pull-only: you open the shortcut and
+look. Since confirmations expire after 120 seconds, this works for "I sent a
+command from my phone, now I approve it" and not for "KAVACH needs me and I'm
+in another room."
+
+---
+
+## 7 · Run it at login *(optional)*
 
 ```bash
 cp daemon/com.krishna.kavach.plist ~/Library/LaunchAgents/
