@@ -14,10 +14,39 @@ def allowlist():
     return Allowlist()  # the real hands/allowlist.json, not a fixture copy
 
 
-def test_ships_with_exactly_the_spec_four(allowlist):
-    assert {e["name"] for e in allowlist.entries} == {
-        "Safari", "Notes", "Calendar", "Finder"
+#: Every app the user has explicitly approved, and why.
+#:
+#: §C says the allowlist grows only by asking. This set is the record of those
+#: answers, so an app appearing here without a line in this dict fails the
+#: test below — which is the point: the danger is not a considered addition,
+#: it is one that arrives unnoticed.
+APPROVED = {
+    "Safari": "spec §7 starting four",
+    "Notes": "spec §7 starting four",
+    "Calendar": "spec §7 starting four",
+    "Finder": "spec §7 starting four",
+    "Music": "user asked for spoken music control, 2026-08-13",
+    "Spotify": "user asked for spoken music control, 2026-08-13",
+}
+
+
+def test_the_spec_four_are_always_present(allowlist):
+    """These four are the floor. Removing one is as much a change as adding."""
+    assert {"Safari", "Notes", "Calendar", "Finder"} <= {
+        e["name"] for e in allowlist.entries
     }
+
+
+def test_nothing_is_allowed_that_was_not_approved(allowlist):
+    """The test that actually protects §7.
+
+    It used to assert the list was exactly the spec four, which meant any
+    approved addition broke it and the fix was to loosen the assertion. Keying
+    on a recorded approval instead keeps it strict: an app added without a
+    reason still fails.
+    """
+    unapproved = {e["name"] for e in allowlist.entries} - set(APPROVED)
+    assert not unapproved, f"not approved by anyone: {unapproved}"
 
 
 def test_allows_by_display_name(allowlist):

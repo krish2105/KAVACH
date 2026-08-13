@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -37,6 +38,19 @@ from .tts import TextToSpeech
 from .wake import WakeWordDetector
 
 log = logging.getLogger("kavach.voice.loop")
+
+#: Spoken confirmations. Short on purpose — an assistant that narrates every
+#: skip becomes something you turn off.
+_MUSIC_ACK = {
+    "pause": "Paused.",
+    "play": "Playing.",
+    "next": "Skipped.",
+    "previous": "Going back.",
+    "volume": "Done.",
+    "volume_up": "Turning it up.",
+    "volume_down": "Turning it down.",
+    "play_item": "Playing that.",
+}
 
 DEFAULT_MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
 
@@ -508,6 +522,14 @@ class VoiceLoop:
                 f"Say confirm if you want me to."
             )
 
+        # Music, before anything else. "skip this" should not wait on a
+        # language model, and the parser returns None for anything it does not
+        # clearly recognise, so it cannot swallow unrelated requests.
+        music_reply = self._handle_music(text)
+        if music_reply is not None:
+            self.state.confidence = 0.99
+            return music_reply
+
         # Cheapest tier first: a deterministic handler is sub-millisecond
         # and, for things like the clock, the only tier that can actually
         # answer at all.
@@ -529,6 +551,59 @@ class VoiceLoop:
             return "Something went wrong while I was thinking about that."
 
         return f"You said: {text}"
+
+    def _handle_music(self, text: str) -> str | None:
+        """Answer a music request, or None if it was not one.
+
+        Runs against whichever player is already open. Starting a music app
+        because someone said "skip this" would be a surprise; controlling the
+        one already playing is what was meant.
+        """
+        from ..reasoning import music as music_mod
+
+        command = music_mod.parse_music_command(text)
+        if command is None:
+            return None
+
+        player = music_mod.running_player()
+        if player is None:
+            for candidate in (music_mod.Player.SPOTIFY, music_mod.Player.MUSIC):
+                if music_mod.installed(candidate):
+                    player = candidate
+                    break
+        if player is None:
+            return "I can't find a music app to control."
+
+        script = music_mod.build_script(command, player)
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            log.exception("music command failed")
+            return "That didn't work."
+
+        self.ks.log.append(
+            "music.command",
+            action=command.action.value,
+            player=player.value,
+            query=command.query,
+        )
+
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip().splitlines()
+            log.warning("music: %s", detail[-1] if detail else "failed")
+            return f"{player.value} didn't accept that."
+
+        out = (result.stdout or "").strip()
+        if command.action is music_mod.MusicAction.NOW_PLAYING:
+            if not out or out == "nothing":
+                return "Nothing is playing."
+            return f"{out}."
+        if out == "not found":
+            return f"I couldn't find {command.query} in your library."
+        return _MUSIC_ACK.get(command.action.value, "Done.")
 
     @staticmethod
     def _describe_action(text: str) -> str:
