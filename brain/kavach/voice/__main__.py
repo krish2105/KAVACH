@@ -128,13 +128,15 @@ def main(argv: list[str] | None = None) -> int:
         wake_model=Path(args.wake_model) if args.wake_model else find_wake_model(),
         stt_model=args.stt_model,
         use_wake_word=not args.no_wake_word,
+        # Gates every turn, not just confirmations.
+        voiceprint=Voiceprint(),
     )
 
     # The confirmer needs the loop (for its mic and voice), and the gate
     # needs the confirmer, and the agent needs the gate. Wired here, after
     # the loop exists.
     if not args.no_reasoning and not args.no_tools:
-        voiceprint = Voiceprint()
+        voiceprint = voice.voiceprint
         if not voiceprint.is_enrolled:
             print('⚠  no voiceprint enrolled — confirmations check WHAT you\n'
                   '   said but not WHO said it. Fix: uv run kavach-enrol')

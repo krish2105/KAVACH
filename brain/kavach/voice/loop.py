@@ -31,6 +31,7 @@ from . import tts as tts_mod
 from .latency import TurnTimer
 from .mic import EndpointConfig, MicStream, Recorder, rms_to_amplitude
 from . import stt as stt_mod
+from . import vad
 from .stt import SpeechToText
 from .tts import TextToSpeech
 from .wake import WakeWordDetector
@@ -111,6 +112,7 @@ class VoiceLoop:
         local=None,
         agent=None,
         memory=None,
+        voiceprint=None,
     ):
         self.ks = kill_switch
         self.publish_fn = publish or (lambda _: None)
@@ -129,6 +131,9 @@ class VoiceLoop:
         # Optional: with no store the loop simply has no memory, rather
         # than failing. Turns are recorded only when one is wired.
         self.memory = memory
+        # When enrolled, every turn must match this speaker before it is
+        # transcribed. None (or not enrolled) means no speaker gating.
+        self.voiceprint = voiceprint
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -322,13 +327,43 @@ class VoiceLoop:
             self.set_state("idle", amplitude=0.0)
             return
 
-        # Gate on energy before spending a multi-second decode. Whisper does
-        # not return empty for silence — it confabulates ("Thank you.") — and
-        # from Phase 4 those strings reach a router that can act on them.
-        if stt_mod.is_probably_silence(audio):
-            log.info("no speech energy in the clip, discarding turn")
+        # Did a human actually speak? Whisper does not return empty for
+        # non-speech, it confabulates — an empty room produced "Legend and
+        # legend do it." and "The problem was that the case was not coming."
+        # From Phase 4 those strings reach a router that can act on them.
+        #
+        # Energy alone was not enough: the gate sat at rms 0.006 and this room
+        # measures 0.0365, so room tone sailed through. This asks whether the
+        # audio is *voiced*, which loudness cannot answer.
+        if not vad.has_speech(audio, 16_000):
+            log.info("no speech in the clip (%s), discarding turn",
+                     vad.describe(audio, 16_000))
             self.set_state("idle", amplitude=0.0)
             return
+
+        # And is it *you*?
+        #
+        # VAD is necessary but not sufficient: measured in this room, ambient
+        # sound scores 142/152 voiced frames with a tonal spectrum, so it
+        # passes every acoustic test while containing no speech at all. The
+        # voiceprint is the only gate that held — imposter voices score
+        # 0.33-0.41 against a 0.673 threshold.
+        #
+        # The cost is deliberate: KAVACH answers to one person. An assistant
+        # that acts on whatever the room says is the failure §7 exists to stop.
+        if self.voiceprint is not None and self.voiceprint.is_enrolled:
+            result = self.voiceprint.verify(audio, sample_rate=16_000)
+            if not result.accepted:
+                log.info("voice did not match the enrolled speaker "
+                         "(similarity %.3f < %.3f), discarding turn",
+                         result.similarity, result.threshold)
+                self.ks.log.append(
+                    "voice.rejected",
+                    reason="speaker mismatch",
+                    **result.as_dict(),
+                )
+                self.set_state("idle", amplitude=0.0)
+                return
 
         try:
             self.ks.guard("transcribe")
