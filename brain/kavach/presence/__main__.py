@@ -168,11 +168,37 @@ def main(argv: list[str] | None = None) -> int:
 
             # Rebuilt rather than resumed when ghost mode ends: HandTracker is
             # a Thread, and a stopped thread cannot be restarted.
+            pinch_state = {"engaged": False, "logged": 0.0}
+
             def on_pinch(move) -> None:
                 # Straight into the WebView. Coalesced by the overlay's own
                 # tick rather than evaluated per frame — MediaPipe delivers
                 # ~30/s and a JS round trip each time would starve the panel.
                 overlay.pending_control = move
+
+                # Logged on state change, plus a slow heartbeat while held.
+                # Every frame would be 30 lines a second; nothing at all is
+                # what made this impossible to tell apart from not running.
+                import time as _time
+
+                now = _time.monotonic()
+                if move.engaged != pinch_state["engaged"]:
+                    pinch_state["engaged"] = move.engaged
+                    log.info("pinch %s (gap %.2f of hand span)",
+                             "ENGAGED" if move.engaged else "released",
+                             move.ratio)
+                elif move.engaged and now - pinch_state["logged"] > 0.5:
+                    pinch_state["logged"] = now
+                    log.info("pinch dx=%+.3f dy=%+.3f zoom=%.3f",
+                             move.dx, move.dy, move.scale)
+                elif not move.engaged and now - pinch_state["logged"] > 2.0:
+                    # The tuning line: shows how close your fingers actually
+                    # get, so the 0.45 threshold can be checked against a hand
+                    # rather than against geometry.
+                    pinch_state["logged"] = now
+                    if move.ratio:
+                        log.info("hand seen, not pinched (gap %.2f, "
+                                 "needs <= 0.45)", move.ratio)
 
             def make_tracker():
                 t = HandTracker(on_event=on_gesture, on_pinch=on_pinch)

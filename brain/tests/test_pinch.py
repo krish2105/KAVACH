@@ -13,6 +13,7 @@ the thumb and index tips for the pinch.
 import pytest
 
 from kavach.gestures.pinch import (
+    LOST_FRAME_GRACE,
     PinchTracker,
     is_pinching,
     pinch_distance,
@@ -98,11 +99,19 @@ def test_re_pinching_starts_fresh_rather_than_jumping():
 
 
 def test_losing_the_hand_entirely_disengages():
-    """Your hand leaving the frame is a release, not a freeze."""
+    """Your hand leaving the frame is a release, not a freeze.
+
+    Takes a few frames rather than one. This originally asserted that a single
+    missing frame released, which was wrong about real video: MediaPipe drops
+    the hand for individual frames constantly, and the live log showed grips
+    lasting about a fifth of a second because of it. The property — hand gone,
+    grip gone — is unchanged; only how patient it is before believing it.
+    """
     tracker = PinchTracker()
     tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
 
-    move = tracker.update(None)
+    for _ in range(LOST_FRAME_GRACE + 1):
+        move = tracker.update(None)
 
     assert move is None or not move.engaged
 
@@ -157,3 +166,75 @@ def test_control_resumes_once_the_confirmation_is_answered():
     move = tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
 
     assert move is not None and move.engaged
+
+
+# ═══ 5. what a real hand exposed ═══
+#
+# The first version worked in the sense that it engaged and produced deltas,
+# and would have been unusable. From the live log:
+#
+#   pinch ENGAGED (gap 0.11 of hand span)
+#   pinch dx=+0.011 dy=-0.011 zoom=2.187      <- 2x camera distance, one frame
+#   pinch released                            <- 0.2s later, hand lost 1 frame
+#
+# Two failures neither geometry nor a fixture would surface: a tight pinch
+# makes the width ratio enormous under fingertip jitter, and MediaPipe drops
+# the hand for single frames constantly.
+
+def test_one_frame_cannot_zoom_wildly():
+    """A pinch of 0.11 fluctuating by a millimetre yielded zoom=2.187 —
+    doubling the camera distance between two frames of video."""
+    tracker = PinchTracker()
+    tracker.update(hand(thumb=(0.500, 0.50), index=(0.504, 0.50)))
+
+    move = tracker.update(hand(thumb=(0.500, 0.50), index=(0.512, 0.50)))
+
+    assert 0.9 <= move.scale <= 1.1, f"one frame zoomed by {move.scale}"
+
+
+def test_zoom_still_responds_over_several_frames():
+    """Clamped, not disabled: spreading steadily must still zoom out."""
+    tracker = PinchTracker()
+    tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+
+    total = 1.0
+    for gap in (0.02, 0.03, 0.04, 0.05, 0.06):
+        move = tracker.update(hand(thumb=(0.50, 0.50), index=(0.50 + gap, 0.50)))
+        total *= move.scale
+
+    assert total > 1.1, "steady spreading did not accumulate any zoom"
+
+
+def test_a_single_dropped_frame_does_not_let_go():
+    """MediaPipe loses the hand for one frame constantly. Releasing on the
+    first miss made the grip last a fifth of a second."""
+    tracker = PinchTracker()
+    tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+
+    move = tracker.update(None)
+
+    assert move.engaged, "one lost frame released the pinch"
+
+
+def test_the_hand_really_leaving_does_let_go():
+    """Forgiving a blink is not the same as never letting go."""
+    tracker = PinchTracker()
+    tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+
+    for _ in range(10):
+        move = tracker.update(None)
+
+    assert not move.engaged, "the hand left and it never released"
+
+
+def test_movement_across_a_dropped_frame_is_not_a_jump():
+    """The frame after a miss must measure from the last KNOWN position, not
+    treat the gap as travel."""
+    tracker = PinchTracker()
+    tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
+    tracker.update(None)
+
+    move = tracker.update(hand(thumb=(0.52, 0.50), index=(0.53, 0.50)))
+
+    assert move.engaged
+    assert abs(move.dx) < 0.05, f"jumped {move.dx} after a dropped frame"

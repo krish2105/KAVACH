@@ -44,6 +44,21 @@ ENGAGE_RATIO = 0.45
 #: resting on the boundary from flickering in and out of control.
 RELEASE_RATIO = 0.62
 
+#: The most a single frame may zoom.
+#:
+#: Measured from a real hand: a tight pinch (gap 0.11 of hand span) fluctuating
+#: by a fingertip's worth of detection noise produced scale=2.187 — doubling
+#: the camera distance between two frames of video. The ratio is only
+#: meaningful over several frames, so no one frame gets to matter much.
+MAX_FRAME_ZOOM = 1.06
+
+#: How many frames the hand may vanish for before the grip is dropped.
+#:
+#: MediaPipe loses a hand for single frames constantly, and releasing on the
+#: first miss made a grip last about a fifth of a second. Six frames is a
+#: blink at ~30fps, and still lets go promptly when the hand really leaves.
+LOST_FRAME_GRACE = 6
+
 
 @dataclass(frozen=True)
 class PinchMove:
@@ -55,6 +70,10 @@ class PinchMove:
     dy: float = 0.0
     #: Multiplier from the change in pinch width. >1 spreading, <1 closing.
     scale: float = 1.0
+    #: Thumb-to-index gap as a fraction of hand span. Carried so a threshold
+    #: that is wrong for a real hand can be seen rather than guessed at — the
+    #: constants here were chosen from geometry, not from anyone's fingers.
+    ratio: float = 0.0
 
 
 def _hand_span(points) -> float:
@@ -87,16 +106,28 @@ class PinchTracker:
         self._engaged = False
         self._last: tuple[float, float] | None = None
         self._last_width: float | None = None
+        self._missing = 0
 
     def _release(self) -> PinchMove:
+        was = self._engaged
         self._engaged = False
         self._last = None
         self._last_width = None
+        self._missing = 0
+        if was:
+            log.info("pinch released")
         return PinchMove(engaged=False)
 
     def update(self, points, confirmation_pending: bool = False) -> PinchMove | None:
         """Feed one frame. None when there is no hand to speak of."""
         if points is None:
+            # A blink, not a release. The hand is dropped for single frames
+            # constantly; letting go on the first miss made a grip unusable.
+            # The last known position is kept, so the frame it returns on is
+            # measured from there rather than counted as travel.
+            if self._engaged and self._missing < LOST_FRAME_GRACE:
+                self._missing += 1
+                return PinchMove(engaged=True, ratio=self._last_width or 0.0)
             return self._release()
 
         if confirmation_pending:
@@ -106,11 +137,14 @@ class PinchTracker:
                 log.info("confirmation pending — hand control suspended")
             return self._release()
 
+        self._missing = 0
         width = pinch_distance(points)
         # Hysteresis: harder to leave than to enter.
         threshold = RELEASE_RATIO if self._engaged else ENGAGE_RATIO
         if width > threshold:
-            return self._release() if self._engaged else PinchMove(engaged=False)
+            if self._engaged:
+                return self._release()
+            return PinchMove(engaged=False, ratio=width)
 
         # Midpoint of the pinch is the thing being dragged — steadier than
         # either fingertip alone, which wobble independently.
@@ -123,12 +157,15 @@ class PinchTracker:
             self._engaged = True
             self._last = (x, y)
             self._last_width = width
-            return PinchMove(engaged=True)
+            return PinchMove(engaged=True, ratio=width)
 
         dx, dy = x - self._last[0], y - self._last[1]
         previous = self._last_width or width
         scale = 1.0 if previous <= 0 else (width / previous)
+        # Clamped, not smoothed: spreading steadily still accumulates zoom
+        # across frames, but no single frame of jitter can throw the camera.
+        scale = max(1 / MAX_FRAME_ZOOM, min(MAX_FRAME_ZOOM, scale))
 
         self._last = (x, y)
         self._last_width = width
-        return PinchMove(engaged=True, dx=dx, dy=dy, scale=scale)
+        return PinchMove(engaged=True, dx=dx, dy=dy, scale=scale, ratio=width)
