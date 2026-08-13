@@ -36,7 +36,14 @@ dependencies = [
     # and a `webrtcvad` whose import crashes on `pkg_resources`. Both are
     # neutralised in [tool.uv] below; webrtcvad-wheels supplies the module.
     "resemblyzer>=0.1.4",
-    "librosa>=0.9.1",   # floor is resemblyzer's; audiomentations caps it below 1.0
+    "librosa>=0.9.1",   # floor is resemblyzer's; audiomentations caps <1.0
+    "torch>=2.13.0",             # resemblyzer's encoder — RUNTIME, not
+                                 # just training. It was in the training
+                                 # group, so `uv sync` without that group
+                                 # silently broke speaker verification.
+    "webrtcvad-wheels>=2.0.14",  # supplies the `webrtcvad` module that
+                                 # resemblyzer imports; the original has
+                                 # no py3.12 wheel and dies on pkg_resources   # floor is resemblyzer's; audiomentations caps it below 1.0
 ]
 
 [tool.uv]
@@ -66,7 +73,6 @@ dev = [
 # else in this project.
 #   uv sync --group wakeword-training
 wakeword-training = [
-    "torch>=2.13.0",
     "audiomentations>=0.43.1",
     "onnx>=1.22.0",
     # More undeclared livekit-wakeword deps. An AST scan of the package found
@@ -83,8 +89,6 @@ wakeword-training = [
     "onnxscript>=0.6.2",    # ONNX export — declared only in their "export"
                             # extra, so `run` fails at step 5/6 without it
                             # AFTER an hour of training has completed
-    "webrtcvad-wheels>=2.0.14",  # silence trimming; the original webrtcvad
-                                 # has no py3.12 wheel and needs a compiler
 ]
 
 [build-system]

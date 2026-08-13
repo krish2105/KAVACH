@@ -645,7 +645,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "resemblyzer" },
     { name = "sounddevice" },
+    { name = "torch" },
     { name = "typer" },
+    { name = "webrtcvad-wheels" },
     { name = "websockets" },
 ]
 
@@ -660,9 +662,7 @@ wakeword-training = [
     { name = "onnx" },
     { name = "onnxscript" },
     { name = "pronouncing" },
-    { name = "torch" },
     { name = "torchaudio" },
-    { name = "webrtcvad-wheels" },
 ]
 
 [package.metadata]
@@ -679,7 +679,9 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "resemblyzer", specifier = ">=0.1.4" },
     { name = "sounddevice", specifier = ">=0.5.5" },
+    { name = "torch", specifier = ">=2.13.0" },
     { name = "typer", specifier = ">=0.27.1" },
+    { name = "webrtcvad-wheels", specifier = ">=2.0.14" },
     { name = "websockets", specifier = ">=17.0.1" },
 ]
 
@@ -694,9 +696,7 @@ wakeword-training = [
     { name = "onnx", specifier = ">=1.22.0" },
     { name = "onnxscript", specifier = ">=0.6.2" },
     { name = "pronouncing", specifier = ">=0.2.0" },
-    { name = "torch", specifier = ">=2.13.0" },
     { name = "torchaudio", specifier = ">=2.11.0" },
-    { name = "webrtcvad-wheels", specifier = ">=2.0.14" },
 ]
 
 [[package]]
