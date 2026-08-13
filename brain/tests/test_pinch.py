@@ -221,7 +221,10 @@ def test_the_hand_really_leaving_does_let_go():
     tracker = PinchTracker()
     tracker.update(hand(thumb=(0.50, 0.50), index=(0.51, 0.50)))
 
-    for _ in range(10):
+    # Keyed to the constant, not a hardcoded 10. The grace window grew from 6
+    # to 15 frames once real grips turned out to be ending at ~0.3s from lost
+    # hands, and a magic number here silently failed instead of following.
+    for _ in range(LOST_FRAME_GRACE + 2):
         move = tracker.update(None)
 
     assert not move.engaged, "the hand left and it never released"

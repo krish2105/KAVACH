@@ -55,9 +55,14 @@ MAX_FRAME_ZOOM = 1.06
 #: How many frames the hand may vanish for before the grip is dropped.
 #:
 #: MediaPipe loses a hand for single frames constantly, and releasing on the
-#: first miss made a grip last about a fifth of a second. Six frames is a
-#: blink at ~30fps, and still lets go promptly when the hand really leaves.
-LOST_FRAME_GRACE = 6
+#: first miss made a grip last about a fifth of a second.
+#:
+#: Six was not enough. The capture loop sleeps 50ms between frames, so six is
+#: only ~0.3s — and measured grips were ending at almost exactly that, every
+#: one from a lost hand rather than fingers opening. Fifteen is around 0.75s:
+#: long enough to ride through the occlusion a pinch causes, short enough that
+#: a hand genuinely leaving still lets go while it feels deliberate.
+LOST_FRAME_GRACE = 15
 
 
 @dataclass(frozen=True)

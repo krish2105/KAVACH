@@ -566,6 +566,17 @@ class OverlayWindow:
 
         move, self.pending_control = self.pending_control, None
         if move is not None and getattr(move, "engaged", False):
+            # Wake the panel first, or the whole thing is invisible.
+            #
+            # The overlay hides when idle and stops the page rendering to save
+            # CPU, so a pinch was moving a camera in a frozen scene behind a
+            # hidden window: the events fired, the JS ran, and nothing was ever
+            # painted. Reaching for the orb with your hand is as much a reason
+            # to be on screen as speaking to it.
+            if not self._visible:
+                self.show()
+            self._hide_at = None
+
             if move.dx or move.dy or abs(move.scale - 1.0) > 0.005:
                 self.web.evaluateJavaScript_completionHandler_(
                     "window.__kavachControl && window.__kavachControl("

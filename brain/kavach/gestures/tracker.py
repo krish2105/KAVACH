@@ -39,6 +39,19 @@ HOLD_SECONDS = 0.8
 #: Below this, the detection is not trusted at all.
 MIN_CONFIDENCE = 0.6
 
+#: How willing MediaPipe is to KEEP tracking a hand it already found.
+#:
+#: Deliberately lower than detection. A pinch is the exact moment the model
+#: struggles: the thumb occludes the index finger and the silhouette stops
+#: looking like a hand, so at the default 0.5 it drops the hand mid-grip.
+#: Measured before changing it — grips were lasting about 300ms, every one of
+#: them ending in a lost hand rather than fingers opening.
+#:
+#: Losing a hand that has left the frame a little late costs nothing; losing
+#: one that is still there costs the whole feature.
+MIN_TRACKING_CONFIDENCE = 0.25
+MIN_PRESENCE_CONFIDENCE = 0.25
+
 
 @dataclass
 class GestureEvent:
@@ -81,6 +94,8 @@ class HandTracker(threading.Thread):
             running_mode=vision.RunningMode.VIDEO,
             num_hands=1,
             min_hand_detection_confidence=MIN_CONFIDENCE,
+            min_tracking_confidence=MIN_TRACKING_CONFIDENCE,
+            min_hand_presence_confidence=MIN_PRESENCE_CONFIDENCE,
         )
         return vision.HandLandmarker.create_from_options(options)
 
