@@ -67,6 +67,19 @@ NEVER_ALLOWED_TOOLS = frozenset({
 #: fallback when the MCP path failed.
 SAFE_META_TOOLS = frozenset({"ToolSearch"})
 
+#: Which physical device each MCP server reaches. A server that is not listed
+#: here is denied: unmapped means ungovernable.
+SERVER_DEVICES = {
+    "macos-automator": "mac",
+    "macos-accessibility": "mac",
+    "peekaboo": "mac",
+    "mirroir": "iphone",
+}
+
+
+def device_for_server(server: str) -> str | None:
+    return SERVER_DEVICES.get(server)
+
 #: Argument keys that name an app across the three servers.
 _APP_ARG_KEYS = ("app_target", "app", "application", "appName", "bundle_id", "name")
 
@@ -216,6 +229,22 @@ class ToolGate:
                 {"server": server, "blocked_tool": match.group("tool")},
             )
 
+        # 2c — device-scoped servers take a different path.
+        #
+        # mirroir-mcp's tools are not app-scoped: screenshot, describe_screen
+        # and start_recording all act on whatever is on the iPhone screen and
+        # none of them name an app. So the iPhone is governed per-TOOL rather
+        # than per-app, and a per-app iPhone allowlist would be theatre.
+        device = device_for_server(server)
+        if device is None:
+            return ("deny", f"{server!r} is not mapped to a known device.",
+                    {"server": server})
+
+        if device != "mac":
+            return await self._decide_device_scoped(
+                device, server, match.group("tool"), args
+            )
+
         # 3 — if we can't tell what it touches, we can't clear it.
         app = extract_target_app(tool, args)
         if app is None:
@@ -264,6 +293,45 @@ class ToolGate:
             )
 
         return ("allow", "allowlisted, read-only", {"server": server, "app": app})
+
+    async def _decide_device_scoped(
+        self, device: str, server: str, tool: str, args: dict
+    ) -> tuple[str, str, dict]:
+        """Gate a device whose tools are not app-scoped (the iPhone).
+
+        The unit of permission is the tool: reading the screen is allowed,
+        recording it is not without asking.
+        """
+        extra = {"server": server, "device": device, "tool_name": tool}
+
+        if not self.allowlist.device_enabled(device):
+            return ("deny", f"the {device} is not enabled in the allowlist.", extra)
+
+        policy = self.allowlist.device_tool_policy(device, tool)
+
+        if policy == "deny":
+            return (
+                "deny",
+                f"{tool!r} is not an approved {device} tool. Approved tools are "
+                f"listed per device in hands/allowlist.json.",
+                extra,
+            )
+
+        if policy == "confirm":
+            if self.confirmer is None:
+                return ("deny",
+                        f"{tool!r} on the {device} needs confirmation and there "
+                        f"is no way to ask you. Refusing.",
+                        {**extra, "destructive": True})
+            granted = await self.confirmer.confirm(
+                f"This will {tool.replace('_', ' ')} on your {device}. Should I?"
+            )
+            if not granted:
+                return ("deny", "You declined.", {**extra, "destructive": True})
+            return ("allow", "confirmed by user",
+                    {**extra, "destructive": True, "confirmed": True})
+
+        return ("allow", f"approved read-only {device} tool", extra)
 
     @staticmethod
     def _describe(app: str, tool: str, action_text: str) -> str:

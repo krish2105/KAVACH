@@ -1,25 +1,58 @@
 {
   "_comment": [
-    "App allowlist (spec §7). An ALLOWLIST, not a blocklist: an app KAVACH has",
-    "never heard of is denied by default, which is the only ordering that fails",
-    "safe. Ask before adding anything here.",
+    "Device-scoped allowlist (spec §7). An ALLOWLIST, not a blocklist: a device",
+    "or app KAVACH has never heard of is denied by default. Ask before adding.",
     "",
-    "Bundle IDs were read off this machine, not guessed — note Calendar is",
-    "com.apple.iCal, not com.apple.Calendar.",
+    "IMPORTANT — the two devices are governed differently, because the servers",
+    "behind them are shaped differently:",
     "",
-    "Phase 0 establishes this file and its check. Phase 4 wires it into the",
-    "real MCP dispatch path, behind KillSwitch.guard()."
+    "  mac    — the MCP tools are APP-scoped (AppleScript names the app it is",
+    "           talking to), so the unit of permission is the app.",
+    "",
+    "  iphone — mirroir-mcp's tools are DEVICE-scoped. screenshot,",
+    "           describe_screen and start_recording all operate on whatever is",
+    "           on the phone screen; none of them take an app name. A per-app",
+    "           iPhone allowlist is therefore NOT ENFORCEABLE through this",
+    "           server, and listing app names here would be security theatre.",
+    "           The unit of permission is the tool instead: reading is allowed,",
+    "           recording and calibration require confirmation.",
+    "",
+    "Bundle IDs were read off this machine — note Calendar is com.apple.iCal."
   ],
-  "version": 1,
-  "allowed": [
-    { "name": "Safari",   "bundle_id": "com.apple.Safari" },
-    { "name": "Notes",    "bundle_id": "com.apple.Notes" },
-    { "name": "Calendar", "bundle_id": "com.apple.iCal" },
-    { "name": "Finder",   "bundle_id": "com.apple.finder" }
-  ],
+  "version": 2,
+  "devices": {
+    "mac": {
+      "enabled": true,
+      "allowed": [
+        { "name": "Safari",   "bundle_id": "com.apple.Safari" },
+        { "name": "Notes",    "bundle_id": "com.apple.Notes" },
+        { "name": "Calendar", "bundle_id": "com.apple.iCal" },
+        { "name": "Finder",   "bundle_id": "com.apple.finder" }
+      ]
+    },
+    "iphone": {
+      "enabled": true,
+      "_note": "Set enabled=false to cut the iPhone off entirely, in one edit.",
+      "read_only_tools": [
+        "status",
+        "check_health",
+        "list_targets",
+        "get_orientation",
+        "screenshot",
+        "describe_screen",
+        "list_skills",
+        "get_skill"
+      ],
+      "confirm_tools": [
+        "start_recording",
+        "stop_recording",
+        "calibrate_component"
+      ]
+    }
+  },
   "confirm_always": [
     "send", "reply", "forward", "delete", "trash", "purchase", "buy",
     "submit", "post", "publish", "share", "install", "uninstall",
-    "shutdown", "restart", "logout", "system_setting"
+    "shutdown", "restart", "logout", "system_setting", "record"
   ]
 }

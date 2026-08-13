@@ -30,13 +30,41 @@ class Allowlist:
         data = json.loads(self.path.read_text())
 
         self.version: int = data["version"]
-        self.entries: list[dict] = data["allowed"]
+        self.devices: dict = data.get("devices", {})
+
+        # v1 kept a flat `allowed` list; v2 moved it under devices.mac. The
+        # flat API below still speaks for the Mac so every existing caller and
+        # test keeps working unchanged.
+        if "allowed" in data:                      # v1
+            self.devices = {"mac": {"enabled": True, "allowed": data["allowed"]}}
+        self.entries: list[dict] = self.device_entries("mac")
         self.confirm_always: set[str] = {
             token.lower() for token in data.get("confirm_always", [])
         }
 
         self._names = {e["name"].casefold() for e in self.entries}
         self._bundle_ids = {e["bundle_id"].casefold() for e in self.entries}
+
+    # ——— device-scoped ———
+
+    def device_entries(self, device: str) -> list[dict]:
+        return self.devices.get(device, {}).get("allowed", [])
+
+    def device_enabled(self, device: str) -> bool:
+        """A device nobody has enabled is denied, like an unlisted app."""
+        return bool(self.devices.get(device, {}).get("enabled", False))
+
+    def device_tool_policy(self, device: str, tool: str) -> str:
+        """`allow`, `confirm` or `deny` for a device gated by tool rather than
+        by app — see hands/allowlist.json for why the iPhone works this way."""
+        config = self.devices.get(device, {})
+        if tool in config.get("read_only_tools", []):
+            return "allow"
+        if tool in config.get("confirm_tools", []):
+            return "confirm"
+        return "deny"
+
+    # ——— app-scoped (the Mac) ———
 
     def is_allowed(self, app: str) -> bool:
         """Accept either a display name ("Safari") or a bundle id."""
