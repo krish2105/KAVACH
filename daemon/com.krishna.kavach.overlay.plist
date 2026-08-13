@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KAVACH desktop orb — launchd agent (spec §3 "Background service", §8).
+
+  Keeps the floating orb alive across logout, reboot and crashes, which is the
+  whole point of a "presence": it should be there without you starting it.
+
+  A LaunchAgent (not a LaunchDaemon) deliberately — it runs as you, inside your
+  GUI session, which is required for anything that draws on screen or uses the
+  microphone. A LaunchDaemon runs before login with no window server and could
+  not show a window at all.
+
+  Install:    launchctl bootstrap gui/$UID daemon/com.krishna.kavach.overlay.plist
+  Remove:     launchctl bootout gui/$UID/com.krishna.kavach.overlay
+  Status:     launchctl print gui/$UID/com.krishna.kavach.overlay
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.krishna.kavach.overlay</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__UV__</string>
+        <string>run</string>
+        <string>kavach-overlay</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__BRAIN__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Bring it back if it exits for any reason, but throttle so a crash
+         loop cannot spin the CPU. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__BRAIN__/wakeword/logs/overlay.log</string>
+    <key>StandardErrorPath</key>
+    <string>__BRAIN__/wakeword/logs/overlay.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Nice-to-have rather than required: the orb is a background presence
+         and should never compete with the voice loop for CPU. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

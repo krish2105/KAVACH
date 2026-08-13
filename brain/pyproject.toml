@@ -11,6 +11,7 @@ dependencies = [
     # kill switch. Both pyobjc frameworks were updated 2026-08-11.
     "pyobjc-framework-Cocoa>=12.2.2",
     "pyobjc-framework-Quartz>=12.2.2",
+    "pyobjc-framework-WebKit>=12.2.2",  # floating desktop overlay
     # ——— Phase 2: local voice loop ———
     "numpy>=2.5.2",
     "sounddevice>=0.5.5",         # mic capture (PortAudio)
@@ -63,6 +64,7 @@ override-dependencies = [
 kavach = "kavach.killswitch.cli:main"
 kavach-enrol = "kavach.identity.enrol:main"
 kavach-waketune = "kavach.voice.waketune_cli:main"
+kavach-overlay = "kavach.presence.__main__:main"
 kavach-memory = "kavach.memory.cli:main"
 
 [dependency-groups]
