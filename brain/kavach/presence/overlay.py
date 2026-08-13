@@ -224,8 +224,27 @@ class OverlayWindow:
         for most of its life, so this is the difference between a presence that
         costs nothing while idle and one that quietly drains the battery.
         """
-        js = f"window.__kavachSetRendering && window.__kavachSetRendering({str(enabled).lower()})"
-        self.web.evaluateJavaScript_completionHandler_(js, None)
+        js = (
+            "(function(){"
+            "  if (!window.__kavachSetRendering) return 'no-bridge';"
+            f"  window.__kavachSetRendering({str(enabled).lower()});"
+            "  return 'ok';"
+            "})()"
+        )
+
+        def handler(result, error) -> None:
+            # A None completion handler is silently dropped by pyobjc, so the
+            # pause never ran and the hidden panel kept rendering at ~78% CPU.
+            # Logging the result is also the only way to see that the page-side
+            # bridge exists at all.
+            if error is not None:
+                log.warning("render pause failed: %s", error)
+            elif result == "no-bridge":
+                log.warning("page has no __kavachSetRendering bridge")
+            else:
+                log.info("page rendering %s", "on" if enabled else "PAUSED")
+
+        self.web.evaluateJavaScript_completionHandler_(js, handler)
 
     def show(self) -> None:
         self._hide_at = None

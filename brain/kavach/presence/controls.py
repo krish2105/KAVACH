@@ -140,7 +140,18 @@ class MenuBarController(AppKit.NSObject):
             else AppKit.NSControlStateValueOff
         )
 
-        self._hide_item = self._add("  Minimise  ⌃⌥⌘H", b"toggleHidden:")
+        # Minimise persists across restarts, so its state has to be visible.
+        # Without a tick it silently swallows every appearance and looks like
+        # the panel is broken rather than switched off.
+        self._hide_item = self._add(
+            "  Minimised  ⌃⌥⌘H" if self._overlay.geometry.hidden
+            else "  Minimise  ⌃⌥⌘H",
+            b"toggleHidden:",
+        )
+        self._hide_item.setState_(
+            AppKit.NSControlStateValueOn if self._overlay.geometry.hidden
+            else AppKit.NSControlStateValueOff
+        )
         self._add("  Reset position", b"resetPosition:")
 
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())

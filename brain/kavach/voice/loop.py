@@ -158,6 +158,30 @@ class VoiceLoop:
 
     # ——— lifecycle ———
 
+    def _wake_word_is_trustworthy(self) -> bool:
+        """Only listen for the wake word if it has been calibrated on a real voice.
+
+        The v1 model scored recall 0.982 on held-out clips from the same
+        synthetic generator that produced its training set, then fired at 0.76
+        on an empty room while the user's own "KAVACH" peaked at 0.57. An
+        uncalibrated wake word does not sit idle — it starts turns, wakes the
+        display, and sends room noise to the transcriber.
+        
+        `kavach-waketune` refuses to write a threshold unless it can actually
+        separate the wake word from ordinary speech, so the presence of that
+        file is exactly the evidence needed here.
+        """
+        from .waketune import load_calibration
+
+        if load_calibration() is not None:
+            return True
+        log.warning(
+            "wake word not calibrated — staying on push-to-talk. The model "
+            "fires on room noise until `uv run kavach-waketune` can separate "
+            "your voice from it."
+        )
+        return False
+
     def warm_up(self) -> None:
         """Load every model before the first turn.
 
@@ -168,7 +192,7 @@ class VoiceLoop:
         self.stt.load()
         self.tts.load()
         if self.wake is not None:
-            if self.wake.available:
+            if self.wake.available and self._wake_word_is_trustworthy():
                 self.wake.load()
             else:
                 log.warning(
@@ -357,11 +381,9 @@ class VoiceLoop:
                 log.info("voice did not match the enrolled speaker "
                          "(similarity %.3f < %.3f), discarding turn",
                          result.similarity, result.threshold)
-                self.ks.log.append(
-                    "voice.rejected",
-                    reason="speaker mismatch",
-                    **result.as_dict(),
-                )
+                # VerificationResult.as_dict() already carries `reason`, so
+                # passing one alongside it raised TypeError and killed the turn.
+                self.ks.log.append("voice.rejected", **result.as_dict())
                 self.set_state("idle", amplitude=0.0)
                 return
 
