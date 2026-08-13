@@ -157,6 +157,49 @@ In the Shortcuts editor, tap ⓘ:
 
 ---
 
+## A KAVACH menu bar item, via Shortcuts
+
+The orb's own 🛡 status item does not attach when KAVACH runs from its app
+bundle — created, reports healthy, absent from the bar, and three attempts did
+not move it. Apple's own Shortcuts binary has no such problem, so this is the
+route that actually works.
+
+Everything below runs on the Mac against `localhost`; no Tailscale needed.
+
+### "KAVACH Ghost" — one button to stop it listening
+
+| # | Action | Settings |
+|---|---|---|
+| 1 | **Get Contents of URL** | `http://127.0.0.1:8770/ghost`, **POST** |
+| | | Headers: `Authorization` → `Bearer <your token>` |
+| | | Request Body **JSON**, field `reason` (Text) = `menu bar` |
+| 2 | **Show Notification** | "KAVACH is not listening" |
+
+Then in the Shortcuts app: **ⓘ → Pin in Menu Bar**. It appears immediately and
+stays there.
+
+**It only goes one way.** `POST /ghost` can enter ghost mode and never leave it
+— turning your own microphone back on is deliberately a decision you make at
+the Mac. To resume:
+
+```bash
+cd brain && uv run kavach-ghost --off
+```
+
+### "KAVACH Stop" — the kill switch, from the menu bar
+
+Same shape, pointing at `http://127.0.0.1:8770/kill` with a JSON body of
+`reason` = `menu bar`. Add a **Show Alert** first with Cancel enabled, because
+this latches and only a human at the Mac re-arms it.
+
+Your token:
+
+```bash
+cd brain && grep '^KAVACH_API_TOKEN=' .env
+```
+
+---
+
 ## When something doesn't work
 
 | Symptom | Cause |

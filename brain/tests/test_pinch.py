@@ -251,13 +251,23 @@ def test_movement_across_a_dropped_frame_is_not_a_jump():
 # do that, so nothing is lost.
 
 def two_fingers(index=(0.5, 0.4), middle=(0.55, 0.4), wrist=(0.5, 0.9)):
-    """A hand with index and middle extended, thumb tucked."""
+    """A hand with index and middle extended and the other two curled.
+
+    The ring and pinky are placed deliberately: without them this fixture is
+    also an open palm, which is how an open palm came to fire scroll and STOP
+    on the same frame in the live log.
+    """
     points = [(0.5, 0.7, 0.0) for _ in range(21)]
     points[0] = (wrist[0], wrist[1], 0.0)
     points[4] = (0.42, 0.72, 0.0)              # thumb tucked
     points[5] = (0.48, 0.62, 0.0)              # index base
     points[8] = (index[0], index[1], 0.0)      # index tip
+    points[9] = (0.52, 0.62, 0.0)              # middle base
     points[12] = (middle[0], middle[1], 0.0)   # middle tip
+    points[13] = (0.58, 0.62, 0.0)             # ring base
+    points[16] = (0.58, 0.70, 0.0)             # ring tip, curled below it
+    points[17] = (0.62, 0.63, 0.0)             # pinky base
+    points[20] = (0.62, 0.71, 0.0)             # pinky tip, curled below it
     return points
 
 
@@ -315,3 +325,47 @@ def test_scrolling_is_refused_while_a_confirmation_is_pending():
                           confirmation_pending=True)
 
     assert not move.engaged
+
+
+def test_an_open_palm_is_not_a_scroll():
+    """Caught in the live log, not in a fixture.
+
+        gesture stop 100%
+        scroll dy=+0.000
+
+    An open palm has index and middle extended and apart, so it satisfied the
+    spread test and fired STOP and scroll on the same frame. The discriminator
+    is the other two fingers: in ✌️ the ring and pinky are curled, in an open
+    palm they are not.
+    """
+    from kavach.gestures.pinch import is_scrolling
+
+    palm = [(0.5, 0.7, 0.0) for _ in range(21)]
+    palm[0] = (0.50, 0.90, 0.0)     # wrist
+    palm[5] = (0.48, 0.62, 0.0)     # index base
+    palm[8] = (0.44, 0.35, 0.0)     # index tip, extended
+    palm[9] = (0.52, 0.62, 0.0)     # middle base
+    palm[12] = (0.52, 0.32, 0.0)    # middle tip, extended
+    palm[13] = (0.58, 0.62, 0.0)    # ring base
+    palm[16] = (0.60, 0.35, 0.0)    # ring tip, ALSO extended
+    palm[17] = (0.62, 0.63, 0.0)    # pinky base
+    palm[20] = (0.66, 0.40, 0.0)    # pinky tip, ALSO extended
+
+    assert not is_scrolling(palm), "an open palm was read as a scroll"
+
+
+def test_two_fingers_with_the_others_curled_is_a_scroll():
+    from kavach.gestures.pinch import is_scrolling
+
+    peace = [(0.5, 0.7, 0.0) for _ in range(21)]
+    peace[0] = (0.50, 0.90, 0.0)
+    peace[5] = (0.48, 0.62, 0.0)
+    peace[8] = (0.44, 0.35, 0.0)     # index extended
+    peace[9] = (0.52, 0.62, 0.0)
+    peace[12] = (0.52, 0.32, 0.0)    # middle extended
+    peace[13] = (0.58, 0.62, 0.0)    # ring base
+    peace[16] = (0.58, 0.70, 0.0)    # ring tip, curled below its knuckle
+    peace[17] = (0.62, 0.63, 0.0)    # pinky base
+    peace[20] = (0.62, 0.71, 0.0)    # pinky tip, curled
+
+    assert is_scrolling(peace)

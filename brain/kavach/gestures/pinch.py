@@ -39,6 +39,10 @@ INDEX_BASE = 5
 INDEX_TIP = 8
 MIDDLE_TIP = 12
 MIDDLE_BASE = 9
+RING_TIP = 16
+RING_BASE = 13
+PINKY_TIP = 20
+PINKY_BASE = 17
 
 #: Pinch closed when the gap is under this fraction of the hand's own span.
 #:
@@ -210,7 +214,16 @@ def is_scrolling(points) -> bool:
     # Both must actually be extended — reaching above their own knuckles —
     # or a loose fist with fingers slightly apart would scroll.
     base_y = points[MIDDLE_BASE][1]
-    return iy < base_y and my < base_y
+    if not (iy < base_y and my < base_y):
+        return False
+
+    # And the other two must be DOWN. Found in the live log, not in a fixture:
+    # an open palm satisfied everything above and fired STOP and scroll on the
+    # same frame. Two fingers is ✌️, not a wave — the ring and pinky are what
+    # tell them apart.
+    ring_down = points[RING_TIP][1] > points[RING_BASE][1]
+    pinky_down = points[PINKY_TIP][1] > points[PINKY_BASE][1]
+    return ring_down and pinky_down
 
 
 @dataclass(frozen=True)
