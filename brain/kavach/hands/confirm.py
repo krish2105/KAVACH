@@ -63,9 +63,14 @@ class VoiceConfirmer:
     audio stack.
     """
 
-    def __init__(self, voice_loop, timeout: float = CONFIRM_TIMEOUT_S):
+    def __init__(self, voice_loop, timeout: float = CONFIRM_TIMEOUT_S,
+                 voiceprint=None):
         self.voice = voice_loop
         self.timeout = timeout
+        # None, or an un-enrolled profile, means confirmations fall back
+        # to voice-content-only. Enrolment is what turns the identity
+        # check on; it is never silently assumed.
+        self.voiceprint = voiceprint
 
     async def confirm(self, prompt: str) -> bool:
         try:
@@ -106,13 +111,38 @@ class VoiceConfirmer:
         result = await asyncio.to_thread(voice.stt.transcribe, audio)
         verdict = interpret(result.text)
 
+        # The answer must be affirmative AND come from the enrolled speaker.
+        # Without this, the gate trusts whoever is in the room: anyone within
+        # earshot can say "yes" to a delete prompt.
+        identity = None
+        if self.voiceprint is not None and self.voiceprint.is_enrolled:
+            identity = await asyncio.to_thread(
+                self.voiceprint.verify, audio, 16_000
+            )
+
         voice.ks.log.append(
             "confirm.answer",
             prompt=prompt,
             heard=result.text,
             verdict={True: "yes", False: "no", None: "unclear"}[verdict],
+            identity=identity.as_dict() if identity else None,
         )
         log.info("confirmation heard %r → %s", result.text, verdict)
 
-        # None (didn't understand) is a denial, not a retry.
-        return verdict is True
+        if verdict is not True:
+            # None (didn't understand) is a denial, not a retry.
+            return False
+
+        if identity is not None and not identity.accepted:
+            # Said yes, but it wasn't you.
+            log.warning(
+                "confirmation REFUSED — voice does not match (similarity %.3f "
+                "< %.3f)", identity.similarity, identity.threshold,
+            )
+            await asyncio.to_thread(
+                voice.speak,
+                "That didn't sound like you, so I won't do it.",
+            )
+            return False
+
+        return True

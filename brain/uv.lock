@@ -6,6 +6,12 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+overrides = [
+    { name = "typing", marker = "python_full_version < '3'" },
+    { name = "webrtcvad", marker = "python_full_version < '3'" },
+]
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.5"
@@ -629,6 +635,7 @@ source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "kokoro-onnx" },
+    { name = "librosa" },
     { name = "livekit-wakeword" },
     { name = "numpy" },
     { name = "pydantic" },
@@ -636,6 +643,7 @@ dependencies = [
     { name = "pyobjc-framework-quartz" },
     { name = "pywhispercpp" },
     { name = "pyyaml" },
+    { name = "resemblyzer" },
     { name = "sounddevice" },
     { name = "typer" },
     { name = "websockets" },
@@ -661,6 +669,7 @@ wakeword-training = [
 requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.2.137" },
     { name = "kokoro-onnx", specifier = ">=0.5.0" },
+    { name = "librosa", specifier = ">=0.9.1" },
     { name = "livekit-wakeword", specifier = ">=0.2.1" },
     { name = "numpy", specifier = ">=2.5.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
@@ -668,6 +677,7 @@ requires-dist = [
     { name = "pyobjc-framework-quartz", specifier = ">=12.2.2" },
     { name = "pywhispercpp", specifier = ">=1.5.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "resemblyzer", specifier = ">=0.1.4" },
     { name = "sounddevice", specifier = ">=0.5.5" },
     { name = "typer", specifier = ">=0.27.1" },
     { name = "websockets", specifier = ">=17.0.1" },
@@ -1774,6 +1784,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856, upload-time = "2026-05-14T19:25:27.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
+]
+
+[[package]]
+name = "resemblyzer"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "librosa" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fb/69/b71d45dca34c51467d0df29154f6eb8c19d4effb95dbbaeef6fc160b29de/Resemblyzer-0.1.4.tar.gz", hash = "sha256:ae98d6eaf1def4b91d353347f7d31f10c29e8e109b5196ab29b390293036ad19", size = 15747774, upload-time = "2023-10-12T09:34:57.809Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/b5/d897d5de5b2123a1ad5d32e8e007d83f76582f5c32c60992577263bd7c7e/Resemblyzer-0.1.4-py3-none-any.whl", hash = "sha256:8f12eb2f1a9982d32e8db7856de754709b59c93a77bcf0ff536584b619a9dd1f", size = 15747704, upload-time = "2023-10-12T09:34:48.452Z" },
 ]
 
 [[package]]

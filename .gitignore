@@ -36,3 +36,6 @@ models/
 # Wake-word training corpus + checkpoints (multi-GB, regenerable from the YAML)
 brain/wakeword/data/
 brain/wakeword/output/
+
+# Biometric — a derived embedding, but it still identifies you
+voiceprint.npz

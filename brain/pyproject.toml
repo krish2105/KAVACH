@@ -29,6 +29,24 @@ dependencies = [
     "pyyaml>=6.0.3",
     "pydantic>=2.13.4",
     "claude-agent-sdk>=0.2.137",
+
+    # ——— Phase 6: speaker verification ———
+    # Resemblyzer is from 2023 and its dependency list is actively harmful on
+    # Python 3.12: it pulls a `typing` BACKPORT that shadows the stdlib module,
+    # and a `webrtcvad` whose import crashes on `pkg_resources`. Both are
+    # neutralised in [tool.uv] below; webrtcvad-wheels supplies the module.
+    "resemblyzer>=0.1.4",
+    "librosa>=0.9.1",   # floor is resemblyzer's; audiomentations caps it below 1.0
+]
+
+[tool.uv]
+# Neutralise two dependencies of resemblyzer rather than vendoring it.
+# The markers never match on the Python versions this project supports, so
+# neither package is installed, and `uv sync` reproduces this exactly.
+override-dependencies = [
+    "typing; python_version < '3.0'",     # backport shadows stdlib typing
+    "webrtcvad; python_version < '3.0'",  # crashes on pkg_resources; we use
+                                          # webrtcvad-wheels instead
 ]
 
 # Phase 3 deps are deliberately absent until their phase:
@@ -36,6 +54,7 @@ dependencies = [
 
 [project.scripts]
 kavach = "kavach.killswitch.cli:main"
+kavach-enrol = "kavach.identity.enrol:main"
 
 [dependency-groups]
 dev = [

@@ -25,6 +25,7 @@ from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import LocalModel
 from ..hands.confirm import VoiceConfirmer
+from ..identity.voiceprint import Voiceprint
 from ..hands.gate import ToolGate
 from ..reasoning.router import Router
 from .loop import DEFAULT_MODELS_DIR, VoiceLoop, find_wake_model
@@ -133,7 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     # needs the confirmer, and the agent needs the gate. Wired here, after
     # the loop exists.
     if not args.no_reasoning and not args.no_tools:
-        gate = ToolGate(kill_switch=ks, confirmer=VoiceConfirmer(voice))
+        voiceprint = Voiceprint()
+        if not voiceprint.is_enrolled:
+            print('⚠  no voiceprint enrolled — confirmations check WHAT you\n'
+                  '   said but not WHO said it. Fix: uv run kavach-enrol')
+        gate = ToolGate(
+            kill_switch=ks,
+            confirmer=VoiceConfirmer(voice, voiceprint=voiceprint),
+        )
         voice.agent = ClaudeAgent(gate=gate)
 
     if args.bench:
@@ -157,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         else "3 MCP servers, gated"
     print(f"  tools      {tools}")
     print(f"  allowlist  Safari, Notes, Calendar, Finder")
+    print(f"  identity   {'voiceprint enrolled' if Voiceprint().is_enrolled else 'NOT enrolled — anyone can confirm'}")
     print(f"  kill       ⌃⌥⌘K, menu bar, or `kavach kill`")
     print("─" * 62)
     sys.stdout.flush()
