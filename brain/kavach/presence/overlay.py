@@ -33,6 +33,8 @@ import Foundation
 
 import WebKit
 
+from .controls import Geometry
+
 log = logging.getLogger("kavach.presence.overlay")
 
 #: States where the orb should be visible. Idle is deliberately absent — a
@@ -50,7 +52,75 @@ MARGIN = 28.0
 class OverlayWindow:
     """A floating, transparent, non-activating panel hosting the orb."""
 
-    def __init__(self, url: str, size: float = PANEL_SIZE):
+    def set_size(self, size: float) -> None:
+        """Resize about the panel's centre, so it does not walk across the
+        screen as you step through sizes."""
+        self.geometry.size = size
+        self.geometry.clamp()
+        frame = self.panel.frame()
+        centre_x = frame.origin.x + frame.size.width / 2
+        centre_y = frame.origin.y + frame.size.height / 2
+        new = self.geometry.size
+        self.panel.setFrame_display_animate_(
+            Foundation.NSMakeRect(centre_x - new / 2, centre_y - new / 2, new, new),
+            True, True,
+        )
+        self.web.setFrame_(Foundation.NSMakeRect(0, 0, new, new))
+        self._remember()
+
+    def set_interactive(self, interactive: bool) -> None:
+        """Trade click-through for direct manipulation, temporarily.
+
+        Off (the default) the panel ignores the mouse entirely, so it can never
+        block a click. On, it can be dragged and resized like a window — which
+        necessarily means it also intercepts clicks that land on it.
+        """
+        self.interactive = interactive
+        self.panel.setIgnoresMouseEvents_(not interactive)
+        self.panel.setMovableByWindowBackground_(interactive)
+        self.panel.setStyleMask_(
+            (AppKit.NSWindowStyleMaskBorderless
+             | AppKit.NSWindowStyleMaskNonactivatingPanel
+             | AppKit.NSWindowStyleMaskResizable)
+            if interactive else
+            (AppKit.NSWindowStyleMaskBorderless
+             | AppKit.NSWindowStyleMaskNonactivatingPanel)
+        )
+        if interactive:
+            # Visible while you are positioning it, regardless of agent state.
+            self.show()
+        log.info("interactive mode %s", "on" if interactive else "off")
+
+    def set_pinned_hidden(self, hidden: bool) -> None:
+        """Minimise: stay out of the way even when KAVACH is listening."""
+        self.geometry.hidden = hidden
+        self._remember()
+        if hidden:
+            self.hide()
+
+    def reset_position(self) -> None:
+        self.geometry.x = None
+        self.geometry.y = None
+        self.panel.setFrame_display_animate_(self._default_rect(), True, True)
+        self._remember()
+
+    def _default_rect(self):
+        visible = AppKit.NSScreen.mainScreen().visibleFrame()
+        size = self.geometry.size
+        return Foundation.NSMakeRect(
+            visible.origin.x + visible.size.width - size - MARGIN,
+            visible.origin.y + MARGIN,
+            size, size,
+        )
+
+    def _remember(self) -> None:
+        frame = self.panel.frame()
+        self.geometry.x = float(frame.origin.x)
+        self.geometry.y = float(frame.origin.y)
+        self.geometry.size = float(frame.size.width)
+        self.geometry.save()
+
+    def __init__(self, url: str, size: float | None = None):
         # `?overlay=1` puts the app in its compact, transparent mode.
         # Appending it here without a path separator produced
         # `http://host:3100?overlay=1`, whose query did not survive to
@@ -58,20 +128,28 @@ class OverlayWindow:
         # HUD inside a 400pt panel and the orb stayed hidden behind it.
         # The caller passes a complete URL instead.
         self.url = url
-        self.size = size
+        self.geometry = Geometry.load()
+        if size is not None:
+            self.geometry.size = size
+        self.geometry.clamp()
+        self.size = self.geometry.size
+        #: Click-through by default; see set_interactive().
+        self.interactive = False
         self._visible = False
         self._hide_at: float | None = None
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
 
-        screen = AppKit.NSScreen.mainScreen()
-        frame = screen.visibleFrame()
-        rect = Foundation.NSMakeRect(
-            frame.origin.x + frame.size.width - size - MARGIN,
-            frame.origin.y + MARGIN,
-            size,
-            size,
-        )
+        size = self.geometry.size
+        visible = AppKit.NSScreen.mainScreen().visibleFrame()
+        if self.geometry.x is not None and self.geometry.y is not None:
+            rect = Foundation.NSMakeRect(self.geometry.x, self.geometry.y, size, size)
+        else:
+            rect = Foundation.NSMakeRect(
+                visible.origin.x + visible.size.width - size - MARGIN,
+                visible.origin.y + MARGIN,
+                size, size,
+            )
 
         # NonactivatingPanel is the load-bearing flag: without it, showing the
         # orb pulls focus out of whatever you were typing into.
@@ -152,6 +230,10 @@ class OverlayWindow:
 
     def apply_state(self, state: str) -> None:
         """Show for active states; linger briefly before hiding on idle."""
+        # Minimised means minimised — a turn should not override an explicit
+        # request to stay out of the way.
+        if self.geometry.hidden or self.interactive:
+            return
         if state in ACTIVE_STATES:
             self.show()
         elif self._visible and self._hide_at is None:

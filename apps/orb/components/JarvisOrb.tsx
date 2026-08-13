@@ -261,6 +261,12 @@ export default function JarvisOrb() {
           {snapshot.killSwitch === "disarmed" && (
             <span className="kill-badge is-disarmed">⛔ DISARMED</span>
           )}
+          {snapshot.route && (
+            <span className={`overlay-route route-${snapshot.route}`}>
+              {snapshot.route === "claude" ? "CLAUDE" : "LOCAL"}
+              <span className="overlay-conf">{Math.round(snapshot.confidence * 100)}</span>
+            </span>
+          )}
           {(snapshot.partial || snapshot.transcript) && (
             <p className="overlay-transcript">
               {snapshot.transcript}
@@ -268,6 +274,13 @@ export default function JarvisOrb() {
                 <span className="transcript-partial">{snapshot.partial}</span>
               )}
             </p>
+          )}
+          {/* Newest tool call only. The full log belongs in the window; here
+              it would crowd out the orb, which is the point of the panel. */}
+          {snapshot.toolCalls.length > 0 && (
+            <span className={`overlay-tool status-${snapshot.toolCalls[0].status}`}>
+              {snapshot.toolCalls[0].server} · {snapshot.toolCalls[0].summary}
+            </span>
           )}
         </div>
       ) : (

@@ -787,3 +787,44 @@ body {
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
 }
+
+/* Route, confidence and the newest tool call, for overlay mode. */
+.kv-overlay .overlay-route {
+  font-size: 0.5rem;
+  letter-spacing: 0.14em;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(3, 11, 16, 0.72);
+  backdrop-filter: blur(8px);
+  color: var(--kv-bright);
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.kv-overlay .overlay-conf {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.kv-overlay .overlay-tool {
+  max-width: 100%;
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  padding: 0.16rem 0.45rem;
+  border-radius: 0.4rem;
+  background: rgba(3, 11, 16, 0.75);
+  backdrop-filter: blur(8px);
+  color: var(--kv-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A gated action is the one thing in the panel that must catch the eye. */
+.kv-overlay .overlay-tool.status-awaiting-confirmation {
+  color: #ffd76a;
+  box-shadow: 0 0 0 1px rgba(255, 215, 106, 0.5);
+}
+.kv-overlay .overlay-tool.status-denied { color: #ff8080; }
+.kv-overlay .overlay-tool.status-ok { opacity: 0.65; }

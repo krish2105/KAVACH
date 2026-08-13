@@ -98,7 +98,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setClearColor(0x000000, 0);
   renderer.setSize(width, height);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // The orb is dense wireframe: thin lines alias badly when the canvas is
+  // small, which is exactly the floating-panel case. Allow up to 3x rather
+  // than the usual 2x ceiling — the panel is a few hundred points, so the
+  // extra pixels are cheap, and it is the difference between crisp and mushy.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.8;
   container.appendChild(renderer.domElement);
@@ -143,9 +147,15 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
         vec4 cr = texture2D(tDiffuse, vUv + dir * offset);
         vec4 cg = texture2D(tDiffuse, vUv);
         vec4 cb = texture2D(tDiffuse, vUv - dir * offset * 0.5);
-        gl_FragColor = vec4(cr.r, cg.g * 1.05, cb.b * 0.6, 1.0) * flicker;
-        // Push towards amber/orange tone
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(1.15, 0.85, 0.55), 0.3);
+        // Alpha comes from the source, not a hardcoded 1.0. Forcing it opaque
+        // here overrode the renderer's zero clear-alpha, so a "transparent"
+        // floating panel was still a solid black square.
+        float alpha = max(max(cr.a, cg.a), cb.a);
+        // The fork attenuated blue (b * 0.6) and graded towards amber, which
+        // suited its orange orb. Against KAVACH's cyan it cancelled the blue
+        // channel and read as green. Cooled to match the palette instead.
+        gl_FragColor = vec4(cr.r * 0.85, cg.g * 1.0, cb.b * 1.1, alpha) * flicker;
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.75, 1.02, 1.2), 0.3);
       }
     `,
   };
