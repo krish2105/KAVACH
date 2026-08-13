@@ -222,7 +222,9 @@ export default function JarvisOrb() {
           break;
         case "g":
         case "G":
-          toggleGestures();
+          // Not in the panel: WKWebView cannot get camera permission there,
+          // so this could only ever fail. Gestures live in the browser window.
+          if (!overlayMode) toggleGestures();
           break;
         case "k":
         case "K":

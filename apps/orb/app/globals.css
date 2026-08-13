@@ -861,3 +861,18 @@ body {
 .kv-overlay .overlay-caption {
   display: none;
 }
+
+/* Gestures cannot work in the floating panel.
+   
+   MediaPipe needs getUserMedia, and WKWebView only grants that if the *host
+   app* holds camera permission. The host here is a launchd Python process,
+   not a bundled .app, so it can never be granted — pressing the button just
+   produced "TRACKING INIT FAILED" every time.
+   
+   Hidden rather than disabled: a greyed-out control still invites a click and
+   still needs explaining. Gestures remain available in the browser window,
+   which is a normal camera-permissioned context. */
+.kv-overlay .hud-btn[aria-pressed],
+.kv-overlay .hud-error {
+  display: none;
+}
