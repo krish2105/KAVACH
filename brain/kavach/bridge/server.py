@@ -103,6 +103,10 @@ class Bridge:
             self.voice.interrupt()
         elif cmd == "ptt":
             self.voice.push_to_talk(bool(payload.get("pressed")))
+        elif cmd == "confirm":
+            # A held thumbs-up/down from the orb (§7 extension). Answers
+            # a pending confirmation without speaking.
+            self.voice.answer_confirmation(bool(payload.get("answer")))
         else:
             log.debug("unknown command %r", cmd)
 

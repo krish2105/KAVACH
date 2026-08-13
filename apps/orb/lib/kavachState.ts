@@ -57,6 +57,8 @@ export interface KavachSource {
   interrupt?(): void;
   /** Push-to-talk override (§4). Only the live source can act on it. */
   pushToTalk?(pressed: boolean): void;
+  /** A held thumbs-up/down answering a pending confirmation (§7). */
+  answerConfirmation?(approved: boolean): void;
   stop(): void;
 }
 

@@ -129,6 +129,10 @@ class VoiceLoop:
         self._thread: threading.Thread | None = None
         self._running = False
         self._ptt = threading.Event()
+        # Set by a held gesture from the orb while a confirmation is
+        # pending. None means nobody has answered yet.
+        self._gesture_answer: bool | None = None
+        self._gesture_event = threading.Event()
         self.turns: list[dict] = []
 
     # ——— publishing ———
@@ -230,6 +234,28 @@ class VoiceLoop:
             if isinstance(value, str) and value.strip():
                 return value.strip()[:110]
         return "no arguments"
+
+    def answer_confirmation(self, approved: bool) -> None:
+        """A held gesture answered the pending confirmation.
+
+        Only meaningful while a confirmation is actually open; outside that
+        window it is recorded and cleared, never acted on. A thumbs-up at the
+        orb must not authorise something that was never asked.
+        """
+        self._gesture_answer = approved
+        self._gesture_event.set()
+        log.info("gesture answer: %s", "confirm" if approved else "deny")
+
+    def take_gesture_answer(self) -> bool | None:
+        answer, self._gesture_answer = self._gesture_answer, None
+        self._gesture_event.clear()
+        return answer
+
+    def arm_gesture_answer(self) -> None:
+        """Open the window. Clears anything stale so a gesture made before the
+        question cannot answer it."""
+        self._gesture_answer = None
+        self._gesture_event.clear()
 
     def interrupt(self) -> None:
         """Esc / spoken 'stop' — cut playback, return to idle, stay armed."""

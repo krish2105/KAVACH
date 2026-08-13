@@ -658,3 +658,43 @@ body {
   color: var(--kv-warn);
   border-color: rgba(255, 209, 102, 0.45);
 }
+
+/* ——— held-gesture confirmation (§7) ———
+   The ring fills over HOLD_MS so the commitment is visible and can be
+   abandoned before it fires. A gesture that authorises a delete should
+   never feel accidental. */
+.gesture-hold {
+  position: fixed;
+  bottom: 7rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+.gesture-hold svg { transform: rotate(-90deg); }
+.gh-track { fill: none; stroke: rgba(98, 224, 255, 0.15); stroke-width: 3; }
+.gh-fill {
+  fill: none;
+  stroke: var(--kv-ok);
+  stroke-width: 3;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px rgba(90, 255, 200, 0.8));
+  transition: stroke-dashoffset 60ms linear;
+}
+.gesture-deny .gh-fill {
+  stroke: var(--kv-danger);
+  filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.8));
+}
+.gh-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  color: var(--kv-hot);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-fill { transition: none; }
+}

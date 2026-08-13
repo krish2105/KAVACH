@@ -3,6 +3,7 @@ import {
   HandLandmarker,
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
+import { GestureHold, type ConfirmGesture } from "./gestures";
 
 const WASM_CDN =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
@@ -37,6 +38,16 @@ export interface HandTrackerCallbacks {
   /** Called when both hands pinch and spread/close: multiply camera distance by factor. */
   onZoom(factor: number): void;
   onStatus(status: TrackerStatus): void;
+  /**
+   * A held thumbs-up/down (§7 extension) — a silent way to answer a
+   * confirmation prompt. `progress` drives the ring the orb draws while the
+   * gesture is being held; `fired` is true on the single frame it completes.
+   */
+  onConfirmGesture?(
+    gesture: ConfirmGesture | null,
+    progress: number,
+    fired: boolean,
+  ): void;
 }
 
 interface Point {
@@ -58,6 +69,7 @@ export class HandTracker {
   private rafId = 0;
   private running = false;
   private lastVideoTime = -1;
+  private confirmHold = new GestureHold();
 
   // keyed by handedness label so state survives re-ordering between frames
   private handStates = new Map<string, HandState>();
@@ -133,6 +145,14 @@ export class HandTracker {
     this.lastVideoTime = this.video.currentTime;
 
     const result = this.landmarker.detectForVideo(this.video, performance.now());
+    // Confirmation gestures are read from the first hand only. Two hands
+    // means the pinch-zoom controls are in use, and a delete should not be
+    // authorised as a side effect of zooming.
+    const held = this.confirmHold.update(
+      result.landmarks.length === 1 ? result.landmarks[0] : undefined,
+    );
+    this.callbacks.onConfirmGesture?.(held.gesture, held.progress, held.fired);
+
     this.processHands(result.landmarks, result.handedness.map((h) => h[0]?.categoryName ?? "?"));
     this.drawOverlay(result.landmarks);
   };

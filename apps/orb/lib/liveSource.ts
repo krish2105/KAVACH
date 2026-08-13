@@ -108,6 +108,9 @@ export function createLiveSource(options: LiveSourceOptions = {}): KavachSource 
     pushToTalk(pressed: boolean) {
       send({ cmd: "ptt", pressed });
     },
+    answerConfirmation(approved: boolean) {
+      send({ cmd: "confirm", answer: approved });
+    },
     stop() {
       stopped = true;
       window.clearTimeout(reconnectTimer);

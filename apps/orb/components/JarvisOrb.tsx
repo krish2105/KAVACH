@@ -38,6 +38,10 @@ export default function JarvisOrb() {
   const [snapshot, setSnapshot] = useState<KavachSnapshot>(INITIAL_SNAPSHOT);
   const [brainOnline, setBrainOnline] = useState(false);
   const [usingMock, setUsingMock] = useState(false);
+  const [gestureHold, setGestureHold] = useState<{
+    gesture: "confirm" | "deny" | null;
+    progress: number;
+  }>({ gesture: null, progress: 0 });
 
   // The keydown listener is registered once, so it would otherwise close over
   // the first snapshot forever.
@@ -133,6 +137,13 @@ export default function JarvisOrb() {
       onRotate: (dt, dp) => sceneRef.current?.rotateBy(dt, dp),
       onZoom: (factor) => sceneRef.current?.zoomBy(factor),
       onStatus: setStatus,
+      onConfirmGesture: (gesture, progress, fired) => {
+        setGestureHold({ gesture, progress });
+        // Only the completed hold is an answer; progress is just feedback.
+        if (fired && gesture) {
+          sourceRef.current?.answerConfirmation?.(gesture === "confirm");
+        }
+      },
     });
     trackerRef.current = tracker;
 
@@ -243,6 +254,27 @@ export default function JarvisOrb() {
       </div>
 
       <ToolCallPackets toolCalls={snapshot.toolCalls} targetRef={toolPanelRef} />
+
+      {/* Held-gesture indicator (§7). Visible commitment: the user can see
+          how far through the hold they are and back out before it fires. */}
+      {gestureHold.gesture && (
+        <div className={`gesture-hold gesture-${gestureHold.gesture}`} role="status">
+          <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
+            <circle className="gh-track" cx="24" cy="24" r="20" />
+            <circle
+              className="gh-fill"
+              cx="24"
+              cy="24"
+              r="20"
+              strokeDasharray={2 * Math.PI * 20}
+              strokeDashoffset={2 * Math.PI * 20 * (1 - gestureHold.progress)}
+            />
+          </svg>
+          <span className="gh-label">
+            {gestureHold.gesture === "confirm" ? "👍 HOLD TO CONFIRM" : "👎 HOLD TO DENY"}
+          </span>
+        </div>
+      )}
 
       <div className="hud hud-stack hud-stack-left">
         <StatusPanel

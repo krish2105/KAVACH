@@ -46,3 +46,52 @@ def test_sure_and_ok_are_deliberately_not_affirmative():
 def test_negation_is_not_read_as_agreement():
     for said in ["no, don't", "no thanks", "definitely not"]:
         assert interpret(said) is not True, said
+
+
+# ——— gesture answers (§7 extension) ———
+
+class FakeLoop:
+    """Minimal stand-in for VoiceLoop's gesture-answer surface."""
+
+    def __init__(self):
+        import threading
+        self._gesture_answer = None
+        self._gesture_event = threading.Event()
+
+    def answer_confirmation(self, approved: bool) -> None:
+        self._gesture_answer = approved
+        self._gesture_event.set()
+
+    def take_gesture_answer(self):
+        answer, self._gesture_answer = self._gesture_answer, None
+        self._gesture_event.clear()
+        return answer
+
+    def arm_gesture_answer(self) -> None:
+        self._gesture_answer = None
+        self._gesture_event.clear()
+
+
+def test_a_gesture_made_before_the_question_cannot_answer_it():
+    """Arming clears stale state. Otherwise a thumbs-up at the orb could
+    authorise something the user was never asked about."""
+    loop = FakeLoop()
+    loop.answer_confirmation(True)      # before any prompt
+    loop.arm_gesture_answer()           # question is asked now
+    assert loop.take_gesture_answer() is None
+
+
+def test_gesture_answer_is_consumed_once():
+    """A single held gesture answers one question, not every later one."""
+    loop = FakeLoop()
+    loop.arm_gesture_answer()
+    loop.answer_confirmation(True)
+    assert loop.take_gesture_answer() is True
+    assert loop.take_gesture_answer() is None
+
+
+def test_thumbs_down_is_carried_through_as_a_denial():
+    loop = FakeLoop()
+    loop.arm_gesture_answer()
+    loop.answer_confirmation(False)
+    assert loop.take_gesture_answer() is False

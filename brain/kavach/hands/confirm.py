@@ -97,8 +97,37 @@ class VoiceConfirmer:
         if not voice.ks.is_armed:
             return False
 
+        # Open the gesture window only now, and clear anything stale: a
+        # thumbs-up made before the question must not answer it.
+        voice.arm_gesture_answer()
+
         voice.set_state("listening", transcript=prompt, partial="")
-        audio = await asyncio.to_thread(voice._record_with_meter)
+
+        # Voice and gesture race; the first real answer wins. A held
+        # thumbs-up/down lets you confirm without speaking, which matters in
+        # an open office — and unlike "yes", a gesture is not something a
+        # bystander can supply from across the room.
+        record = asyncio.create_task(asyncio.to_thread(voice._record_with_meter))
+        gesture = asyncio.create_task(
+            asyncio.to_thread(voice._gesture_event.wait, self.timeout)
+        )
+        done, _ = await asyncio.wait(
+            {record, gesture}, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        if gesture in done and not record.done():
+            answer = voice.take_gesture_answer()
+            if answer is not None:
+                record.cancel()
+                voice.ks.log.append(
+                    "confirm.answer", prompt=prompt, via="gesture",
+                    verdict="yes" if answer else "no",
+                )
+                log.info("confirmation by gesture: %s", answer)
+                return answer
+
+        audio = await record
+        voice.take_gesture_answer()  # discard anything that landed late
 
         from ..voice import stt as stt_mod
 
