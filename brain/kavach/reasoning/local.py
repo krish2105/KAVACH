@@ -31,7 +31,19 @@ import urllib.request
 log = logging.getLogger("kavach.reasoning.local")
 
 DEFAULT_HOST = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen3:4b"
+# Llama 3.2 3B, not Qwen3 4B. Both are named in spec §3; this one is chosen on
+# measurement.
+#
+# Qwen3 narrates its deliberation as ordinary prose — not inside <think> tags,
+# so `think: false` removes nothing and there is no structure to strip. Live,
+# it read "We are in a scenario where I am KAVACH... As an AI, I don't have..."
+# aloud and into the HUD transcript. Appending Qwen's documented /no_think
+# token made it worse: it reasoned about the token.
+#
+# Measured side by side on the same prompt and system message:
+#   qwen3:4b     1911ms, empty or narrated
+#   llama3.2:3b   421ms, "The ocean covers over 70% of the Earth's surface."
+DEFAULT_MODEL = "llama3.2:3b"
 
 _CLASSIFY_SCHEMA = {
     "type": "object",
@@ -51,10 +63,25 @@ _CLASSIFY_SYSTEM = (
     "When in doubt answer complex. Answer only with the JSON object."
 )
 
+# Phrased as a rule about output, not as a scenario to reason about.
+#
+# The previous wording described a situation ("You are KAVACH, a voice
+# assistant... you are being read aloud") and Qwen3 answered it as a puzzle,
+# narrating its deliberation aloud: "We are in a scenario where I am KAVACH...
+# The user asks... As an AI, I don't have..." Every word of that reached the
+# speaker and the HUD transcript.
+#
+# Naming the failure explicitly is what stopped it. `reasoning.cleanup` is the
+# safety net for when it does not.
 _RESPOND_SYSTEM = (
-    "You are KAVACH, a voice assistant on this Mac. You are being read aloud, "
-    "so reply in ONE short spoken sentence. No markdown, no lists, no "
-    "preamble. If you cannot do something, say so plainly in one sentence."
+    "Answer in one short spoken sentence. Nothing else.\n"
+    "Never explain your reasoning. Never restate the question. Never mention "
+    "being an AI, a model, or an assistant. Never write 'the user asks' or "
+    "'my reply is'.\n"
+    "If you cannot do something, say so in one sentence and stop.\n"
+    "Correct: \"It's twenty past four.\"\n"
+    "Wrong: \"The user asks the time. As an AI I can check the clock. "
+    "So, my reply is: it's twenty past four.\""
 )
 
 
@@ -146,4 +173,8 @@ class LocalModel:
             "messages": messages,
             "options": {"temperature": 0.3, "num_predict": 120},
         })
-        return response.get("message", {}).get("content", "").strip()
+        raw = response.get("message", {}).get("content", "").strip()
+        # Second line of defence — see reasoning.cleanup.
+        from .cleanup import clean_reply
+
+        return clean_reply(raw)
