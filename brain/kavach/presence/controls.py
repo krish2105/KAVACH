@@ -48,6 +48,10 @@ class Geometry:
     #: Persisted, unlike a normal mode. Restarting the agent otherwise turns
     #: dragging silently off and the panel looks broken again.
     interactive: bool = False
+    #: Stay on screen even when idle. Off by default — a presence that is
+    #: always there is just clutter — but "where did it go?" turned out to be
+    #: the more common problem, so it needs to be one click away.
+    always: bool = False
 
     @classmethod
     def load(cls) -> "Geometry":
@@ -168,6 +172,14 @@ class MenuBarController(AppKit.NSObject):
         # Minimise persists across restarts, so its state has to be visible.
         # Without a tick it silently swallows every appearance and looks like
         # the panel is broken rather than switched off.
+        self._always_item = self._add(
+            "  Always show", b"toggleAlways:"
+        )
+        self._always_item.setState_(
+            AppKit.NSControlStateValueOn if self._overlay.geometry.always
+            else AppKit.NSControlStateValueOff
+        )
+
         self._hide_item = self._add(
             "  Minimised  ⌃⌥⌘H" if self._overlay.geometry.hidden
             else "  Minimise  ⌃⌥⌘H",
@@ -193,6 +205,10 @@ class MenuBarController(AppKit.NSObject):
 
     def toggleInteractive_(self, _sender):
         self._overlay.set_interactive(not self._overlay.interactive)
+        self.refresh()
+
+    def toggleAlways_(self, _sender):
+        self._overlay.set_always(not self._overlay.geometry.always)
         self.refresh()
 
     def toggleHidden_(self, _sender):

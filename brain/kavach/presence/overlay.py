@@ -120,6 +120,15 @@ class OverlayWindow:
             self.show()
         log.info("interactive mode %s", "on" if interactive else "off")
 
+    def set_always(self, always: bool) -> None:
+        """Pin the panel on screen regardless of what the agent is doing."""
+        self.geometry.always = always
+        self.geometry.hidden = False if always else self.geometry.hidden
+        self.geometry.save()
+        if always:
+            self.show()
+        log.info("always-show %s", "on" if always else "off")
+
     def set_pinned_hidden(self, hidden: bool) -> None:
         """Minimise: stay out of the way even when KAVACH is listening."""
         self.geometry.hidden = hidden
@@ -331,6 +340,9 @@ class OverlayWindow:
                     self._on_interactive_change()
             else:
                 return
+        if self.geometry.always:
+            self.show()
+            return
         if state in ACTIVE_STATES:
             self.show()
         elif self._visible and self._hide_at is None:
