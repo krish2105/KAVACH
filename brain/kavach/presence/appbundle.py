@@ -184,8 +184,19 @@ def build(location: Path | None = None, module: str = "kavach.presence") -> Path
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": "1.0",
         "CFBundleVersion": "1",
-        # An agent: the orb is a floating panel, not a windowed app, and a
-        # Dock icon for it would be noise.
+        # An agent: the orb is a floating panel and a Dock icon for it is
+        # noise.
+        #
+        # NOTE: the menu bar item does not attach when the overlay runs from
+        # this bundle. It is created, reports a live button, logs success —
+        # and never joins the bar. Proven by toggling ghost mode and watching
+        # every status-item window keep its exact width, so none was ours.
+        # Setting this to False (a normal Dock app) changes nothing, so it is
+        # not the cause and the tidier value is kept.
+        #
+        # Launched from a terminal the item appears normally. The trade is
+        # real: the bundle gets the camera, the terminal gets the menu bar.
+        # Everything the menu offers has a CLI equivalent — see SETUP.md.
         "LSUIElement": True,
         "NSCameraUsageDescription": CAMERA_REASON,
         "NSMicrophoneUsageDescription": MICROPHONE_REASON,

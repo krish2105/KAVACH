@@ -49,6 +49,11 @@ KEY_SPACE = 49
 KEY_F = 3
 
 
+#: Strong reference to the menu bar controller. Without it pyobjc collects the
+#: object once main()'s locals go out of scope and the item silently vanishes.
+_MENU_BAR = None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="KAVACH desktop orb overlay.")
     parser.add_argument("--url", default="http://127.0.0.1:3100/?overlay=1",
@@ -178,7 +183,20 @@ def main(argv: list[str] | None = None) -> int:
     # websocket client being opened here.
     overlay.send_command = listener.send
 
+    # Created AFTER the run loop starts, and kept alive at module scope.
+    #
+    # Built before app.run() the status item was returned happily, reported a
+    # live button, logged "menu bar item created" — and never appeared. The
+    # window list gave it away: the app owned only its two panel windows and
+    # nothing at the menu bar layer, so the item existed in Python and was
+    # never attached to the bar. NSStatusBar has no bar to add to until the
+    # application has finished launching.
+    #
+    # The module-level reference matters too: pyobjc will collect a controller
+    # whose only referrer is a local, and the item goes with it.
     controller = MenuBarController.alloc().initWithOverlay_onQuit_(overlay, on_quit)
+    global _MENU_BAR
+    _MENU_BAR = controller
     # Keep the menu tick honest when move/resize times out on its own.
     overlay._on_interactive_change = controller.refresh
     # §17. Called on the main thread from overlay.tick() with each snapshot,
@@ -308,6 +326,18 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     signal.signal(signal.SIGINT, lambda *_: app.terminate_(None))
+    # Re-attach once the run loop is up. Creating the item during startup is
+    # not always enough — see the note above — so this reasserts it after the
+    # application has genuinely finished launching, and says whether it worked.
+    def attach_menu_bar(_timer) -> None:
+        try:
+            controller.reattach()
+        except Exception:
+            log.exception("could not attach the menu bar item")
+
+    Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+        0.5, False, attach_menu_bar)
+
     app.run()
     return 0
 

@@ -287,6 +287,40 @@ class MenuBarController(AppKit.NSObject):
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._add("  Quit orb", b"quit:")
 
+    @objc.python_method
+    def reattach(self) -> None:
+        """Ensure the item is really in the bar, once the run loop is running.
+
+        Idempotent. If the first attempt attached, this confirms it; if it did
+        not — which is what happens when the item is created before the
+        application finishes launching — this is the one that works.
+        """
+        import AppKit as _AppKit
+
+        visible = False
+        try:
+            visible = self._item is not None and self._item.button() is not None
+        except Exception:
+            visible = False
+
+        if not visible:
+            bar = _AppKit.NSStatusBar.systemStatusBar()
+            self._item = bar.statusItemWithLength_(
+                _AppKit.NSVariableStatusItemLength)
+            self._item.setMenu_(self._menu)
+            log.warning("menu bar item re-created after launch")
+
+        button = self._item.button()
+        if button is not None:
+            button.setTitle_("KAVACH")
+        # Survives the app being asked to hide its status items.
+        try:
+            self._item.setVisible_(True)
+        except Exception:
+            pass
+        log.info("menu bar item attached: %s",
+                 "yes" if button is not None else "NO")
+
     def refresh(self) -> None:
         self._build()
 
