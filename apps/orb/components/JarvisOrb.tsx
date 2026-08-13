@@ -123,6 +123,16 @@ export default function JarvisOrb() {
     };
   }, []);
 
+  // Let the native panel pause rendering while it is hidden. A WebGL canvas
+  // at zero opacity still renders every frame, and the panel is invisible for
+  // most of its life — this was a constant CPU cost for pixels nobody sees.
+  useEffect(() => {
+    if (!overlayMode) return;
+    const w = window as unknown as { __kavachSetRendering?: (on: boolean) => void };
+    w.__kavachSetRendering = (on: boolean) => sceneRef.current?.setRendering(on);
+    return () => { delete w.__kavachSetRendering; };
+  }, [overlayMode]);
+
   // The orb is a view of the snapshot — the scene never owns agent state.
   // Driving it through refs rather than React props keeps this off the
   // render path; these fire at animation rate.

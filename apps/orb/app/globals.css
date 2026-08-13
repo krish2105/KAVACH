@@ -4,18 +4,18 @@
    both together or the HUD and the orb will drift apart.
    ─────────────────────────────────────────────────────────── */
 :root {
-  --kv-hot: #dbf6ff;
-  --kv-bright: #62e0ff;
-  --kv-mid: #1f9fd0;
-  --kv-dim: #0e5a78;
-  --kv-faint: #07344a;
+  --kv-hot: #ffcc66;
+  --kv-bright: #ffaa30;
+  --kv-mid: #dd7700;
+  --kv-dim: #884400;
+  --kv-faint: #553300;
   --kv-danger: #ff6b6b;
   --kv-ok: #5affc8;
   --kv-warn: #ffd166;
 
-  --kv-ink: #030b10;
+  --kv-ink: #0a0500;
   --kv-glass: rgba(6, 20, 28, 0.5);
-  --kv-glass-edge: rgba(98, 224, 255, 0.22);
+  --kv-glass-edge: rgba(255, 170, 48, 0.22);
 
   --kv-blur: 14px;
   --kv-radius: 10px;
@@ -117,8 +117,8 @@ body {
   min-width: 44px;
   height: 44px;
   padding: 0 12px;
-  background: rgba(4, 14, 20, 0.55);
-  border: 1px solid rgba(98, 224, 255, 0.45);
+  background: rgba(20, 10, 0, 0.55);
+  border: 1px solid rgba(255, 170, 48, 0.45);
   border-radius: 4px;
   color: var(--kv-bright);
   font-family: "Courier New", monospace;
@@ -127,8 +127,8 @@ body {
   letter-spacing: 0.08em;
   cursor: pointer;
   backdrop-filter: blur(2px);
-  text-shadow: 0 0 6px rgba(98, 224, 255, 0.7);
-  box-shadow: 0 0 12px rgba(31, 159, 208, 0.12) inset;
+  text-shadow: 0 0 6px rgba(255, 170, 48, 0.7);
+  box-shadow: 0 0 12px rgba(255, 140, 20, 0.12) inset;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
@@ -136,19 +136,19 @@ body {
 }
 
 .hud-btn:hover {
-  background: rgba(10, 34, 46, 0.7);
-  border-color: rgba(219, 246, 255, 0.9);
+  background: rgba(60, 30, 0, 0.7);
+  border-color: rgba(255, 200, 100, 0.9);
   box-shadow:
-    0 0 14px rgba(31, 159, 208, 0.35),
-    0 0 12px rgba(31, 159, 208, 0.2) inset;
+    0 0 14px rgba(255, 140, 20, 0.35),
+    0 0 12px rgba(255, 140, 20, 0.2) inset;
 }
 
 .hud-btn:active {
-  background: rgba(14, 48, 64, 0.8);
+  background: rgba(90, 45, 0, 0.8);
 }
 
 .hud-btn[aria-pressed="true"] {
-  background: rgba(18, 60, 80, 0.6);
+  background: rgba(120, 60, 0, 0.6);
   border-color: var(--kv-hot);
   color: var(--kv-hot);
 }
@@ -165,14 +165,14 @@ body {
   line-height: 1.7;
   letter-spacing: 0.1em;
   opacity: 0.55;
-  text-shadow: 0 0 8px rgba(98, 224, 255, 0.6);
+  text-shadow: 0 0 8px rgba(255, 170, 48, 0.6);
   pointer-events: none;
 }
 
 .hud-hint .key {
   display: inline-block;
   padding: 0 4px;
-  border: 1px solid rgba(98, 224, 255, 0.5);
+  border: 1px solid rgba(255, 170, 48, 0.5);
   border-radius: 3px;
   margin-right: 4px;
   font-size: 10px;
@@ -183,7 +183,7 @@ body {
   left: 24px;
   font-size: 13px;
   letter-spacing: 0.35em;
-  text-shadow: 0 0 10px rgba(98, 224, 255, 0.8);
+  text-shadow: 0 0 10px rgba(255, 170, 48, 0.8);
   pointer-events: none;
 }
 
@@ -193,7 +193,7 @@ body {
   margin-top: 6px;
   width: 120px;
   height: 1px;
-  background: linear-gradient(to right, rgba(98, 224, 255, 0.8), transparent);
+  background: linear-gradient(to right, rgba(255, 170, 48, 0.8), transparent);
 }
 
 .hud-error {
@@ -209,11 +209,11 @@ body {
   width: 208px;
   height: 156px;
   display: none;
-  border: 1px solid rgba(98, 224, 255, 0.45);
+  border: 1px solid rgba(255, 170, 48, 0.45);
   border-radius: 4px;
   overflow: hidden;
-  background: #030b10;
-  box-shadow: 0 0 16px rgba(31, 159, 208, 0.15);
+  background: #0a0500;
+  box-shadow: 0 0 16px rgba(255, 140, 20, 0.15);
 }
 
 .camera-panel.visible {
@@ -250,8 +250,8 @@ body {
   font-size: 10px;
   letter-spacing: 0.15em;
   color: var(--kv-hot);
-  background: rgba(3, 11, 16, 0.65);
-  text-shadow: 0 0 6px rgba(98, 224, 255, 0.8);
+  background: rgba(10, 5, 0, 0.65);
+  text-shadow: 0 0 6px rgba(255, 170, 48, 0.8);
 }
 
 @media (max-width: 600px) {
@@ -276,7 +276,7 @@ body {
   font-size: clamp(0.9rem, 1.4vw, 1.15rem);
   letter-spacing: 0.42em;
   color: var(--kv-hot);
-  text-shadow: 0 0 14px rgba(98, 224, 255, 0.75);
+  text-shadow: 0 0 14px rgba(255, 170, 48, 0.75);
 }
 .title-sub {
   font-size: 0.6rem;
@@ -321,7 +321,7 @@ body {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   padding-bottom: 0.35rem;
-  border-bottom: 1px solid rgba(98, 224, 255, 0.14);
+  border-bottom: 1px solid rgba(255, 170, 48, 0.14);
 }
 .panel-title {
   font-size: 0.58rem;
@@ -398,7 +398,7 @@ body {
 .confidence svg { transform: rotate(-90deg); }
 .conf-track {
   fill: none;
-  stroke: rgba(98, 224, 255, 0.13);
+  stroke: rgba(255, 170, 48, 0.13);
   stroke-width: 2.5;
 }
 .conf-value {
@@ -406,7 +406,7 @@ body {
   stroke: var(--kv-bright);
   stroke-width: 2.5;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 4px rgba(98, 224, 255, 0.7));
+  filter: drop-shadow(0 0 4px rgba(255, 170, 48, 0.7));
 }
 .conf-num {
   position: absolute;
@@ -433,7 +433,7 @@ body {
   letter-spacing: 0.12em;
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  border: 1px solid rgba(98, 224, 255, 0.2);
+  border: 1px solid rgba(255, 170, 48, 0.2);
   color: var(--kv-mid);
 }
 .route-local { color: var(--kv-ok); border-color: rgba(90, 255, 200, 0.4); }
@@ -443,7 +443,7 @@ body {
   flex: 1;
   height: 3px;
   border-radius: 2px;
-  background: rgba(98, 224, 255, 0.12);
+  background: rgba(255, 170, 48, 0.12);
   overflow: hidden;
 }
 .level-fill {
@@ -466,7 +466,7 @@ body {
   font-family: inherit;
   font-size: 0.58rem;
   padding: 0.05rem 0.3rem;
-  border: 1px solid rgba(98, 224, 255, 0.3);
+  border: 1px solid rgba(255, 170, 48, 0.3);
   border-radius: 3px;
   color: var(--kv-mid);
 }
@@ -474,7 +474,7 @@ body {
   font-size: 0.76rem;
   line-height: 1.55;
   color: var(--kv-hot);
-  text-shadow: 0 0 10px rgba(98, 224, 255, 0.28);
+  text-shadow: 0 0 10px rgba(255, 170, 48, 0.28);
 }
 /* Partial STT output is dimmer than finalised text — you can see the
    difference between what it heard and what it has committed to. */
@@ -527,7 +527,7 @@ body {
   padding: 0.35rem 0.4rem;
   border-radius: 6px;
   border-left: 2px solid var(--kv-dim);
-  background: rgba(98, 224, 255, 0.04);
+  background: rgba(255, 170, 48, 0.04);
 }
 .toolcall-glyph { font-size: 0.7rem; color: var(--kv-mid); line-height: 1.3; }
 .toolcall-body { min-width: 0; }
@@ -574,7 +574,7 @@ body {
 .packet-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .packet-wire {
   fill: none;
-  stroke: rgba(98, 224, 255, 0.28);
+  stroke: rgba(255, 170, 48, 0.28);
   stroke-width: 1;
   stroke-dasharray: 3 5;
 }
@@ -587,7 +587,7 @@ body {
   margin: -4.5px 0 0 -4.5px;
   border-radius: 50%;
   background: var(--kv-hot);
-  box-shadow: 0 0 12px 3px rgba(98, 224, 255, 0.85);
+  box-shadow: 0 0 12px 3px rgba(255, 170, 48, 0.85);
   offset-rotate: 0deg;
 }
 .packet-ok { background: var(--kv-ok); box-shadow: 0 0 12px 3px rgba(90, 255, 200, 0.8); }
@@ -632,7 +632,7 @@ body {
   .glass {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: rgba(3, 11, 16, 0.92);
+    background: rgba(10, 5, 0, 0.92);
   }
 }
 
@@ -642,7 +642,7 @@ body {
 .brain-badge {
   margin-left: 0.6rem;
   padding: 0.05rem 0.35rem;
-  border: 1px solid rgba(98, 224, 255, 0.28);
+  border: 1px solid rgba(255, 170, 48, 0.28);
   border-radius: 3px;
   font-size: 0.5rem;
   letter-spacing: 0.14em;
@@ -676,7 +676,7 @@ body {
   pointer-events: none;
 }
 .gesture-hold svg { transform: rotate(-90deg); }
-.gh-track { fill: none; stroke: rgba(98, 224, 255, 0.15); stroke-width: 3; }
+.gh-track { fill: none; stroke: rgba(255, 170, 48, 0.15); stroke-width: 3; }
 .gh-fill {
   fill: none;
   stroke: var(--kv-ok);
@@ -757,7 +757,7 @@ body {
   letter-spacing: 0.16em;
   padding: 0.2rem 0.6rem;
   /* Legible against a bright wallpaper as well as a dark one. */
-  background: rgba(3, 11, 16, 0.72);
+  background: rgba(10, 5, 0, 0.72);
   backdrop-filter: blur(8px);
   border-radius: 999px;
 }
@@ -769,7 +769,7 @@ body {
   font-size: 0.6rem;
   line-height: 1.35;
   color: var(--kv-hot);
-  background: rgba(3, 11, 16, 0.72);
+  background: rgba(10, 5, 0, 0.72);
   backdrop-filter: blur(8px);
   border-radius: 0.5rem;
   padding: 0.3rem 0.55rem;
@@ -778,12 +778,12 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  text-shadow: 0 0 6px rgba(98, 224, 255, 0.5);
+  text-shadow: 0 0 6px rgba(255, 170, 48, 0.5);
 }
 
 .kv-overlay .kill-badge.is-disarmed {
   font-size: 0.55rem;
-  background: rgba(3, 11, 16, 0.8);
+  background: rgba(10, 5, 0, 0.8);
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
 }
@@ -794,7 +794,7 @@ body {
   letter-spacing: 0.14em;
   padding: 0.12rem 0.45rem;
   border-radius: 999px;
-  background: rgba(3, 11, 16, 0.72);
+  background: rgba(10, 5, 0, 0.72);
   backdrop-filter: blur(8px);
   color: var(--kv-bright);
   display: inline-flex;
@@ -813,7 +813,7 @@ body {
   letter-spacing: 0.06em;
   padding: 0.16rem 0.45rem;
   border-radius: 0.4rem;
-  background: rgba(3, 11, 16, 0.75);
+  background: rgba(10, 5, 0, 0.75);
   backdrop-filter: blur(8px);
   color: var(--kv-bright);
   white-space: nowrap;

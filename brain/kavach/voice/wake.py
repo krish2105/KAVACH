@@ -39,7 +39,17 @@ DEFAULT_THRESHOLD = 0.7
 #: for the classifier). Shorter chunks that lack enough data return zero
 #: scores." Feeding it 80 ms frames silently yields 0.0 forever.
 WINDOW_SAMPLES = 32000  # 2.0 s — one complete scoring window
-HOP_SAMPLES = 1280      # 80 ms between evaluations
+#: How often the window is re-scored.
+#:
+#: Every evaluation runs the whole pipeline over 2 s of audio: mel, then ~16
+#: embedding passes, then the classifier. At an 80 ms hop that is 12.5 full
+#: passes a second and it measured **474% CPU** on an idle machine — about
+#: five cores, burning battery to listen to nothing. The frame-based version
+#: this replaced was cheap only because it was broken.
+#:
+#: 320 ms costs a quarter as much. The wake word spans ~700 ms, so it still
+#: lands inside two or three windows and detection is unaffected.
+HOP_SAMPLES = 5120      # 320 ms between evaluations
 
 
 def trained_threshold(model_path: Path | str, fallback: float = DEFAULT_THRESHOLD) -> float:
@@ -78,7 +88,7 @@ class WakeWordDetector:
         self,
         model_path: Path | str | None = None,
         threshold: float | None = None,
-        refractory_hops: int = 12,
+        refractory_hops: int = 3,
         min_rms: float = 0.008,
     ):
         self.model_path = Path(model_path) if model_path else None

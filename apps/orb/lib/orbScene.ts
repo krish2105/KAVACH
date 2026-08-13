@@ -43,6 +43,15 @@ export interface OrbSceneApi {
    * to escalate to Claude.
    */
   setConfidence(value: number): void;
+  /**
+   * Stop or resume rendering entirely.
+   *
+   * The floating panel spends most of its life at zero opacity, but a hidden
+   * WebGL canvas still renders every frame — measured here as a constant
+   * WebKit CPU cost for pixels nobody can see. Pausing while hidden is the
+   * single biggest power saving in the Presence layer.
+   */
+  setRendering(enabled: boolean): void;
   /** Run the suit-up sequence: shells assemble, core ignites last. */
   playBoot(): Promise<void>;
   /** Current state, for callers that need to read back. */
@@ -98,11 +107,9 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setClearColor(0x000000, 0);
   renderer.setSize(width, height);
-    // The orb is dense wireframe: thin lines alias badly when the canvas is
-  // small, which is exactly the floating-panel case. Allow up to 3x rather
-  // than the usual 2x ceiling — the panel is a few hundred points, so the
-  // extra pixels are cheap, and it is the difference between crisp and mushy.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+  // 2x, not 3x. 3x is 2.25 times the pixels every frame and measurably warms
+  // the machine for a difference only visible side by side.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.8;
   container.appendChild(renderer.domElement);
@@ -151,11 +158,9 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
         // here overrode the renderer's zero clear-alpha, so a "transparent"
         // floating panel was still a solid black square.
         float alpha = max(max(cr.a, cg.a), cb.a);
-        // The fork attenuated blue (b * 0.6) and graded towards amber, which
-        // suited its orange orb. Against KAVACH's cyan it cancelled the blue
-        // channel and read as green. Cooled to match the palette instead.
-        gl_FragColor = vec4(cr.r * 0.85, cg.g * 1.0, cb.b * 1.1, alpha) * flicker;
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.75, 1.02, 1.2), 0.3);
+        gl_FragColor = vec4(cr.r, cg.g * 1.05, cb.b * 0.6, alpha) * flicker;
+        // Warm grade, matching the gold palette.
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(1.15, 0.85, 0.55), 0.3);
       }
     `,
   };
@@ -172,14 +177,13 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   controls.enablePan = false;
 
   // ——— COLORS ———
-  // KAVACH (कवच, "armor") reads cold: steel and cyan rather than the fork's
-  // amber. Values step in luminance, not just hue, so the additive blending
-  // still separates the layers when many lines overlap near the core.
-  const C_BRIGHT = 0x62e0ff;
-  const C_MID = 0x1f9fd0;
-  const C_DIM = 0x0e5a78;
-  const C_FAINT = 0x07344a;
-  const C_HOT = 0xdbf6ff;
+  // Gold. Values step in luminance, not just hue, so additive blending still
+  // separates the layers where many lines overlap near the core.
+  const C_BRIGHT = 0xffaa30;
+  const C_MID = 0xdd7700;
+  const C_DIM = 0x884400;
+  const C_FAINT = 0x553300;
+  const C_HOT = 0xffcc66;
 
   // ——— ORB ROOT ———
   // Every part of the orb (shells, core, orbiting debris, text, dust, rings)
@@ -930,8 +934,21 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   let rafId = 0;
   let disposed = false;
 
+  let renderingEnabled = true;
+
+  function setRendering(enabled: boolean) {
+    if (enabled === renderingEnabled) return;
+    renderingEnabled = enabled;
+    if (enabled) {
+      // getDelta() has been accumulating while paused; drop that interval so
+      // the orb resumes where it left off instead of jumping.
+      clock.getDelta();
+      animate();
+    }
+  }
+
   function animate() {
-    if (disposed) return;
+    if (disposed || !renderingEnabled) return;
     rafId = requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta()); // clamp: tab-switch spikes
     const t = clock.getElapsedTime();
@@ -1171,6 +1188,7 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     setState,
     setAmplitude,
     setConfidence,
+    setRendering,
     playBoot,
     getState: () => drive.state,
     dispose,

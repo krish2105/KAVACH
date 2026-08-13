@@ -200,6 +200,11 @@ class OverlayWindow:
             Foundation.NSURL.URLWithString_(self.url), 4, 30.0
         )
         self.web.loadRequest_(request)
+        # The panel starts invisible, so the page should start paused. Give the
+        # bridge a moment to exist before calling it.
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            5.0, False, lambda _t: (None if self._visible else self._set_page_rendering(False))
+        )
         self.panel.setContentView_(self.web)
         self.panel.orderFrontRegardless()
 
@@ -212,11 +217,22 @@ class OverlayWindow:
         self.panel.animator().setAlphaValue_(to)
         AppKit.NSAnimationContext.endGrouping()
 
+    def _set_page_rendering(self, enabled: bool) -> None:
+        """Ask the page to stop or resume its WebGL loop.
+
+        A canvas at zero opacity still renders every frame. The panel is hidden
+        for most of its life, so this is the difference between a presence that
+        costs nothing while idle and one that quietly drains the battery.
+        """
+        js = f"window.__kavachSetRendering && window.__kavachSetRendering({str(enabled).lower()})"
+        self.web.evaluateJavaScript_completionHandler_(js, None)
+
     def show(self) -> None:
         self._hide_at = None
         if self._visible:
             return
         self._visible = True
+        self._set_page_rendering(True)
         self.panel.orderFrontRegardless()
         self._fade(1.0)
         log.debug("overlay shown")
@@ -226,6 +242,10 @@ class OverlayWindow:
             return
         self._visible = False
         self._fade(0.0, 0.5)
+        # Let the fade finish before the last frame stops.
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            0.6, False, lambda _t: self._set_page_rendering(False)
+        )
         log.debug("overlay hidden")
 
     def apply_state(self, state: str) -> None:
