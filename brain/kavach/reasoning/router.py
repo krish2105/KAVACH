@@ -112,9 +112,19 @@ def looks_destructive(utterance: str) -> bool:
 
 # ——— simple intents: no reasoning required ———
 _SIMPLE_PATTERNS = [
-    (r"\bwhat('?s| is) the (time|date)\b", "clock"),
-    (r"\bwhat time is it\b", "clock"),
+    # The clock must never reach a language model. A model with no clock does
+    # not decline — it guesses, and KAVACH once answered "twenty past four" at
+    # half past six because a transposed "what time it is" missed the pattern
+    # below and fell through. Deliberately generous about phrasing for that
+    # reason, and still anchored on "the time"/"time is" so it cannot swallow
+    # "how much time do I have".
+    (r"\bwhat('?s| is)? ?the (time|date)\b", "clock"),
+    (r"\bwhat time (is it|it is)\b", "clock"),
     (r"\bwhat('?s| is) today('?s)? date\b", "clock"),
+    (r"\btell me the time\b", "clock"),
+    (r"\b(do you have|got) the time\b", "clock"),
+    (r"^\s*time\s*(please|now)?\s*[?.!]?\s*$", "clock"),
+    (r"\bwhat is the time right now\b", "clock"),
     (r"\b(open|launch|start|quit|close)\s+\w+", "app control"),
     (r"\b(volume|sound)\s+(up|down)\b", "system control"),
     (r"\b(mute|unmute)\b", "system control"),

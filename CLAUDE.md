@@ -207,6 +207,37 @@ other side, driven by the same snapshot stream the menu bar uses. The unit
 tests missed this for a while because they attached a *fake* tracker in-process
 — green tests, live camera.
 
+### Two defaults for the local model is one too many
+
+`local.DEFAULT_MODEL` is the **only** place the Ollama model is named.
+`voice/__main__.py` used to hardcode `--local-model default="qwen3:4b"`, which
+silently overrode the switch to `llama3.2:3b` — so the running assistant kept
+using the model that **narrates its reasoning as prose**, and KAVACH spoke 581
+characters of "Hmm, the user is asking..." out loud. A test greps
+`voice/__main__.py` for a model name so the two cannot diverge again.
+
+### The clock must never reach a language model
+
+A model with no clock does not decline — it guesses. KAVACH answered "twenty
+past four" at 8 p.m. because a transposed "what time it is" missed the regex
+and fell through. The patterns in `router.py` are deliberately generous about
+phrasing and still anchored on "the time"/"time is" so they cannot swallow
+"how much time do I have". Tests cover nine phrasings and three near-misses.
+
+### Camera / gestures — why they do not run
+
+`camera_status()` returns 0 (not determined) and `request_camera()` is refused
+in ~100 ms. Not a bug in `permission.py`: macOS **will not show a camera prompt
+to a process with no app bundle**, and the overlay runs as a bare Python
+process — `bundleIdentifier` is None and `NSCameraUsageDescription` is missing.
+
+Fixing this means shipping the overlay inside a minimal `.app` (a directory
+with an `Info.plist` carrying `NSCameraUsageDescription`). No Xcode needed.
+Until then gestures are correctly off, and the code path is otherwise complete:
+MediaPipe HandLandmarker in `gestures/tracker.py`, six gestures in
+`recognise.py` (confirm, deny, stop, point, peace, none), fed to the brain over
+the bridge.
+
 ### Language detection — how the reply language is chosen
 
 `SpeechToText.transcribe()` **must** pass `language="auto"`. Left unset,

@@ -240,3 +240,74 @@ def test_screen_wording_does_not_hijack_unrelated_requests(router):
     """'open Safari' must stay a simple local intent even though a screen is
     involved in the abstract."""
     assert router.route("open Safari").route is Route.LOCAL
+
+
+# ═══ the clock must never reach a language model ═══
+#
+# Found from a screenshot: KAVACH answered "What time it is?" by narrating its
+# own reasoning for 581 characters and then inventing "twenty past four" at
+# half past six in the evening.
+#
+# Two faults met. The transposed word order missed the clock pattern, so the
+# turn fell through to the model — and a model with no clock will guess rather
+# than decline. A wrong time delivered confidently is worse than no answer, and
+# the deterministic handler exists precisely so this question never depends on
+# a model's mood.
+
+import pytest
+
+
+@pytest.mark.parametrize("utterance", [
+    "what time is it",
+    "what time it is",            # transposed — the one that broke
+    "What time it is?",
+    "whats the time",
+    "what's the time",
+    "tell me the time",
+    "do you have the time",
+    "time please",
+    "what is the time right now",
+])
+def test_every_way_of_asking_the_time_hits_the_clock_handler(utterance):
+    from kavach.reasoning.router import Router
+
+    decision = Router().route(utterance)
+
+    assert decision.intent == "clock", (
+        f"{utterance!r} fell through to a model, which will invent a time"
+    )
+
+
+@pytest.mark.parametrize("utterance", [
+    "how much time do I have before the meeting",
+    "what did I do at the time of the incident",
+    "book me time with Sarah",
+])
+def test_the_clock_does_not_swallow_unrelated_questions(utterance):
+    """The pattern has to be tight. Answering "how much time do I have" with
+    the wall clock would be worse than routing it to a model."""
+    from kavach.reasoning.router import Router
+
+    assert Router().route(utterance).intent != "clock"
+
+
+def test_the_cli_does_not_override_the_chosen_local_model():
+    """The reasoning leak, and why it came back.
+
+    local.py was switched to llama3.2:3b precisely because qwen3:4b narrates
+    its thinking as prose — "Hmm, the user is asking..." — and KAVACH then
+    speaks that aloud. But voice/__main__.py hardcoded `--local-model
+    default="qwen3:4b"`, so the running assistant never used the fix. One
+    source of truth, asserted here so a default cannot quietly diverge again.
+    """
+    import argparse
+    import inspect
+
+    from kavach.reasoning.local import DEFAULT_MODEL
+    from kavach.voice import __main__ as entry
+
+    source = inspect.getsource(entry)
+    assert '"qwen3' not in source and "'qwen3" not in source, (
+        "voice/__main__.py names a model directly; it must defer to "
+        f"local.DEFAULT_MODEL ({DEFAULT_MODEL})"
+    )

@@ -23,6 +23,7 @@ from ..killswitch.core import KillSwitch
 from ..killswitch.ipc import DEFAULT_SOCKET_PATH, serve as serve_killswitch
 from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
+from ..reasoning.local import DEFAULT_MODEL as LOCAL_DEFAULT_MODEL
 from ..reasoning.local import LocalModel
 from ..hands.confirm import VoiceConfirmer
 from ..api.confirm import ApiConfirmer, EitherConfirmer, PendingRegistry
@@ -103,7 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bench-rounds", type=int, default=3)
     parser.add_argument("--no-reasoning", action="store_true",
                         help="Phase 2 behaviour: echo instead of routing")
-    parser.add_argument("--local-model", default="qwen3:4b")
+    # No default here. local.DEFAULT_MODEL is the single source of truth:
+    # naming a model in both places is how the running assistant kept using
+    # qwen3:4b — which narrates its reasoning as prose and gets it spoken
+    # aloud — long after local.py had been switched to llama3.2:3b.
+    parser.add_argument("--local-model", default=None,
+                        help=f"Ollama model for simple intents "
+                             f"(default: {LOCAL_DEFAULT_MODEL})")
     parser.add_argument("--no-tools", action="store_true",
                         help="Phase 3 behaviour: reasoning without MCP tools")
     args = parser.parse_args(argv)
@@ -117,10 +124,11 @@ def main(argv: list[str] | None = None) -> int:
 
     local = agent = router = None
     if not args.no_reasoning:
-        local = LocalModel(args.local_model)
+        local = LocalModel(args.local_model or LOCAL_DEFAULT_MODEL)
         if not local.available():
-            print(f'⚠  Ollama has no {args.local_model}; simple intents will\n'
-                  f'   fall back to Claude. Fix: ollama pull {args.local_model}')
+            wanted = args.local_model or LOCAL_DEFAULT_MODEL
+            print(f'⚠  Ollama has no {wanted}; simple intents will\n'
+                  f'   fall back to Claude. Fix: ollama pull {wanted}')
             local = None
         router = Router(local_client=local)
         # The gate is built first and the agent is built around it: an
