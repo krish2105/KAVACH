@@ -251,8 +251,28 @@ none of them is obvious:
 The bundle is **ad-hoc signed** (`codesign --sign -`) — no certificate, no
 Apple account — and `build()` refuses to return a bundle that does not verify.
 
-The macOS prompt appears once. Until it is allowed, gestures stay off and the
-code path is otherwise complete:
+**It must be launched by Launch Services — `open -a ~/Applications/KAVACH.app`.**
+This is the part that wasted the most time. TCC attributes a request to the
+*responsible process*, and a bundle started from a shell inherits the shell's
+identity, so the app's own grant is ignored and the request dies in ~100 ms.
+Launched with `open -a`, the bundle is responsible for itself and the same
+grant is honoured — verified: the request took **4.2 s** and returned
+`camera granted`, versus 101 ms and refused from a terminal.
+
+Two traps found while proving it, both silent:
+
+* **`PYTHONPATH` must include the project root.** `kavach` is the source tree,
+  not a site-packages install, so it resolves from a shell only because the cwd
+  is on `sys.path`. Launch Services starts at `/` and the app died with
+  `No module named 'kavach'`.
+* **Launch Services discards stdout and stderr**, so that failure left no trace
+  and looked exactly like the app starting and doing nothing. The launcher now
+  redirects to `~/.kavach/logs/overlay.out` — read that first when the app
+  "does not start".
+
+Confirmed working: `kavach.gestures.tracker: hand tracking live`, MediaPipe on
+the M4 Pro GPU. Until it is allowed, gestures stay off and the code path is
+otherwise complete:
 MediaPipe HandLandmarker in `gestures/tracker.py`, six gestures in
 `recognise.py` (confirm, deny, stop, point, peace, none), fed to the brain over
 the bridge.

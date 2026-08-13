@@ -85,8 +85,22 @@ def _base_python_home() -> Path:
     raise RuntimeError(f"no `home` in {cfg} — build from inside the venv.")
 
 
+def _project_root() -> Path:
+    """Where the `kavach` package actually lives.
+
+    It is the project source, not something in site-packages, so it resolves
+    from a shell only because the working directory happens to be on sys.path.
+    Launch Services starts at `/`, and the app died with `No module named
+    'kavach'` before writing a line — invisibly, because it also discards
+    stderr.
+    """
+    import kavach
+
+    return Path(kavach.__file__).resolve().parent.parent
+
+
 def _launcher_script(module: str, site_packages: Path,
-                     python_home: Path) -> str:
+                     python_home: Path, project: Path) -> str:
     """The bundle's executable: exec the interpreter beside it.
 
     A shell script rather than the interpreter directly, because `open
@@ -110,9 +124,17 @@ def _launcher_script(module: str, site_packages: Path,
         "# it. PYTHONPATH is this project's packages.\n"
         'here="$(cd "$(dirname "$0")" && pwd)"\n'
         f'PYTHONHOME="{python_home}"\n'
-        f'PYTHONPATH="{site_packages}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
+        f'PYTHONPATH="{project}:{site_packages}"'
+        '"${PYTHONPATH:+:$PYTHONPATH}"\n'
         "export PYTHONHOME PYTHONPATH\n"
-        f'exec "$here/python3" -m {module} "$@"\n'
+        "\n"
+        "# Launch Services discards stdout and stderr, so a failure under\n"
+        "# `open -a` leaves no trace at all — which is indistinguishable from\n"
+        "# the app starting and quietly doing nothing.\n"
+        'logdir="$HOME/.kavach/logs"\n'
+        'mkdir -p "$logdir"\n'
+        f'exec "$here/python3" -m {module} "$@" '
+        '>>"$logdir/overlay.out" 2>&1\n'
     )
 
 
@@ -149,7 +171,8 @@ def build(location: Path | None = None, module: str = "kavach.presence") -> Path
 
     launcher = macos / APP_NAME
     launcher.write_text(
-        _launcher_script(module, site_packages, _base_python_home()))
+        _launcher_script(module, site_packages, _base_python_home(),
+                         _project_root()))
     launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP
                    | stat.S_IXOTH)
 

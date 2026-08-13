@@ -34,6 +34,7 @@ import argparse
 import logging
 import signal
 import sys
+from pathlib import Path
 
 import AppKit
 import Foundation
@@ -81,7 +82,14 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    # Also to a file. Launched through KAVACH.app by Launch Services — which
+    # is what makes the bundle its own responsible process for the camera —
+    # stdout goes nowhere, and "did it get the camera?" then has no answer.
+    _log_path = Path.home() / ".kavach" / "logs" / "overlay.log"
+    _log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
+        handlers=[logging.StreamHandler(),
+                  logging.FileHandler(_log_path)],
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
