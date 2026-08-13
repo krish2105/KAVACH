@@ -151,6 +151,12 @@ _COMPLEX_PATTERNS = [
     (r"\bon my (screen|display)\b", "screen query"),
     (r"\bfix\b", "open-ended"),
     (r"\breview\b", "judgement"),
+    # Recall needs the memory store plus judgement about what is relevant.
+    (r"\bwhat did (i|we|you) (say|decide|discuss)\b", "recall"),
+    (r"\bremind me (what|about|of)\b", "recall"),
+    (r"\bdo you remember\b", "recall"),
+    (r"\bin my (notes|documents|files)\b", "recall"),
+    (r"\bsearch my (notes|documents|files)\b", "recall"),
 ]
 _COMPLEX_RE = [(re.compile(p, re.I), label) for p, label in _COMPLEX_PATTERNS]
 

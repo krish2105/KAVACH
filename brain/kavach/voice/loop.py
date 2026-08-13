@@ -110,6 +110,7 @@ class VoiceLoop:
         router: Router | None = None,
         local=None,
         agent=None,
+        memory=None,
     ):
         self.ks = kill_switch
         self.publish_fn = publish or (lambda _: None)
@@ -125,6 +126,9 @@ class VoiceLoop:
         self.router = router
         self.local = local
         self.agent = agent
+        # Optional: with no store the loop simply has no memory, rather
+        # than failing. Turns are recorded only when one is wired.
+        self.memory = memory
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -378,6 +382,17 @@ class VoiceLoop:
         }
         self.turns.append(record)
         self.ks.log.append("voice.turn", **record)
+
+        # Remember the turn so later questions can refer back to it.
+        # Failure here must never break a turn that already succeeded.
+        if self.memory is not None:
+            try:
+                self.memory.remember(
+                    f"User said: {result.text}\nKAVACH replied: {reply}",
+                    collection="turns",
+                )
+            except Exception:
+                log.debug("could not store turn in memory", exc_info=True)
         log.info(
             "turn: stt=%dms respond=%dms tts=%dms → perceived %dms",
             record["stt_ms"], record["respond_ms"], record["tts_ms"],
