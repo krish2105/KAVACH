@@ -9,6 +9,7 @@ import {
   type KavachSnapshot,
   type KavachSource,
 } from "@/lib/kavachState";
+import { createLiveSource } from "@/lib/liveSource";
 import { StatusPanel } from "@/components/hud/StatusPanel";
 import { TranscriptPanel } from "@/components/hud/TranscriptPanel";
 import { ToolCallLog } from "@/components/hud/ToolCallLog";
@@ -35,6 +36,8 @@ export default function JarvisOrb() {
   const [status, setStatus] = useState<TrackerStatus>({ hands: 0, mode: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<KavachSnapshot>(INITIAL_SNAPSHOT);
+  const [brainOnline, setBrainOnline] = useState(false);
+  const [usingMock, setUsingMock] = useState(false);
 
   // The keydown listener is registered once, so it would otherwise close over
   // the first snapshot forever.
@@ -49,23 +52,49 @@ export default function JarvisOrb() {
     const scene = createOrbScene(container);
     sceneRef.current = scene;
 
-    // Suit-up sequence first (§4 #1); the mock Brain only starts once the
-    // shells have assembled and the core has ignited.
-    const source = createMockSource();
-    sourceRef.current = source;
+    // Prefer the real Brain (brain/kavach/bridge). If it isn't running, fall
+    // back to the scripted mock after a grace period so the orb still
+    // demonstrates itself — but label it, because a demo that looks live and
+    // isn't is worse than no demo.
+    const live = createLiveSource({
+      onConnectionChange: (connected) => {
+        setBrainOnline(connected);
+        if (connected) {
+          window.clearTimeout(fallbackTimer);
+          mock?.stop();
+          mock = null;
+          unsubscribeMock?.();
+          unsubscribeMock = undefined;
+          setUsingMock(false);
+        }
+      },
+    });
+    sourceRef.current = live;
 
-    let unsubscribe: (() => void) | undefined;
+    let mock: KavachSource | null = null;
+    let unsubscribeLive: (() => void) | undefined;
+    let unsubscribeMock: (() => void) | undefined;
+    let fallbackTimer = 0;
     let cancelled = false;
 
     void scene.playBoot().then(() => {
       if (cancelled) return;
-      unsubscribe = source.subscribe(setSnapshot);
+      unsubscribeLive = live.subscribe(setSnapshot);
+      fallbackTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        mock = createMockSource();
+        unsubscribeMock = mock.subscribe(setSnapshot);
+        setUsingMock(true);
+      }, 2000);
     });
 
     return () => {
       cancelled = true;
-      unsubscribe?.();
-      source.stop();
+      window.clearTimeout(fallbackTimer);
+      unsubscribeLive?.();
+      unsubscribeMock?.();
+      mock?.stop();
+      live.stop();
       sourceRef.current = null;
       trackerRef.current?.stop();
       trackerRef.current = null;
@@ -159,17 +188,29 @@ export default function JarvisOrb() {
         case "Escape":
           // §5: an assistant that can't be interrupted feels like a hung
           // process. Cancels the current turn without latching.
-          sourceRef.current?.rearm();
+          sourceRef.current?.interrupt?.();
           break;
         case " ":
-          // Push-to-talk override (§4). Phase 2 wires this to the mic;
-          // for now it just proves the key is claimed and does not scroll.
+          // Push-to-talk override (§4) — held, not toggled.
           e.preventDefault();
+          if (!e.repeat) sourceRef.current?.pushToTalk?.(true);
           break;
       }
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " ") sourceRef.current?.pushToTalk?.(false);
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      // Never leave the mic latched open because the component unmounted
+      // mid-press.
+      sourceRef.current?.pushToTalk?.(false);
+    };
   }, [toggleGestures]);
 
   const cameraOn = camera === "on";
@@ -184,7 +225,21 @@ export default function JarvisOrb() {
 
       <div className="hud hud-title">
         <span className="title-mark">KAVACH</span>
-        <span className="title-sub">कवच · local-first presence</span>
+        <span className="title-sub">
+          कवच · local-first presence
+          <span
+            className={`brain-badge${brainOnline ? " is-online" : usingMock ? " is-mock" : ""}`}
+            title={
+              brainOnline
+                ? "Connected to the Brain over ws://127.0.0.1:8765"
+                : usingMock
+                  ? "Brain not running — this is the scripted demo, not live audio"
+                  : "Connecting to the Brain…"
+            }
+          >
+            {brainOnline ? "BRAIN LIVE" : usingMock ? "DEMO (MOCK)" : "CONNECTING…"}
+          </span>
+        </span>
       </div>
 
       <ToolCallPackets toolCalls={snapshot.toolCalls} targetRef={toolPanelRef} />

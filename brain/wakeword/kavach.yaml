@@ -1,0 +1,39 @@
+# Custom "KAVACH" wake word (livekit-wakeword).
+#
+# Porcupine was the spec's choice (§3) but Picovoice discontinued the free tier
+# on 2026-06-30 with no non-commercial replacement, so the wake word is trained
+# here instead of licensed.
+#
+# Train:  uv run livekit-wakeword run wakeword/kavach.yaml
+# Export lands in output/ as ONNX, which the WakeWordModel runtime loads and
+# which is also openWakeWord-compatible — so the runtime stays swappable.
+
+model_name: kavach
+
+# Both the bare word and the natural "hey" prefix, since people will say both.
+# Devanagari कवच is roughly KUH-VUCH; the spellings below steer the synthetic
+# TTS toward that rather than a flat English "kay-vatch".
+target_phrases:
+  - "kavach"
+  - "hey kavach"
+  - "kuvach"
+
+# Phrases that must NOT trigger. These are the near-misses that matter: words
+# sharing the stressed vowel and the hard -ch ending.
+custom_negative_phrases:
+  - "cover"
+  - "kayak"
+  - "catch"
+  - "the coverage"
+  - "have a"
+  - "car wash"
+  - "cabbage"
+  - "package"
+
+data_dir: ./wakeword/data
+output_dir: ./wakeword/output
+
+# Defaults elsewhere (n_samples 10000, steps 50000, target_fp_per_hour 0.2).
+# A false positive here is cheap — it only starts listening, and every action
+# behind it still passes the allowlist, the confirmation gate and the kill
+# switch. So this is tuned for recall rather than an aggressive FP floor.

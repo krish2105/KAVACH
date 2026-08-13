@@ -32,3 +32,7 @@ models/
 
 # macOS
 .DS_Store
+
+# Wake-word training corpus + checkpoints (multi-GB, regenerable from the YAML)
+brain/wakeword/data/
+brain/wakeword/output/

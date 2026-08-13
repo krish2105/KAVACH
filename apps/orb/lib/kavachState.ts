@@ -50,9 +50,13 @@ export interface KavachSnapshot {
 
 export interface KavachSource {
   subscribe(listener: (snapshot: KavachSnapshot) => void): () => void;
-  /** Latch the kill switch. Phase 4 routes this to the real daemon socket. */
+  /** Latch the kill switch. The live source drives the real Python latch. */
   halt(): void;
   rearm(): void;
+  /** Cancel the current turn without latching (§5 — Esc / spoken "stop"). */
+  interrupt?(): void;
+  /** Push-to-talk override (§4). Only the live source can act on it. */
+  pushToTalk?(pressed: boolean): void;
   stop(): void;
 }
 

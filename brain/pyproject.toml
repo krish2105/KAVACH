@@ -2,7 +2,8 @@
 name = "kavach-brain"
 version = "0.1.0"
 description = "KAVACH Brain layer — kill switch, voice loop, reasoning router"
-requires-python = ">=3.11"
+# Floor is numpy 2.5 (>=3.12); ceiling is kokoro-onnx (<3.14).
+requires-python = ">=3.12,<3.14"
 dependencies = [
     # Global hotkey + menubar panic item. pyobjc over pynput/rumps:
     # rumps' last release was 2022-10, and pynput silently drops ctrl/alt
@@ -10,10 +11,29 @@ dependencies = [
     # kill switch. Both pyobjc frameworks were updated 2026-08-11.
     "pyobjc-framework-Cocoa>=12.2.2",
     "pyobjc-framework-Quartz>=12.2.2",
+
+    # ——— Phase 2: local voice loop ———
+    "numpy>=2.5.2",
+    "sounddevice>=0.5.5",         # mic capture (PortAudio)
+    "pywhispercpp>=1.5.0",        # whisper.cpp + Metal; prebuilt arm64 wheels,
+                                  # so no cmake and no building from source
+    "kokoro-onnx>=0.5.0",         # TTS; bundles espeak via espeakng-loader
+    "websockets>=17.0.1",         # bridge to the orb (Presence layer)
+
+    # Wake word. Porcupine is gone — Picovoice killed the free tier on
+    # 2026-06-30 with no non-commercial replacement.
+    "livekit-wakeword>=0.2.1",
+    # ↓ Undeclared dependencies of livekit-wakeword 0.2.1: its CLI imports all
+    #   three but the package requires none of them, so `livekit-wakeword`
+    #   fails with ModuleNotFoundError out of the box. Pinned here explicitly
+    #   rather than left to chance. Remove once upstream declares them.
+    "typer>=0.27.1",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.13.4",
 ]
 
-# Phase 2-3 deps are deliberately absent until their phase:
-#   claude-agent-sdk, pvporcupine (needs a Picovoice account), kokoro-onnx
+# Phase 3 deps are deliberately absent until their phase:
+#   claude-agent-sdk, ollama
 
 [project.scripts]
 kavach = "kavach.killswitch.cli:main"
@@ -22,6 +42,28 @@ kavach = "kavach.killswitch.cli:main"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.0.0",
+]
+# Only needed to TRAIN a custom wake word, not to run one. Kept out of the
+# default install so the runtime stays light: torch alone dwarfs everything
+# else in this project.
+#   uv sync --group wakeword-training
+wakeword-training = [
+    "torch>=2.13.0",
+    "audiomentations>=0.43.1",
+    "onnx>=1.22.0",
+    # More undeclared livekit-wakeword deps. An AST scan of the package found
+    # 7 third-party imports it never declares; these 4 are the ones the
+    # piper_vits path actually reaches. The others are for paths we don't use:
+    # matplotlib (eval plots), huggingface_hub (voxcpm backend), pyaudio (its
+    # own listener — we use sounddevice).
+    # torchaudio's numbering lags torch (2.11 is latest against torch 2.13).
+    # It declares no torch pin of its own, so this is a version skew we accept
+    # rather than downgrading torch.
+    "torchaudio>=2.11.0",   # Piper VITS synthesis
+    "nltk>=3.9",            # phrase normalisation
+    "pronouncing>=0.2.0",   # CMUdict phonemes for the target phrase
+    "webrtcvad-wheels>=2.0.14",  # silence trimming; the original webrtcvad
+                                 # has no py3.12 wheel and needs a compiler
 ]
 
 [build-system]

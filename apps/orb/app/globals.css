@@ -635,3 +635,26 @@ body {
     background: rgba(3, 11, 16, 0.92);
   }
 }
+
+/* ——— Brain connection badge (Phase 2) ———
+   A demo that looks live but isn't is worse than no demo, so the mock
+   fallback is labelled rather than disguised. */
+.brain-badge {
+  margin-left: 0.6rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid rgba(98, 224, 255, 0.28);
+  border-radius: 3px;
+  font-size: 0.5rem;
+  letter-spacing: 0.14em;
+  color: var(--kv-dim);
+  vertical-align: middle;
+}
+.brain-badge.is-online {
+  color: var(--kv-ok);
+  border-color: rgba(90, 255, 200, 0.45);
+  box-shadow: 0 0 10px rgba(90, 255, 200, 0.18);
+}
+.brain-badge.is-mock {
+  color: var(--kv-warn);
+  border-color: rgba(255, 209, 102, 0.45);
+}
