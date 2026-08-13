@@ -97,6 +97,13 @@ export default function JarvisOrb() {
     let fallbackTimer = 0;
     let cancelled = false;
 
+    // A square panel crops the orb at its widest points, so it reads as a
+    // circle jammed into a box. Pull the camera back in overlay mode to leave
+    // margin — the browser window is wide enough not to need it.
+    if (new URLSearchParams(window.location.search).get("overlay") === "1") {
+      scene.zoomBy(1.45);
+    }
+
     void scene.playBoot().then(() => {
       if (cancelled) return;
       unsubscribeLive = live.subscribe(setSnapshot);

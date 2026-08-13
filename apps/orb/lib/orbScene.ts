@@ -518,10 +518,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     const ctx = c.getContext("2d")!;
     ctx.font = "bold 14px Courier New";
     const alpha = 0.35 + Math.random() * 0.55;
-    // Code sprites are canvas textures, so they don't pick up the C_ constants
-    // above — their colour has to be written here too. Cyan channel spread
-    // mirrors the amber original's: fixed high channel, two varying.
-    ctx.fillStyle = `rgba(${(70 + Math.random() * 60) | 0}, ${(190 + Math.random() * 55) | 0}, 255, ${alpha})`;
+    // Code sprites are canvas textures, so they never pick up the C_ constants
+    // above — their colour has to be written here too, and a palette change
+    // that misses this line leaves green text scattered through a gold orb.
+    // Matches the dust gradient below: red pinned high, green and blue vary.
+    ctx.fillStyle = `rgba(255, ${(140 + Math.random() * 60) | 0}, ${(20 + Math.random() * 60) | 0}, ${alpha})`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 128, 16);
