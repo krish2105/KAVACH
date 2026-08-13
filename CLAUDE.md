@@ -105,7 +105,7 @@ user's global nvm default stays on 20 — do not change it.
 |---|---|
 | 0 — Setup, orb forked, MCP installed, kill switch tested | **complete** (tag `phase-0`) |
 | 1 — Presence polish (HUD, state-reactive orb, boot sequence, packets) | **complete** (tag `phase-1`) |
-| 2 — Local voice loop (**wake word engine undecided — Porcupine is dead**; ollama + cmake not installed) | not started |
+| 2 — Local voice loop (push-to-talk → Whisper → Kokoro → orb) | **complete**; wake-word model still training |
 | 3 — Brain + router | not started |
 | 4 — Hands + guardrail enforcement | not started |
 | 5 — Integration + demo | not started |
@@ -123,6 +123,24 @@ docs/        permissions-setup.md, demo-script.md, attribution.md
 ```
 
 **Python:** `uv` in `brain/`. **Node:** `nvm use` (24) in `apps/orb/`.
+
+### Voice layer notes (Phase 2)
+
+- **cmake is NOT needed** and **ollama is NOT a Phase 2 dep** — earlier notes
+  in this file said otherwise. `pywhispercpp` ships prebuilt arm64 wheels, and
+  §9 puts the LLM in Phase 3.
+- **`livekit-wakeword` 0.2.1 has 7 undeclared dependencies** (found by AST
+  scan): typer, pyyaml, pydantic, torchaudio, nltk, pronouncing, webrtcvad.
+  Four are pinned in the `wakeword-training` group. Its CLI is unusable
+  without them. The *inference* API is fine.
+- Training also needs **system espeak-ng** (`brew install espeak-ng`). Kokoro
+  does not — it bundles its own via `espeakng-loader`.
+- `VoiceState.as_dict()` must stay field-identical to `KavachSnapshot` in
+  `apps/orb/lib/kavachState.ts`. `tests/test_voice.py` reads the TypeScript
+  and asserts this; **do not weaken that test** — drift fails silently.
+- Audio is never written to disk and is dropped after every turn (§7).
+  `mic.py` deliberately has no save path.
+- The bridge binds **127.0.0.1 only**. It can trigger the kill switch.
 
 ### Presence layer notes (Phase 1)
 

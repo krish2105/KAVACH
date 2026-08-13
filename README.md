@@ -22,7 +22,7 @@ Working agreement: [`CLAUDE.md`](CLAUDE.md).
 |---|---|
 | **0 — Setup, orb forked, MCP installed, kill switch tested** | **complete** |
 | **1 — Presence polish (HUD, state-reactive orb, boot sequence)** | **complete** |
-| 2 — Local voice loop (wake word → Whisper.cpp → Kokoro) | not started |
+| **2 — Local voice loop (push-to-talk → Whisper → Kokoro → orb)** | **complete**; custom wake word still training |
 | 3 — Brain + router | not started |
 | 4 — Hands + guardrail enforcement | not started |
 | 5 — Integration + demo | not started |
@@ -94,6 +94,45 @@ and ignites the core last.
 
 Keys: `G` gestures · `R` reset · `+`/`−` zoom · **`K` kill switch** · `Esc`
 interrupt · `Space` push-to-talk (Phase 2).
+
+---
+
+## The voice loop
+
+```bash
+cd brain
+uv run python -m kavach.voice                # wake word if trained, else push-to-talk
+uv run python -m kavach.voice --no-wake-word # push-to-talk only
+uv run python -m kavach.voice --bench "hello there"   # latency, no mic needed
+```
+
+Hold **Space** to talk. The orb shows `BRAIN LIVE` when it's connected to the
+real loop and `DEMO (MOCK)` when it has fallen back to the Phase 1 script —
+a demo that looks live but isn't is worse than no demo.
+
+**Measured on an M4 Pro** (`--bench`, Whisper `large-v3-turbo` + Kokoro), while
+wake-word training was saturating the GPU, so these are pessimistic:
+
+| run | STT | TTS | perceived (silence → audio out) |
+|---|---|---|---|
+| 1 (cold) | 6963 ms | 702 ms | **7665 ms** |
+| 2 | 681 ms | 582 ms | **1263 ms** |
+| 3 | 1051 ms | 594 ms | **1645 ms** |
+
+The cold run is reported rather than discarded — it is what a user actually
+experiences on the first sentence, which is why models are loaded eagerly at
+startup instead of lazily on first use.
+
+**Wake word:** Porcupine was the spec's choice, but Picovoice discontinued its
+free tier on 2026-06-30 with no non-commercial replacement. KAVACH trains its
+own instead:
+
+```bash
+uv sync --group wakeword-training
+uv run livekit-wakeword run wakeword/kavach.yaml
+```
+
+Push-to-talk needs none of that and always works.
 
 ---
 
