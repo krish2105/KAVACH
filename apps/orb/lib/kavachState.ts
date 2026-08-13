@@ -57,6 +57,15 @@ export interface KavachSource {
   interrupt?(): void;
   /** Push-to-talk override (§4). Only the live source can act on it. */
   pushToTalk?(pressed: boolean): void;
+  /**
+   * Start a turn that ends on silence, with no key held.
+   *
+   * The floating panel is non-activating, so a keydown handler in the page can
+   * never fire there, and the global-hotkey alternative needs an Input
+   * Monitoring grant the process may not have. A button in the panel needs
+   * neither.
+   */
+  startTurn?(): void;
   /** A held thumbs-up/down answering a pending confirmation (§7). */
   answerConfirmation?(approved: boolean): void;
   stop(): void;

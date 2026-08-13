@@ -42,6 +42,9 @@ from .overlay import LINGER_SECONDS, BridgeListener, OverlayWindow
 
 RULE = "─" * 62
 
+#: Virtual key codes, which do not shift with layout or modifiers.
+KEY_SPACE = 49
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="KAVACH desktop orb overlay.")
@@ -97,8 +100,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if (event.modifierFlags() & MODIFIERS) != MODIFIERS:
                 return
-            key = (event.charactersIgnoringModifiers() or "").lower()
-            if key == " ":
+            # keyCode, not characters. With Control held,
+            # charactersIgnoringModifiers is unreliable, and ⌃Space is macOS's
+            # own input-source switcher — so the chord may be reshaped or eaten
+            # before it arrives. Key codes are layout- and modifier-independent.
+            code = event.keyCode()
+            log.debug("chord: keyCode=%s chars=%r", code, event.characters())
+            if code == KEY_SPACE:
                 # Talk. The panel never takes focus, so the page cannot hear a
                 # key — this is the only way to start a turn while looking at
                 # the orb rather than at a browser window.
@@ -106,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
                 if listener.send({"cmd": "talk"}):
                     log.info("talk requested")
                 return
+            key = (event.charactersIgnoringModifiers() or "").lower()
             if key == "m":
                 overlay.set_interactive(not overlay.interactive)
             elif key == "h":
@@ -129,6 +138,17 @@ def main(argv: list[str] | None = None) -> int:
         AppKit.NSEventMaskKeyDown, on_key
     )
 
+    import Quartz
+
+    can_listen = bool(Quartz.CGPreflightListenEventAccess())
+    if not can_listen:
+        log.warning(
+            "no Input Monitoring for this process — global hotkeys will "
+            "silently do nothing. System Settings → Privacy & Security → "
+            "Input Monitoring. Requesting now…"
+        )
+        Quartz.CGRequestListenEventAccess()
+
     print(RULE)
     print("  KAVACH desktop orb")
     print(RULE)
@@ -138,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{'  (minimised)' if overlay.geometry.hidden else ''}")
     print("  behaviour  hidden while idle, fades in when listening,")
     print(f"             lingers {LINGER_SECONDS}s after a turn")
+    print(f"  hotkeys    {'LIVE' if can_listen else 'BLOCKED — grant Input Monitoring'}")
     print("  talk       ⌃⌥⌘Space   (Space alone cannot reach a panel that\n                          never takes focus)")
     print("  controls   🛡 menu bar · ⌘-drag to move · ⌃⌥⌘H minimise")
     print("             ⌃⌥⌘= larger · ⌃⌥⌘- smaller")

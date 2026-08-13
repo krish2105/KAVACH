@@ -876,3 +876,44 @@ body {
 .kv-overlay .hud-error {
   display: none;
 }
+
+/* The panel's Talk button — its primary control.
+   Deliberately the largest, brightest thing in the HUD: everything else in
+   the panel is status, and this is the only part you act on. */
+.kv-overlay .talk-btn {
+  position: fixed;
+  left: 50%;
+  bottom: 1.1rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  pointer-events: auto;
+  font-family: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  padding: 0.5rem 1.6rem;
+  color: #0a0500;
+  background: var(--kv-bright);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 0 18px rgba(255, 170, 48, 0.55);
+  transition: transform 0.12s ease, box-shadow 0.2s ease;
+}
+
+.kv-overlay .talk-btn:hover:not(:disabled) {
+  transform: translateX(-50%) scale(1.04);
+  box-shadow: 0 0 26px rgba(255, 170, 48, 0.8);
+}
+
+.kv-overlay .talk-btn:active:not(:disabled) {
+  transform: translateX(-50%) scale(0.97);
+}
+
+/* Mid-turn it reports state rather than inviting another press. */
+.kv-overlay .talk-btn:disabled {
+  background: transparent;
+  color: var(--kv-bright);
+  box-shadow: none;
+  border: 1px solid rgba(255, 170, 48, 0.45);
+  cursor: default;
+}

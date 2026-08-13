@@ -274,6 +274,23 @@ export default function JarvisOrb() {
       <div className="overlay-grain" />
       <div className="overlay-scanlines" />
 
+      {/* The panel's primary control.
+          
+          A keydown handler cannot fire in a non-activating panel, and the
+          global-hotkey alternative silently does nothing without an Input
+          Monitoring grant. A button needs neither, and it is the only control
+          here that is obvious without being told. */}
+      {overlayMode && (
+        <button
+          type="button"
+          className={`talk-btn state-${snapshot.state}`}
+          onClick={() => sourceRef.current?.startTurn?.()}
+          disabled={snapshot.state !== "idle" || snapshot.killSwitch === "disarmed"}
+        >
+          {snapshot.state === "idle" ? "TALK" : STATE_LABEL[snapshot.state]}
+        </button>
+      )}
+
       {overlayMode ? (
         // One glanceable line. Anything more competes with the orb, which is
         // the thing you are actually meant to be looking at.

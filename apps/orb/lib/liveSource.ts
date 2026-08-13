@@ -105,6 +105,9 @@ export function createLiveSource(options: LiveSourceOptions = {}): KavachSource 
     interrupt() {
       send({ cmd: "interrupt" });
     },
+    startTurn() {
+      send({ cmd: "talk" });
+    },
     pushToTalk(pressed: boolean) {
       send({ cmd: "ptt", pressed });
     },
