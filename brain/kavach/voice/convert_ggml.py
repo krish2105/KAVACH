@@ -115,6 +115,63 @@ def download_checkpoint(repo_id: str, into: Path) -> Path:
     return Path(path)
 
 
+def _normalise_dtype(checkpoint: Path) -> Path:
+    """Re-save a bfloat16 checkpoint as float32, if that is what it is.
+
+    whisper.cpp's converter calls `.numpy()` on each tensor, and NumPy has no
+    bfloat16 — so a bf16 checkpoint dies with `Got unsupported ScalarType
+    BFloat16` partway through. Apex is bf16; Swift is not, which is why the
+    cheap model converted first time and the recommended one did not.
+
+    Fixed *before* the converter runs rather than by patching it: the script is
+    pinned and hash-checked precisely so it is the upstream file and not
+    something we edited. Casting the input keeps that guarantee intact.
+    """
+    import torch
+
+    config = checkpoint / "config.json"
+    try:
+        import json
+
+        raw = json.loads(config.read_text())
+        # Both spellings: transformers renamed `torch_dtype` to `dtype`, and
+        # Apex uses the new one — which is why the first version of this check
+        # silently did nothing and the conversion failed exactly as before.
+        dtype = raw.get("dtype") or raw.get("torch_dtype") or ""
+    except Exception:
+        dtype = ""
+
+    if str(dtype).lower() not in ("bfloat16", "bf16"):
+        return checkpoint
+
+    log.info("checkpoint is bfloat16 — re-saving as float32 for the converter")
+    try:
+        from transformers import WhisperForConditionalGeneration
+    except ImportError as exc:
+        raise ConversionError(
+            "casting a bfloat16 checkpoint needs transformers.\n"
+            "  uv sync --group stt-convert"
+        ) from exc
+
+    target = checkpoint.parent / f"{checkpoint.name}-fp32"
+    model = WhisperForConditionalGeneration.from_pretrained(
+        str(checkpoint), torch_dtype=torch.float32,
+    )
+    model.save_pretrained(str(target), safe_serialization=True)
+
+    # The converter also reads the tokenizer and config files, which
+    # save_pretrained does not copy.
+    for extra in ("vocab.json", "added_tokens.json", "merges.txt",
+                  "tokenizer.json", "tokenizer_config.json",
+                  "special_tokens_map.json", "normalizer.json",
+                  "preprocessor_config.json"):
+        source = checkpoint / extra
+        if source.exists():
+            shutil.copy2(source, target / extra)
+
+    return target
+
+
 def convert(repo_id: str, output: Path, quantise: bool = False) -> Path:
     """Download `repo_id`, convert to GGML, and put it at `output`.
 
@@ -128,6 +185,7 @@ def convert(repo_id: str, output: Path, quantise: bool = False) -> Path:
         work = Path(tmp)
         script = _fetch_converter(work)
         checkpoint = download_checkpoint(repo_id, work / "checkpoint")
+        checkpoint = _normalise_dtype(checkpoint)
 
         out_dir = work / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
