@@ -168,6 +168,24 @@ export default function JarvisOrb() {
   // most of its life — this was a constant CPU cost for pixels nobody sees.
   useEffect(() => {
     if (!overlayMode) return;
+    // Hand control (§ pinch). Driven straight from the presence process via
+    // evaluateJavaScript rather than round-tripping through the brain: the
+    // camera and this WebView live in the same process, and a rotate that
+    // waits on a websocket hop feels like lag in your hand.
+    const wc = window as unknown as {
+      __kavachControl?: (dx: number, dy: number, scale: number) => void;
+    };
+    wc.__kavachControl = (dx: number, dy: number, scale: number) => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      // Horizontal hand movement spins around the vertical axis, which is the
+      // mapping a trackpad drag already trains you to expect. The multiplier
+      // makes a comfortable hand movement a satisfying rotation rather than a
+      // twitch — the camera frame is only ~0.4 of usable travel wide.
+      if (dx || dy) scene.rotateBy(dx * 6, dy * 6);
+      if (scale && Math.abs(scale - 1) > 0.005) scene.zoomBy(scale);
+    };
+
     const w = window as unknown as { __kavachSetRendering?: (on: boolean) => void };
     w.__kavachSetRendering = (on: boolean) => {
       sceneRef.current?.setRendering(on);
@@ -175,7 +193,7 @@ export default function JarvisOrb() {
       // the compositor busy even with the WebGL loop stopped.
       document.documentElement.classList.toggle("kv-paused", !on);
     };
-    return () => { delete w.__kavachSetRendering; };
+    return () => { delete w.__kavachSetRendering; delete wc.__kavachControl; };
   }, [overlayMode]);
 
   // The orb is a view of the snapshot — the scene never owns agent state.

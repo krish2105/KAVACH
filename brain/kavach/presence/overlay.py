@@ -234,6 +234,11 @@ class OverlayWindow:
         #: pending_state: written by the bridge thread, read on the main
         #: thread, never touched by AppKit from anywhere else.
         self.pending_snapshot: dict | None = None
+        #: Latest pinch move, applied on the next main-thread tick. Same
+        #: hand-off rule as the snapshot: written by the tracker thread, read
+        #: on the main thread, so no AppKit or WebKit object is touched from
+        #: anywhere else.
+        self.pending_control = None
         #: Bounded, so a genuinely-down server becomes a loud error rather
         #: than an infinite reload loop against nothing.
         self._reload_attempts = 0
@@ -516,6 +521,15 @@ class OverlayWindow:
         state, self.pending_state = self.pending_state, None
         if state is not None:
             self.apply_state(state)
+
+        move, self.pending_control = self.pending_control, None
+        if move is not None and getattr(move, "engaged", False):
+            if move.dx or move.dy or abs(move.scale - 1.0) > 0.005:
+                self.web.evaluateJavaScript_completionHandler_(
+                    "window.__kavachControl && window.__kavachControl("
+                    f"{move.dx:.5f},{move.dy:.5f},{move.scale:.5f})",
+                    lambda *_: None,
+                )
 
         snapshot, self.pending_snapshot = self.pending_snapshot, None
         if snapshot is not None and self.on_snapshot is not None:

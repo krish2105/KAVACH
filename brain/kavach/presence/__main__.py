@@ -168,8 +168,14 @@ def main(argv: list[str] | None = None) -> int:
 
             # Rebuilt rather than resumed when ghost mode ends: HandTracker is
             # a Thread, and a stopped thread cannot be restarted.
+            def on_pinch(move) -> None:
+                # Straight into the WebView. Coalesced by the overlay's own
+                # tick rather than evaluated per frame — MediaPipe delivers
+                # ~30/s and a JS round trip each time would starve the panel.
+                overlay.pending_control = move
+
             def make_tracker():
-                t = HandTracker(on_event=on_gesture)
+                t = HandTracker(on_event=on_gesture, on_pinch=on_pinch)
                 t.start()
                 return t
 

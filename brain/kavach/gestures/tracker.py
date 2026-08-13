@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
+from .pinch import PinchTracker
 from .recognise import Gesture, classify
 
 log = logging.getLogger("kavach.gestures.tracker")
@@ -52,9 +53,16 @@ class HandTracker(threading.Thread):
 
     daemon = True
 
-    def __init__(self, on_event: Callable[[GestureEvent], None], camera: int = 0):
+    def __init__(self, on_event: Callable[[GestureEvent], None], camera: int = 0,
+                 on_pinch: Callable | None = None):
         super().__init__(name="kavach-gestures")
         self.on_event = on_event
+        #: Continuous rotate/zoom. Optional — nothing changes when unset.
+        self.on_pinch = on_pinch
+        self._pinch = PinchTracker()
+        #: Set by the presence process while KAVACH waits on a §7 answer, so a
+        #: hand moving near the prompt cannot be read as a thumbs-up.
+        self.confirmation_pending = False
         self.camera = camera
         self._stop = threading.Event()
         self._landmarker = None
@@ -122,6 +130,21 @@ class HandTracker(threading.Thread):
                 points = []
                 if result.hand_landmarks:
                     points = [(p.x, p.y, p.z) for p in result.hand_landmarks[0]]
+
+                # Continuous control runs alongside the held gestures rather
+                # than instead of them: a pinch is not one of the five, so
+                # classify() sees NONE and the two never compete.
+                if self.on_pinch is not None:
+                    try:
+                        move = self._pinch.update(
+                            points or None,
+                            confirmation_pending=self.confirmation_pending,
+                        )
+                        if move is not None:
+                            self.on_pinch(move)
+                    except Exception:
+                        log.debug("pinch update failed", exc_info=True)
+
                 gesture = classify(points)
 
                 now = time.monotonic()

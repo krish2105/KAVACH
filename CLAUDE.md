@@ -188,6 +188,31 @@ button out of the WKWebView wrote 1.3 MB `.textClipping` files to the Desktop.
 (max 3) if not — a page whose CSS 404'd renders as unstyled text and WKWebView
 keeps showing it forever.
 
+### Hand control — pinch to rotate and zoom
+
+`gestures/pinch.py`. Separate from the five held gestures on purpose: those
+fire once after 0.8s, this reacts every frame, so the design is all about a
+clean engage/release rather than accuracy.
+
+* The pinch is measured **against the hand's own span** (wrist→index knuckle),
+  not in raw normalised coordinates — otherwise it silently demands a tighter
+  pinch the further back you sit.
+* **Engaging reports zero movement**, so re-pinching elsewhere in frame cannot
+  fling the orb by the distance your hand travelled while released.
+* **Hysteresis** (0.45 engage / 0.62 release) stops a hand on the boundary
+  chattering.
+* **Disabled entirely while a confirmation is pending** — a hand moving near an
+  approve/deny prompt is how a thumbs-up gets misread, and §7 consent must be
+  deliberate.
+
+Delivered straight into the WebView via `evaluateJavaScript` from the presence
+process (`window.__kavachControl`), coalesced on the overlay's existing tick.
+Not routed through the brain: the camera and the WebView are the same process,
+and a websocket hop per frame feels like lag in your hand.
+
+**Only the orb so far.** Driving the frontmost app needs synthesised scroll/zoom
+events and Accessibility permission, and lands under §7 gating — not built.
+
 ### Ghost mode — the boundary that matters (§14)
 
 Ghost suppresses **perception**, never **action**. `ActionLog.SUPPRESSED_IN_GHOST`
