@@ -87,6 +87,11 @@ wakeword-training = [
     # torchaudio's numbering lags torch (2.11 is latest against torch 2.13).
     # It declares no torch pin of its own, so this is a version skew we accept
     # rather than downgrading torch.
+    # Accent-diverse synthesis for the v2 wake word (wakeword/kavach-v2.yaml).
+    # Declared here rather than `uv pip install`ed: a later `uv sync` prunes
+    # anything the project does not declare, which silently removed this and
+    # torchaudio mid-session and killed two training runs at step 1/6.
+    "voxcpm>=2.0.0",
     "torchaudio>=2.11.0",   # Piper VITS synthesis
     "nltk>=3.9",            # phrase normalisation
     "pronouncing>=0.2.0",   # CMUdict phonemes for the target phrase
