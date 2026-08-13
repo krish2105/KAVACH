@@ -231,9 +231,28 @@ in ~100 ms. Not a bug in `permission.py`: macOS **will not show a camera prompt
 to a process with no app bundle**, and the overlay runs as a bare Python
 process — `bundleIdentifier` is None and `NSCameraUsageDescription` is missing.
 
-Fixing this means shipping the overlay inside a minimal `.app` (a directory
-with an `Info.plist` carrying `NSCameraUsageDescription`). No Xcode needed.
-Until then gestures are correctly off, and the code path is otherwise complete:
+**Fixed by `kavach-app`** (`presence/appbundle.py`), which builds
+`~/Applications/KAVACH.app`. Three things were each individually necessary and
+none of them is obvious:
+
+1. The **interpreter is copied into `Contents/MacOS/`** — TCC attributes
+   permission to the bundle containing the running executable, and a symlink
+   is resolved away.
+2. **Nothing may point out of the bundle.** The first version linked
+   `Contents/lib` at the venv; `codesign` then reported *"invalid destination
+   for symbolic link in bundle"*, the signature never validated, and **TCC
+   refuses an unverifiable bundle without showing a prompt** — the same ~100 ms
+   refusal that looks like broken hardware. Packages come via `PYTHONPATH`
+   instead, which is not part of the seal.
+3. **`PYTHONHOME` is required.** uv's interpreter has a compiled-in prefix of
+   `/install`, so copied out of its venv it cannot find `encodings` and dies
+   before running a line. `pyvenv.cfg`'s `home` is the answer.
+
+The bundle is **ad-hoc signed** (`codesign --sign -`) — no certificate, no
+Apple account — and `build()` refuses to return a bundle that does not verify.
+
+The macOS prompt appears once. Until it is allowed, gestures stay off and the
+code path is otherwise complete:
 MediaPipe HandLandmarker in `gestures/tracker.py`, six gestures in
 `recognise.py` (confirm, deny, stop, point, peace, none), fed to the brain over
 the bridge.

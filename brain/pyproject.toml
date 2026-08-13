@@ -90,6 +90,7 @@ kavach-ghost = "kavach.privacy.ghost_cli:main"
 kavach-meetings = "kavach.privacy.meetings_cli:main"
 kavach-export = "kavach.memory.export_cli:main"
 kavach-stt = "kavach.voice.stt_cli:main"
+kavach-app = "kavach.presence.appbundle:main"
 
 [dependency-groups]
 # Only needed to CONVERT a Hugging Face checkpoint to GGML (§21). A normal
