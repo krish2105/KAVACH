@@ -11,6 +11,7 @@ import {
   STATE_LABEL,
 } from "@/lib/kavachState";
 import { createLiveSource } from "@/lib/liveSource";
+import { ControlPanel } from "@/components/hud/ControlPanel";
 import { StatusPanel } from "@/components/hud/StatusPanel";
 import { TranscriptPanel } from "@/components/hud/TranscriptPanel";
 import { ToolCallLog } from "@/components/hud/ToolCallLog";
@@ -453,6 +454,11 @@ export default function JarvisOrb() {
           reason={snapshot.reason}
           intent={snapshot.intent}
           handControl={handControl}
+        />
+        <ControlPanel
+          ghost={snapshot.ghost}
+          killSwitch={snapshot.killSwitch}
+          onBrainCommand={(payload) => sourceRef.current?.command?.(payload)}
         />
         <TranscriptPanel
           transcript={snapshot.transcript}

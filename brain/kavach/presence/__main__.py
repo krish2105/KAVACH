@@ -214,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     # already owns that channel, so it is handed over rather than a second
     # websocket client being opened here.
     overlay.send_command = listener.send
+    overlay.on_quit = on_quit
 
     # Created AFTER the run loop starts, and kept alive at module scope.
     #

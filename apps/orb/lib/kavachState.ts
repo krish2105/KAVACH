@@ -71,6 +71,14 @@ export interface KavachSource {
   subscribe(listener: (snapshot: KavachSnapshot) => void): () => void;
   /** Latch the kill switch. The live source drives the real Python latch. */
   halt(): void;
+  /**
+   * Send an arbitrary command to the brain.
+   *
+   * The panel's own controls need this — ghost mode has no dedicated method
+   * and adding one per button would grow this interface for no gain. The mock
+   * source ignores it, which is correct: there is no brain to command.
+   */
+  command?(payload: Record<string, unknown>): void;
   rearm(): void;
   /** Cancel the current turn without latching (§5 — Esc / spoken "stop"). */
   interrupt?(): void;

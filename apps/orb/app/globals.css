@@ -1089,3 +1089,80 @@ html.kv-overlay.kv-fullscreen .talk-btn {
   0%, 100% { opacity: 0.75; }
   50%      { opacity: 1; }
 }
+
+/* ── The controls the menu bar could not carry ───────────────────
+   The 🛡 status item never attaches when the overlay runs from its app
+   bundle, so everything it held lives here instead — visible by
+   construction, because if you can see the orb you can reach these.
+
+   Collapsed by default: the orb is the interface, and a permanent slab
+   of buttons would compete with it. */
+.control-panel {
+  pointer-events: auto;
+}
+
+.control-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.5rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--kv-bright, #ffb84d);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.control-chevron { font-size: 0.7rem; opacity: 0.7; }
+
+.control-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.control-row { display: flex; gap: 0.35rem; }
+
+.control-btn {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--kv-bright, #ffb84d) 40%, transparent);
+  background: color-mix(in srgb, var(--kv-bright, #ffb84d) 10%, transparent);
+  color: var(--kv-bright, #ffb84d);
+  font-family: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.control-btn:hover {
+  background: color-mix(in srgb, var(--kv-bright, #ffb84d) 22%, transparent);
+}
+
+.control-btn.is-wide { width: 100%; }
+.control-btn.is-active {
+  background: color-mix(in srgb, var(--kv-bright, #ffb84d) 30%, transparent);
+  border-color: var(--kv-bright, #ffb84d);
+}
+
+/* The kill switch is set apart on purpose: it latches, and only a human at
+   this Mac re-arms it. It should not look like the size buttons. */
+.control-btn.is-danger {
+  border-color: color-mix(in srgb, #ff5a4d 55%, transparent);
+  background: color-mix(in srgb, #ff5a4d 12%, transparent);
+  color: #ff8f85;
+}
+.control-btn.is-danger:hover {
+  background: color-mix(in srgb, #ff5a4d 24%, transparent);
+}
+
+.control-btn.is-quiet {
+  border-color: color-mix(in srgb, var(--kv-dim, #8a8f98) 40%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--kv-dim, #8a8f98) 90%, white);
+}

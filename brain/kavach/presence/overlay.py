@@ -28,6 +28,8 @@ import logging
 import threading
 import time
 
+import objc
+
 import AppKit
 import Foundation
 
@@ -239,6 +241,8 @@ class OverlayWindow:
         #: on the main thread, so no AppKit or WebKit object is touched from
         #: anywhere else.
         self.pending_control = None
+        #: Set by the presence process so the panel's Quit button works.
+        self.on_quit = None
         #: Bounded, so a genuinely-down server becomes a loud error rather
         #: than an infinite reload loop against nothing.
         self._reload_attempts = 0
@@ -302,6 +306,19 @@ class OverlayWindow:
         config.setWebsiteDataStore_(
             WebKit.WKWebsiteDataStore.nonPersistentDataStore()
         )
+
+        # Let the panel talk back.
+        #
+        # The menu bar item never attaches when the overlay runs from its app
+        # bundle — created, reports healthy, absent from the bar — so the
+        # controls it carried had nowhere to live. The page can reach the
+        # brain over the websocket, but sizing, full screen and quitting
+        # belong to THIS process, and a bridge round trip cannot reach it.
+        # A script message handler is the direct line.
+        self._controller = WebKit.WKUserContentController.alloc().init()
+        self._handler = _PanelBridge.alloc().initWithOverlay_(self)
+        self._controller.addScriptMessageHandler_name_(self._handler, "kavach")
+        config.setUserContentController_(self._controller)
 
         self.web = WebKit.WKWebView.alloc().initWithFrame_configuration_(
             Foundation.NSMakeRect(0, 0, size, size), config
@@ -499,6 +516,31 @@ class OverlayWindow:
             handler,
         )
 
+    def handle_panel_command(self, command: str, value=None) -> None:
+        """Act on a button in the panel. Main thread only.
+
+        Deliberately a small, closed set. This is a channel from a web page
+        into the process that owns the window, so it does what the menu did
+        and nothing more — no arbitrary sizing, no eval, no file access.
+        """
+        from .controls import SIZES
+
+        if command == "size" and str(value) in SIZES:
+            self.set_size(SIZES[str(value)])
+        elif command == "fullscreen":
+            self.toggle_fullscreen()
+        elif command == "minimise":
+            self.set_pinned_hidden(not self.geometry.hidden)
+        elif command == "interactive":
+            self.set_interactive(not self.interactive)
+        elif command == "reset":
+            self.reset_position()
+        elif command == "quit":
+            if self.on_quit is not None:
+                self.on_quit()
+        else:
+            log.warning("unknown panel command %r", command)
+
     def reload(self) -> None:
         """Re-fetch the page, bypassing every cache.
 
@@ -542,6 +584,37 @@ class OverlayWindow:
         if self._hide_at is not None and time.monotonic() >= self._hide_at:
             self._hide_at = None
             self.hide()
+
+
+class _PanelBridge(AppKit.NSObject):
+    """Receives `window.webkit.messageHandlers.kavach.postMessage({...})`.
+
+    Runs on the main thread by contract — WebKit delivers script messages
+    there — which is exactly where the panel may be resized and the app quit,
+    so nothing needs marshalling.
+    """
+
+    def initWithOverlay_(self, overlay):
+        self = objc.super(_PanelBridge, self).init()
+        if self is None:
+            return None
+        self._overlay = overlay
+        return self
+
+    def userContentController_didReceiveScriptMessage_(self, _controller, message):
+        try:
+            body = message.body()
+            command = str(body.get("cmd", "")) if hasattr(body, "get") else ""
+            value = body.get("value") if hasattr(body, "get") else None
+        except Exception:
+            log.debug("unreadable panel message", exc_info=True)
+            return
+
+        log.info("panel command: %s %s", command, value if value is not None else "")
+        try:
+            self._overlay.handle_panel_command(command, value)
+        except Exception:
+            log.exception("panel command %r failed", command)
 
 
 class BridgeListener(threading.Thread):

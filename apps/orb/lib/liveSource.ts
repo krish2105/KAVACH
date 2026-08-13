@@ -102,6 +102,9 @@ export function createLiveSource(options: LiveSourceOptions = {}): KavachSource 
     rearm() {
       send({ cmd: "rearm" });
     },
+    command(payload: Record<string, unknown>) {
+      send(payload);
+    },
     interrupt() {
       send({ cmd: "interrupt" });
     },
