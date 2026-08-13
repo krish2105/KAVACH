@@ -107,7 +107,7 @@ user's global nvm default stays on 20 — do not change it.
 | 1 — Presence polish (HUD, state-reactive orb, boot sequence, packets) | **complete** (tag `phase-1`) |
 | 2 — Local voice loop (push-to-talk → Whisper → Kokoro → orb) | **complete**; wake-word model still training |
 | 3 — Brain + router | not started |
-| 4 — Hands + guardrail enforcement | not started |
+| 4 — Hands + guardrail enforcement | **complete** (tag `phase-4`) |
 | 5 — Integration + demo | not started |
 
 ---
@@ -123,6 +123,23 @@ docs/        permissions-setup.md, demo-script.md, attribution.md
 ```
 
 **Python:** `uv` in `brain/`. **Node:** `nvm use` (24) in `apps/orb/`.
+
+### Hands layer notes (Phase 4) — READ BEFORE TOUCHING THE GATE
+
+- **The enforcement point is the `PreToolUse` hook, NOT `can_use_tool`.**
+  Verified live: a wildcard in `allowed_tools` auto-approves before
+  `can_use_tool` (the SDK raises `CanUseToolShadowedWarning`), and with
+  `allowed_tools` empty the CLI's interactive prompt intercepts instead and
+  dies with "AbortError: Stream closed" in a headless loop. The hook fires in
+  both cases. **A test asserts the hook is wired for all tools — do not
+  remove it.**
+- `NEVER_ALLOWED_TOOLS` (`Shell`, `agent`, `Desktop`) are refused outright and
+  not exposed. A shell command names no app, so the allowlist cannot check it
+  — it is a complete bypass of §7, not an edge case. Confirmation is never
+  offered for these.
+- Denial is the default at every step: unknown server, unidentifiable target
+  app, missing confirmer, unclear spoken answer, timeout. Consent must be
+  given, never merely not-withheld.
 
 ### Voice layer notes (Phase 2)
 

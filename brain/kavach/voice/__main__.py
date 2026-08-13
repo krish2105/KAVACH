@@ -24,6 +24,8 @@ from ..killswitch.ipc import DEFAULT_SOCKET_PATH, serve as serve_killswitch
 from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import LocalModel
+from ..hands.confirm import VoiceConfirmer
+from ..hands.gate import ToolGate
 from ..reasoning.router import Router
 from .loop import DEFAULT_MODELS_DIR, DEFAULT_WAKE_MODEL, VoiceLoop
 
@@ -92,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-reasoning", action="store_true",
                         help="Phase 2 behaviour: echo instead of routing")
     parser.add_argument("--local-model", default="qwen3:4b")
+    parser.add_argument("--no-tools", action="store_true",
+                        help="Phase 3 behaviour: reasoning without MCP tools")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -108,8 +112,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f'⚠  Ollama has no {args.local_model}; simple intents will\n'
                   f'   fall back to Claude. Fix: ollama pull {args.local_model}')
             local = None
-        agent = ClaudeAgent()
         router = Router(local_client=local)
+        # The gate is built first and the agent is built around it: an
+        # agent constructed without one gets no tools at all (§7).
+        agent = ClaudeAgent(gate=None)  # replaced below once the loop exists
 
     voice = VoiceLoop(
         kill_switch=ks,
@@ -121,6 +127,13 @@ def main(argv: list[str] | None = None) -> int:
         stt_model=args.stt_model,
         use_wake_word=not args.no_wake_word,
     )
+
+    # The confirmer needs the loop (for its mic and voice), and the gate
+    # needs the confirmer, and the agent needs the gate. Wired here, after
+    # the loop exists.
+    if not args.no_reasoning and not args.no_tools:
+        gate = ToolGate(kill_switch=ks, confirmer=VoiceConfirmer(voice))
+        voice.agent = ClaudeAgent(gate=gate)
 
     if args.bench:
         return _bench(voice, args.bench, args.bench_rounds)
@@ -139,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  stt        {args.stt_model}")
     print(f"  reasoning  {'echo (--no-reasoning)' if router is None else f'router → {args.local_model} | claude'}")
     print(f"  bridge     ws://{args.host}:{args.port}  → the orb")
+    tools = "none (--no-tools)" if voice.agent is None or voice.agent.gate is None \
+        else "3 MCP servers, gated"
+    print(f"  tools      {tools}")
+    print(f"  allowlist  Safari, Notes, Calendar, Finder")
     print(f"  kill       ⌃⌥⌘K, menu bar, or `kavach kill`")
     print("─" * 62)
     sys.stdout.flush()

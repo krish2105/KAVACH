@@ -165,6 +165,50 @@ class VoiceLoop:
         else:
             self._ptt.clear()
 
+    def speak(self, text: str) -> None:
+        """Synthesize and play, driving the orb's amplitude from the envelope.
+        Shared with the confirmation flow so both sound identical."""
+        if not text:
+            return
+        speech = self.tts.synthesize(text)
+        self._play_with_envelope(speech)
+
+    def on_tool_event(self, event: dict) -> None:
+        """Feed real MCP tool calls to the orb (§4 #2).
+
+        Phase 1 built the packet animation against mock events; these are the
+        real ones, arriving on the same snapshot field.
+        """
+        if event.get("status") == "done":
+            return
+
+        call_id = event.get("id")
+        existing = next((c for c in self.state.toolCalls if c["id"] == call_id), None)
+
+        if existing is not None:
+            existing["status"] = event.get("status", existing["status"])
+            existing["endedAt"] = time.time() * 1000
+        else:
+            name = event.get("name", "")
+            parts = name.split("__")
+            self.state.toolCalls.insert(0, {
+                "id": call_id or name,
+                "server": parts[1] if len(parts) > 2 else "?",
+                "tool": parts[2] if len(parts) > 2 else name,
+                "summary": self._summarise_tool(event.get("input") or {}),
+                "status": event.get("status", "pending"),
+                "startedAt": time.time() * 1000,
+            })
+            del self.state.toolCalls[12:]
+        self.publish()
+
+    @staticmethod
+    def _summarise_tool(args: dict) -> str:
+        for value in args.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:110]
+        return "no arguments"
+
     def interrupt(self) -> None:
         """Esc / spoken 'stop' — cut playback, return to idle, stay armed."""
         tts_mod.stop_playback()
@@ -336,7 +380,9 @@ class VoiceLoop:
             if decision.route is Route.LOCAL and self.local is not None:
                 return self.local.respond(text)
             if self.agent is not None:
-                return asyncio.run(self.agent.respond(text))
+                return asyncio.run(
+                    self.agent.respond(text, on_tool=self.on_tool_event)
+                )
         except Exception:
             log.exception("reasoning failed")
             return "Something went wrong while I was thinking about that."
