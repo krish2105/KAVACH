@@ -267,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"             lingers {LINGER_SECONDS}s after a turn")
     print(f"  hotkeys    {'LIVE' if can_listen else 'BLOCKED — grant Input Monitoring'}")
     print("  talk       ⌃⌥⌘Space   (Space alone cannot reach a panel that\n                          never takes focus)")
-    print("  controls   🛡 menu bar · ⌘-drag to move · ⌃⌥⌘H minimise")
+    print("  controls   KAVACH menu bar · ⌘-drag to move · ⌃⌥⌘H minimise")
     print("             ⌃⌥⌘= larger · ⌃⌥⌘- smaller")
     print("  click-through and never takes focus, except in move/resize mode")
     print(RULE)

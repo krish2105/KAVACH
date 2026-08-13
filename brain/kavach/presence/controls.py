@@ -137,17 +137,23 @@ class DragView(AppKit.NSView):
 #: relying on a glyph. Whether KAVACH is listening is the one thing about it
 #: that must never need interpreting, and an emoji at menu-bar size is easy to
 #: misread at a glance.
+#: Plain text, not an emoji.
+#:
+#: The 🛡 was created correctly — the log said so — and could not be found on
+#: screen. An emoji in a status item depends on font fallback and on the menu
+#: bar having room, and when it loses it renders as nothing at all: an item
+#: that exists, occupies space, and is invisible. Letters always draw.
 STATUS_TITLES = {
-    "boot": "🛡",
-    "idle": "🛡",
-    "listening": "🛡 ●",
-    "thinking": "🛡 ⋯",
-    "acting": "🛡 ⚡",
-    "speaking": "🛡 ▶",
-    "halted": "⛔ STOPPED",
+    "boot": "KAVACH",
+    "idle": "KAVACH",
+    "listening": "KAVACH ●",
+    "thinking": "KAVACH ⋯",
+    "acting": "KAVACH ⚡",
+    "speaking": "KAVACH ▶",
+    "halted": "KAVACH STOPPED",
 }
-GHOST_TITLE = "👻 GHOST"
-LATCHED_TITLE = "⛔ STOPPED"
+GHOST_TITLE = "KAVACH GHOST"
+LATCHED_TITLE = "KAVACH STOPPED"
 
 
 def status_title(snapshot: dict) -> str:
@@ -166,11 +172,11 @@ def status_title(snapshot: dict) -> str:
         return LATCHED_TITLE
     if snapshot.get("ghost"):
         return GHOST_TITLE
-    return STATUS_TITLES.get(str(snapshot.get("state", "idle")), "🛡")
+    return STATUS_TITLES.get(str(snapshot.get("state", "idle")), "KAVACH")
 
 
 class MenuBarController(AppKit.NSObject):
-    """The 🛡 menu: live status, ghost mode, sizes, minimise, quit."""
+    """The KAVACH menu: live status, ghost mode, sizes, minimise, quit."""
 
     def initWithOverlay_onQuit_(self, overlay, on_quit):
         self = objc.super(MenuBarController, self).init()
@@ -181,13 +187,15 @@ class MenuBarController(AppKit.NSObject):
 
         bar = AppKit.NSStatusBar.systemStatusBar()
         self._item = bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
+        # Never variable-length with a text title: an item that has to
+        # negotiate for width is the one macOS drops when the bar is busy.
         button = self._item.button()
         if button is None:
             # Worth shouting about: with no button there is no menu bar icon,
             # and the only way to quit or reach ghost mode is to kill the pid.
             log.error("menu bar item has no button — the 🛡 will not appear")
         else:
-            button.setTitle_("🛡")
+            button.setTitle_("KAVACH")
             log.info("menu bar item created")
 
         self._ghost_active = False
