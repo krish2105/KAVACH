@@ -45,6 +45,12 @@ dependencies = [
     # resemblyzer imports; the original has
     # no py3.12 wheel and dies on pkg_resources   # floor is resemblyzer's; audiomentations caps it below 1.0
     "sqlite-vec>=0.1.9",
+    # ——— Phase 6: local API surface ———
+    # uvicorn and starlette are already here transitively, so this is the only
+    # genuinely new package. Chosen for typed request models and validation:
+    # every one of these endpoints can act on the machine, and hand-rolled
+    # parsing is where that kind of thing goes wrong.
+    "fastapi>=0.141.1",
     # ——— Hand tracking, in Python rather than the browser ———
     # WKWebView grants getUserMedia only when the *host app* holds camera
     # permission, and a launchd python3 process is not a bundled .app — macOS
@@ -85,6 +91,9 @@ kavach-memory = "kavach.memory.cli:main"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.0.0",
+    # starlette 1.x deprecated httpx in the test client and wants httpx2;
+    # using the old one works but warns on every run.
+    "httpx2>=2.10.0",
 ]
 # Only needed to TRAIN a custom wake word, not to run one. Kept out of the
 # default install so the runtime stays light: torch alone dwarfs everything

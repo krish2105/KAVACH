@@ -243,6 +243,80 @@ def check_services() -> list[Check]:
     return out
 
 
+def check_api() -> list[Check]:
+    """The local API (Phase 6) — reachable, authenticated, and localhost-only.
+
+    Read-only on purpose. The doctor must never POST /command: a diagnostic
+    that acts on your machine to prove it can act on your machine is not a
+    diagnostic.
+    """
+    import urllib.error
+    import urllib.request
+
+    out: list[Check] = []
+    up = _port_open(8770)
+    out.append(Check("api", "local api :8770", PASS if up else FAIL,
+                     "" if up else "start `uv run python -m kavach.voice`"))
+    if not up:
+        return out
+
+    def _get(path: str, token: str | None) -> int:
+        req = urllib.request.Request(f"http://127.0.0.1:8770{path}")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=3) as r:
+                return r.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+        except Exception:
+            return 0
+
+    unauth = _get("/status", None)
+    out.append(Check("api", "refuses an unauthenticated request",
+                     PASS if unauth == 401 else FAIL,
+                     "" if unauth == 401 else f"expected 401, got {unauth}"))
+
+    out.append(Check("api", "refuses a wrong token",
+                     PASS if _get("/status", "wrong") == 401 else FAIL))
+
+    token = ""
+    env = BRAIN / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            if line.startswith("KAVACH_API_TOKEN="):
+                token = line.split("=", 1)[1].strip()
+    if token:
+        code = _get("/status", token)
+        out.append(Check("api", "accepts the real token",
+                         PASS if code == 200 else FAIL,
+                         "" if code == 200 else f"got {code}"))
+        mode = oct(env.stat().st_mode & 0o777)
+        out.append(Check("api", "token file is not world-readable",
+                         PASS if mode == "0o600" else WARN,
+                         "" if mode == "0o600" else f"{env} is {mode}"))
+    else:
+        out.append(Check("api", "api token present", FAIL,
+                         "no KAVACH_API_TOKEN in brain/.env"))
+
+    # Bound to loopback, not the LAN. Phase 9 reaches this over Tailscale,
+    # which does not need it listening on a network interface.
+    lan = ""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.settimeout(0.4)
+            probe.connect(("8.8.8.8", 80))
+            lan = probe.getsockname()[0]
+    except Exception:
+        pass
+    if lan and not lan.startswith("127."):
+        exposed = _port_open(8770, lan)
+        out.append(Check("api", "not listening on the network",
+                         FAIL if exposed else PASS,
+                         f"reachable on {lan}:8770" if exposed else f"loopback only"))
+    return out
+
+
 def check_mcp() -> list[Check]:
     config = BRAIN.parent / "hands" / "mcp.config.json"
     if not config.exists():
@@ -284,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         checks += check_gate(tmp)
         checks += check_mcp()
         checks += check_services()
+        checks += check_api()
         checks += check_wake_word()
         if not args.skip_slow:
             checks += check_voice_gates()

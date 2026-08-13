@@ -149,6 +149,8 @@ class VoiceLoop:
         # When enrolled, every turn must match this speaker before it is
         # transcribed. None (or not enrolled) means no speaker gating.
         self.voiceprint = voiceprint
+        #: Confirmations awaiting an answer, shared with the API.
+        self.pending = None
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -306,6 +308,26 @@ class VoiceLoop:
         question cannot answer it."""
         self._gesture_answer = None
         self._gesture_event.clear()
+
+    def resolve_pending(self, item_id: str, approved: bool) -> str | None:
+        """Answer a registered confirmation, and run it if approved.
+
+        Returns the reply, or None if the id is unknown. A denial runs
+        nothing — the safe outcome of an ambiguous answer is not acting.
+        """
+        if self.pending is None:
+            return None
+        item = self.pending.get(item_id)
+        if item is None or item.approved is not None:
+            return None
+
+        self.pending.answer(item_id, approved=approved)
+        self.pending.discard(item_id)
+        if not approved:
+            return "Cancelled."
+        if not item.payload:
+            return "Nothing to run."
+        return self.respond(item.payload, confirmed=True)
 
     def start_turn(self) -> None:
         """Begin a turn that ends on silence, with no key to hold.
@@ -494,12 +516,28 @@ class VoiceLoop:
 
         self.set_state("idle", amplitude=0.0, partial="")
 
-    def respond(self, text: str) -> str:
+    def respond(self, text: str, confirmed: bool = False) -> str:
         """Route the utterance and produce a spoken reply (spec §5).
 
         Phase 2 echoed. Phase 3 replaces exactly this method — the rest of the
         loop is unchanged, which is what the Phase 2 seam was for.
         """
+        # A spoken answer to "say confirm if you want me to". Checked before
+        # routing, because "confirm" on its own is not a command and the
+        # router would otherwise hand it to a model as a fresh request — which
+        # is exactly what used to happen. The speaker was already verified
+        # against the voiceprint before this method was reached.
+        if not confirmed and self.pending is not None:
+            waiting = [p for p in self.pending.list() if p.payload]
+            if waiting:
+                from ..hands.confirm import interpret
+
+                answer = interpret(text)
+                if answer is not None:
+                    return self.resolve_pending(waiting[-1].id, approved=answer)
+                # An unparsed reply is not consent. The question stays open
+                # until it expires; the utterance routes as normal.
+
         if self.router is None:
             return f"You said: {text}"
 
@@ -517,11 +555,18 @@ class VoiceLoop:
         # §7: destructive or externally visible actions are spoken back and
         # wait. Phase 3 has no tools, so nothing could execute yet — but the
         # confirmation habit is established here rather than bolted on later.
-        if decision.needs_confirmation:
-            return (
+        if decision.needs_confirmation and not confirmed:
+            prompt = (
                 f"That would {self._describe_action(text)}. "
                 f"Say confirm if you want me to."
             )
+            # Register it, so there is something to approve rather than only
+            # something said. Before this, "say confirm" was a sentence and
+            # nothing tracked the answer — a spoken "confirm" arrived as an
+            # unrelated new command, and an API client had nothing to act on.
+            if self.pending is not None:
+                self.pending.register(prompt, payload=text)
+            return prompt
 
         # Music, before anything else. "skip this" should not wait on a
         # language model, and the parser returns None for anything it does not

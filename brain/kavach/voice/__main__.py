@@ -25,6 +25,8 @@ from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import LocalModel
 from ..hands.confirm import VoiceConfirmer
+from ..api.confirm import ApiConfirmer, EitherConfirmer, PendingRegistry
+from ..api.server import ApiServer
 from ..identity.voiceprint import Voiceprint
 from ..hands.gate import ToolGate
 from ..reasoning.router import Router
@@ -90,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stt-model", default="large-v3-turbo")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-api", action="store_true",
+                        help="do not start the local HTTP API")
+    parser.add_argument("--api-port", type=int, default=8770)
     parser.add_argument("--bench", metavar="PHRASE", default=None,
                         help="measure latency without a mic, then exit")
     parser.add_argument("--bench-rounds", type=int, default=3)
@@ -135,19 +140,38 @@ def main(argv: list[str] | None = None) -> int:
     # The confirmer needs the loop (for its mic and voice), and the gate
     # needs the confirmer, and the agent needs the gate. Wired here, after
     # the loop exists.
+    pending_registry = PendingRegistry()
+    # Shared with the loop unconditionally: a spoken "confirm" needs somewhere
+    # to land whether or not the API is running.
+    voice.pending = pending_registry
+
     if not args.no_reasoning and not args.no_tools:
         voiceprint = voice.voiceprint
         if not voiceprint.is_enrolled:
             print('⚠  no voiceprint enrolled — confirmations check WHAT you\n'
                   '   said but not WHO said it. Fix: uv run kavach-enrol')
+        # Either a spoken yes or an approval from the API answers a
+        # confirmation, whichever lands first. Being asked by voice and
+        # approving from a phone is the point of the Reach layer, and the gate
+        # itself does not need to know which happened.
         gate = ToolGate(
             kill_switch=ks,
-            confirmer=VoiceConfirmer(voice, voiceprint=voiceprint),
+            confirmer=EitherConfirmer(
+                VoiceConfirmer(voice, voiceprint=voiceprint),
+                ApiConfirmer(pending_registry),
+            ),
         )
         voice.agent = ClaudeAgent(gate=gate)
 
     if args.bench:
         return _bench(voice, args.bench, args.bench_rounds)
+
+    # The API runs beside the bridge, not instead of it: the HUD keeps its
+    # private protocol and nothing that works today changes shape.
+    api = None
+    if not args.no_api:
+        api = ApiServer(voice, ks, registry=pending_registry, port=args.api_port)
+        api.start()
 
     bridge = Bridge(voice, ks)
     voice.publish_fn = bridge.publish
