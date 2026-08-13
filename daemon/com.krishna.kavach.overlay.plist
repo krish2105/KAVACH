@@ -19,6 +19,37 @@
     <key>Label</key>
     <string>com.krishna.kavach.overlay</string>
 
+    <!--
+      The CLI, not `open -a KAVACH.app` — and that is the opposite of what the
+      rest of this project says, so here is the measurement.
+
+      This project lives under ~/Desktop, which is TCC-protected, and **a
+      launchd job has no grant for it**:
+
+          $ launchctl bootstrap gui/$UID <a job that cats one file>
+          DESKTOP DENIED
+          HOME READABLE
+
+      Nothing here *fails* on that denial. It hangs. Switching this agent to
+      `open -W -a KAVACH.app` produced a live process that logged not one line;
+      sampled, 100% of its samples sat in a single syscall:
+
+          _PyCodecRegistry_Init → os_listdir → __opendir2 → open$NOCANCEL
+
+      That is Python blocked on the first import in the process, listing a
+      Desktop directory on sys.path. The same wall stopped a `next start` agent
+      dead in `GetNearestParentPackageJSONType → open`.
+
+      `uv run kavach-overlay` does have the grant on this machine, and the
+      camera with it — the log from the agent-started process carries live
+      `pinch ENGAGED` and `gesture stop` lines, so hand tracking works from
+      here. The bundle's advantage does not apply when launchd is the launcher.
+
+      To run the bundle at login instead, grant KAVACH.app **Full Disk Access**
+      (System Settings → Privacy & Security), then swap these arguments for
+      /usr/bin/open -W -a __APP__. Without that grant it hangs silently, which
+      is a far worse failure than the one it was meant to fix.
+    -->
     <key>ProgramArguments</key>
     <array>
         <string>__UV__</string>
@@ -39,10 +70,16 @@
     <key>ThrottleInterval</key>
     <integer>10</integer>
 
+    <!--
+      NOT overlay.log. The process configures a FileHandler on that path
+      itself, so pointing launchd's stdout at it too writes every line twice —
+      which is what happened, and it doubled a log that gesture frames had
+      already pushed past a megabyte.
+    -->
     <key>StandardOutPath</key>
-    <string>__BRAIN__/wakeword/logs/overlay.log</string>
+    <string>__LOGS__/overlay.agent.log</string>
     <key>StandardErrorPath</key>
-    <string>__BRAIN__/wakeword/logs/overlay.log</string>
+    <string>__LOGS__/overlay.agent.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

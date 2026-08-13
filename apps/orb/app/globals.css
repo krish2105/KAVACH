@@ -1194,11 +1194,15 @@ html.kv-overlay.kv-fullscreen .talk-btn {
    It replaced a collapsed CONTROLS row — controls you must expand to
    discover read as controls that are missing, and the expanded block
    was tall enough to force the panel to 560pt. */
+/* Portalled to <body>, so this z-index is ranked against the page rather than
+   against the other children of a `.hud` that opens its own stacking context.
+   While it was nested, `z-index: 40` lost to a `z-index: 20` sibling on DOM
+   order alone, and Medium/Large/Huge sat under the GESTURES and ± buttons. */
 .shield-root {
   position: fixed;
   top: 10px;
   right: 10px;
-  z-index: 40;
+  z-index: 200;
   pointer-events: auto;
 }
 
@@ -1226,11 +1230,19 @@ html.kv-overlay.kv-fullscreen .talk-btn {
 .shield-btn.is-ghost { border-color: #8a8f98; filter: grayscale(1); }
 .shield-btn.is-halted { border-color: #ff5a4d; }
 
+/* The menu must fit the panel it is escaping from.
+   At 280pt it was 384px tall, so five items hung off the bottom of the window
+   — including every one that could restore a readable size. It scrolls now
+   instead of overflowing, because a control you cannot reach is a control that
+   is not there. */
 .shield-menu {
   position: absolute;
   top: 36px;
   right: 0;
   min-width: 190px;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--kv-bright, #ffb84d) 32%, transparent);
@@ -1286,3 +1298,51 @@ html.kv-overlay.kv-fullscreen .talk-btn {
    transcript are the two least urgent lines, so they go. */
 .kv-overlay .route-reason { display: none; }
 .kv-overlay .status-meta .level { display: none; }
+
+/* ═══ Small (280pt) ═══════════════════════════════════════════════
+   Nothing in the HUD scaled with the window, so at Small the title
+   block overlapped its own subtitle, GESTURES OFF spanned most of the
+   width, and the orb was behind all of it. The panel was legible at
+   560pt and unreadable at 280pt with no rule in between.
+
+   Height as well as width: the panel is square, so a 280pt window is
+   short before it is narrow, and it is vertical space the twelve-item
+   menu was running out of. */
+@media (max-width: 340px), (max-height: 340px) {
+  .kv-overlay .hud-title,
+  .kv-overlay .hud-hint,
+  .kv-overlay .transcript-panel {
+    display: none;
+  }
+
+  /* The orb, the state, and the way out. Everything else is a luxury
+     that a 280pt square does not have room for. */
+  .kv-overlay .hud-panel {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.62rem;
+  }
+  .kv-overlay .hud-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+  }
+  .kv-overlay .talk-button {
+    padding: 0.4rem 1.1rem;
+    font-size: 0.7rem;
+  }
+  .kv-overlay .camera-panel {
+    display: none;
+  }
+
+  /* The menu shrinks with everything else, so more of it is visible before
+     you have to scroll — at 280pt the twelve items otherwise fill the panel
+     end to end. */
+  .kv-overlay .shield-item {
+    padding: 3px 7px;
+    font-size: 0.62rem;
+  }
+  .kv-overlay .shield-menu {
+    min-width: 158px;
+  }
+  .kv-overlay .shield-sep { margin: 2px 6px; }
+}

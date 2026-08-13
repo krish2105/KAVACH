@@ -233,20 +233,46 @@ so in `kavach-doctor` rather than refusing to listen.
 ## 8 · Run it at login *(optional)*
 
 ```bash
-cp daemon/com.krishna.kavach.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.krishna.kavach.plist
+uv run kavach-daemons install     # renders the templates, then loads them
+uv run kavach-daemons status      # what is installed, loaded, or stale
+uv run kavach-daemons uninstall
 ```
+
+**Do not `cp` the files in `daemon/` yourself.** They are templates: the paths
+in them are placeholders like `__UV__` and `__BRAIN__`, and a plist whose
+executable is the literal string `__UV__` starts nothing. This page used to say
+`cp`, the copies got fixed up by hand, and from then on what ran at login and
+what was in git were two different files that nobody compared. That is how the
+overlay ended up launching a process with no camera.
+
+`status` reports **stale** when the installed copy no longer matches the
+template — the failure that has no runtime symptom.
 
 **A Launch Agent is its own process as far as macOS permissions are
 concerned** — the grants you gave your terminal do not carry over. It will
 hear you but not be able to act until you grant Accessibility, Screen
 Recording and Input Monitoring to it separately.
 
+### The orb page is served by the overlay, not by an agent
+
+There is no launch agent for the Next.js server, and that is deliberate rather
+than an omission. **This project lives under `~/Desktop`, which macOS protects,
+and a launchd job has no grant for it.** A job that reads the project does not
+fail — it *hangs* in `open()`, port unbound, nothing logged, launchd reporting
+it healthy. Both `next start` and the app bundle were killed stone dead this
+way.
+
+So `kavach-overlay` starts the page server itself and stops it on exit. The
+page exists exactly when the window does, and there is nothing extra to start.
+
+To run the orb from `KAVACH.app` at login instead — worth it only if you want
+the bundle's camera attribution — grant **KAVACH.app Full Disk Access** first,
+then point the agent at `/usr/bin/open -W -a ~/Applications/KAVACH.app`.
+Without that grant it hangs silently.
+
 Deliberately not installed by default: a background process that listens to
 your microphone and can drive your Mac should start by a decision, not a build
 step.
-
-To stop it: `launchctl unload ~/Library/LaunchAgents/com.krishna.kavach.plist`
 
 ---
 

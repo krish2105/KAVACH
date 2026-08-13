@@ -32,7 +32,7 @@
     <!-- uv resolves the project's own venv, so no interpreter path is hardcoded. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/krishnamathurm4pro/.local/bin/uv</string>
+        <string>__UV__</string>
         <string>run</string>
         <string>python</string>
         <string>-m</string>
@@ -40,7 +40,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/krishnamathurm4pro/Desktop/KAVACH/brain</string>
+    <string>__BRAIN__</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -56,16 +56,16 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/krishnamathurm4pro/.kavach/logs/daemon.out.log</string>
+    <string>__LOGS__/daemon.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/krishnamathurm4pro/.kavach/logs/daemon.err.log</string>
+    <string>__LOGS__/daemon.err.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <!-- Homebrew + uv, since launchd starts with a minimal PATH and the
              MCP servers are launched via npx/uvx. -->
         <key>PATH</key>
-        <string>/Users/krishnamathurm4pro/.nvm/versions/node/v24.19.0/bin:/Users/krishnamathurm4pro/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__NODEBIN__:/Users/krishnamathurm4pro/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 
     <!-- Nice-d down: this runs all day, and Whisper should not fight the

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * The 🛡 menu, rebuilt inside the panel.
@@ -15,6 +16,29 @@ import { useEffect, useRef, useState } from "react";
  * controls you have to expand to discover read as controls that are missing,
  * and the expanded block was tall enough to force the whole panel to 560pt.
  * A button costs one corner; the menu costs nothing until you open it.
+ *
+ * ## Why this renders through a portal
+ *
+ * Because the menu is the only way back from a size you cannot read, and it
+ * was reachable only by accident.
+ *
+ * Measured at 280pt (the Small size), eight of the twelve items could not be
+ * clicked: `Medium`, `Large` and `Huge` sat *underneath* the GESTURES/±/RESET
+ * buttons, and five more fell off the bottom of a 280pt panel. Choosing Small
+ * therefore removed every control that could undo it — and the global hotkeys
+ * are dead without Input Monitoring, so there was no second way out. The one
+ * item that still happened to be clickable was `Full screen`, which is exactly
+ * what got clicked four seconds later.
+ *
+ * The z-index looked right and did nothing: this lived inside a `.hud` element
+ * that is `position: fixed; z-index: 20`, which opens a stacking context, so
+ * `z-index: 40` only ever ranked it against its own siblings. The later `.hud`
+ * block painted on top no matter how high that number went.
+ *
+ * A portal to `document.body` takes it out of that context entirely, so the
+ * menu is ranked against the page rather than against its neighbours. Paired
+ * with `max-height`/`overflow-y` in the stylesheet, every item is reachable at
+ * every size — verified by hit-testing each one, not by looking at it.
  */
 
 interface Props {
@@ -51,8 +75,13 @@ export function ControlPanel({
   onBrainCommand,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const halted = killSwitch === "disarmed";
+
+  // `document` does not exist while this renders on the server, so the portal
+  // can only be created after mount.
+  useEffect(() => setMounted(true), []);
 
   // Close on Escape or a click elsewhere, like a real menu. Without this the
   // menu stays over the orb until you find the shield again.
@@ -72,7 +101,7 @@ export function ControlPanel({
 
   const close = () => setOpen(false);
 
-  return (
+  const shield = (
     <div className="shield-root" ref={rootRef}>
       <button
         type="button"
@@ -145,4 +174,6 @@ export function ControlPanel({
       )}
     </div>
   );
+
+  return mounted ? createPortal(shield, document.body) : null;
 }

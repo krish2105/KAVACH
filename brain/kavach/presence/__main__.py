@@ -35,6 +35,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import AppKit
 import Foundation
@@ -84,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     # the command line looks like. A stale lock is still taken over, so a hard
     # kill cannot leave the panel unstartable.
     from ..single import InstanceLock
+    from .pageserver import PageServer
 
     panel_lock = InstanceLock("overlay")
     if not panel_lock.acquire():
@@ -106,6 +108,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("kavach.presence")
 
+    # The page, before the window that loads it.
+    #
+    # This used to be someone's terminal. When that terminal closed the panel
+    # became an empty transparent window — no error, nothing to click, and no
+    # way to tell it from an orb sitting idle. A launch agent cannot do this
+    # job: the project is under ~/Desktop, which is TCC-protected, and a
+    # launchd job reading it does not fail but *hangs* in open(). This process
+    # is the app bundle and already reads the project, so the server starts
+    # here and lives exactly as long as the window does.
+    page_server = PageServer(
+        Path(__file__).resolve().parents[3] / "apps" / "orb",
+        port=urlparse(args.url).port or 3100,
+    )
+    if not page_server.start():
+        log.error("the orb page is not being served — the panel will be blank")
+
     app = AppKit.NSApplication.sharedApplication()
     # Accessory: no Dock icon, no app switcher entry. It is a presence, not an
     # app you switch to.
@@ -123,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
     def on_quit() -> None:
         if tracker is not None:
             tracker.stop()
+        # Before the lock is released, so the next launch does not find an
+        # orphaned server holding the port and "adopt" a process it cannot
+        # supervise.
+        page_server.stop()
         listener.stop()
         try:
             panel_lock.release()

@@ -145,6 +145,48 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 
 **CarPlay was cut by the user and must not be built.**
 
+### launchd cannot read this project — measured, not assumed
+
+`~/Desktop` is TCC-protected and **a launch agent has no grant for it**:
+
+```
+$ launchctl bootstrap gui/$UID <a job that cats one file>
+DESKTOP DENIED
+HOME READABLE
+```
+
+Nothing fails on that denial. It **hangs**, with the job reported healthy:
+
+* a `next start` agent — 100% of samples in
+  `GetNearestParentPackageJSONType → TraverseParent → open`, port never bound,
+  zero bytes logged
+* the overlay agent pointed at `open -W -a KAVACH.app` — 100% of samples in
+  `_PyCodecRegistry_Init → os_listdir → open$NOCANCEL`, i.e. Python blocked on
+  the first import in the process
+
+`uv run kavach-overlay` **does** hold the grant here, and gets the camera with
+it — the agent-started process logs live `pinch ENGAGED` lines. So the overlay
+agent runs the CLI, and the bundle stays the manual/`open -a` route. **Do not
+switch the agent to the bundle without granting KAVACH.app Full Disk Access
+first** — a silent hang is worse than the refusal it was meant to fix.
+
+**The orb page is served by the overlay process** (`presence/pageserver.py`),
+not by an agent, for the same reason. It starts `next start` as a child, adopts
+an already-listening port rather than fighting it, and stops it on exit. Before
+this, the page came from a hand-typed `next start`: closing that terminal left
+an empty transparent window — no error, nothing to click, indistinguishable
+from an idle orb. That is what "nothing was visible" was.
+
+**Install agents with `uv run kavach-daemons install`, never `cp`.** The files
+in `daemon/` are templates full of `__UV__`-style placeholders; SETUP.md used to
+say `cp`, so the installed copies were hand-edited and then diverged from git.
+`kavach-daemons status` reports **stale** when they differ, which is the only
+symptom that failure has.
+
+Also: launchd's `StandardOutPath` must not be `overlay.log` — the process
+already puts a `FileHandler` there, and pointing both at one file logged every
+line twice.
+
 ### One instance, enforced by a file (§18 extended)
 
 `InstanceLock(name)` in `kavach/single.py`; `WakeWordLock` is a thin alias.
@@ -163,6 +205,25 @@ actually came from. To test a variant, `launchctl bootout
 gui/$UID/com.krishna.kavach.overlay` first and bootstrap it back afterwards.
 **Never `rm ~/.kavach/overlay.lock` while an instance is running** — that is
 the one action that defeats the guard.
+
+### The 🛡 menu must survive the smallest panel
+
+At Small (280pt) the menu was 384px tall in a 280px window and **eight of its
+twelve items could not be clicked** — `Medium`/`Large`/`Huge` sat under the
+GESTURES and ±/RESET buttons, five more fell off the bottom. Choosing Small
+removed every control that could undo it, and the global hotkeys are dead
+without Input Monitoring (`hotkeys BLOCKED` in the log), so there was no second
+way out. The one item still clickable was `Full screen` — which is exactly what
+the user clicked four seconds later.
+
+The z-index looked right and did nothing. `.shield-root` lived inside a `.hud`
+that is `position: fixed; z-index: 20`, which **opens a stacking context**, so
+`z-index: 40` only ranked it against its own siblings and the later `.hud`
+painted over it regardless. It renders through a **portal to `document.body`**
+now, plus `max-height`/`overflow-y` so it scrolls instead of overflowing.
+
+Verified by hit-testing every item with `elementFromPoint` at 280/400/560/760 —
+0 unreachable at all four. Looking at a screenshot cannot see this bug.
 
 ### Full screen (`⌃⌥⌘F`, or `kavach-overlay --fullscreen`)
 
