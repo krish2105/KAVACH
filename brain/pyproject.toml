@@ -11,15 +11,13 @@ dependencies = [
     # kill switch. Both pyobjc frameworks were updated 2026-08-11.
     "pyobjc-framework-Cocoa>=12.2.2",
     "pyobjc-framework-Quartz>=12.2.2",
-
     # ——— Phase 2: local voice loop ———
     "numpy>=2.5.2",
     "sounddevice>=0.5.5",         # mic capture (PortAudio)
     "pywhispercpp>=1.5.0",        # whisper.cpp + Metal; prebuilt arm64 wheels,
-                                  # so no cmake and no building from source
+    # so no cmake and no building from source
     "kokoro-onnx>=0.5.0",         # TTS; bundles espeak via espeakng-loader
     "websockets>=17.0.1",         # bridge to the orb (Presence layer)
-
     # Wake word. Porcupine is gone — Picovoice killed the free tier on
     # 2026-06-30 with no non-commercial replacement.
     "livekit-wakeword>=0.2.1",
@@ -30,6 +28,7 @@ dependencies = [
     "typer>=0.27.1",
     "pyyaml>=6.0.3",
     "pydantic>=2.13.4",
+    "claude-agent-sdk>=0.2.137",
 ]
 
 # Phase 3 deps are deliberately absent until their phase:

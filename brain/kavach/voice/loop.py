@@ -14,6 +14,7 @@ cancels playback immediately (§7, §C).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -24,6 +25,8 @@ from typing import Callable
 import numpy as np
 
 from ..killswitch.core import KillSwitch, KillSwitchDisarmed
+from ..reasoning import handlers as handlers_mod
+from ..reasoning.router import Route, Router
 from . import tts as tts_mod
 from .latency import TurnTimer
 from .mic import EndpointConfig, MicStream, Recorder, rms_to_amplitude
@@ -82,6 +85,9 @@ class VoiceLoop:
         wake_model: Path = DEFAULT_WAKE_MODEL,
         stt_model: str = "large-v3-turbo",
         use_wake_word: bool = True,
+        router: Router | None = None,
+        local=None,
+        agent=None,
     ):
         self.ks = kill_switch
         self.publish_fn = publish or (lambda _: None)
@@ -92,6 +98,11 @@ class VoiceLoop:
         self.stt = SpeechToText(stt_model)
         self.tts = TextToSpeech(models_dir)
         self.wake = WakeWordDetector(wake_model) if use_wake_word else None
+        # Phase 3 reasoning. All optional: with none of them the loop
+        # degrades to the Phase 2 echo rather than failing.
+        self.router = router
+        self.local = local
+        self.agent = agent
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -284,12 +295,59 @@ class VoiceLoop:
         self.set_state("idle", amplitude=0.0, partial="")
 
     def respond(self, text: str) -> str:
-        """Phase 2 has no LLM (§9) — echo back what was heard.
+        """Route the utterance and produce a spoken reply (spec §5).
 
-        Phase 3 replaces this one method with the router: local model for
-        simple intents, Claude Agent SDK for anything needing judgement.
+        Phase 2 echoed. Phase 3 replaces exactly this method — the rest of the
+        loop is unchanged, which is what the Phase 2 seam was for.
         """
+        if self.router is None:
+            return f"You said: {text}"
+
+        decision = self.router.route(text)
+        # Confidence drives the orb's outer shell (§4 #3).
+        self.state.confidence = decision.confidence
+        self.state.route = (
+            decision.route.value if decision.route.value != "reject" else None
+        )
+        self.ks.log.append("router.decision", **decision.as_dict())
+
+        if decision.route is Route.REJECT:
+            return ""
+
+        # §7: destructive or externally visible actions are spoken back and
+        # wait. Phase 3 has no tools, so nothing could execute yet — but the
+        # confirmation habit is established here rather than bolted on later.
+        if decision.needs_confirmation:
+            return (
+                f"That would {self._describe_action(text)}. "
+                f"Say confirm if you want me to."
+            )
+
+        # Cheapest tier first: a deterministic handler is sub-millisecond
+        # and, for things like the clock, the only tier that can actually
+        # answer at all.
+        if decision.route is Route.LOCAL and decision.intent:
+            answer = handlers_mod.handle(decision.intent, text)
+            if answer:
+                self.state.confidence = 0.98
+                return answer
+
+        try:
+            if decision.route is Route.LOCAL and self.local is not None:
+                return self.local.respond(text)
+            if self.agent is not None:
+                return asyncio.run(self.agent.respond(text))
+        except Exception:
+            log.exception("reasoning failed")
+            return "Something went wrong while I was thinking about that."
+
         return f"You said: {text}"
+
+    @staticmethod
+    def _describe_action(text: str) -> str:
+        """A short spoken paraphrase for the confirmation prompt."""
+        trimmed = text.strip().rstrip(".")
+        return trimmed[0].lower() + trimmed[1:] if trimmed else "do that"
 
     # ——— helpers that keep the orb alive during a turn ———
 

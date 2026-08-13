@@ -22,6 +22,9 @@ from ..bridge.server import DEFAULT_HOST, DEFAULT_PORT, Bridge
 from ..killswitch.core import KillSwitch
 from ..killswitch.ipc import DEFAULT_SOCKET_PATH, serve as serve_killswitch
 from ..killswitch.log import ActionLog
+from ..reasoning.agent import ClaudeAgent
+from ..reasoning.local import LocalModel
+from ..reasoning.router import Router
 from .loop import DEFAULT_MODELS_DIR, DEFAULT_WAKE_MODEL, VoiceLoop
 
 
@@ -86,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bench", metavar="PHRASE", default=None,
                         help="measure latency without a mic, then exit")
     parser.add_argument("--bench-rounds", type=int, default=3)
+    parser.add_argument("--no-reasoning", action="store_true",
+                        help="Phase 2 behaviour: echo instead of routing")
+    parser.add_argument("--local-model", default="qwen3:4b")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -94,8 +100,22 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     ks = KillSwitch(log=ActionLog())
+
+    local = agent = router = None
+    if not args.no_reasoning:
+        local = LocalModel(args.local_model)
+        if not local.available():
+            print(f'⚠  Ollama has no {args.local_model}; simple intents will\n'
+                  f'   fall back to Claude. Fix: ollama pull {args.local_model}')
+            local = None
+        agent = ClaudeAgent()
+        router = Router(local_client=local)
+
     voice = VoiceLoop(
         kill_switch=ks,
+        router=router,
+        local=local,
+        agent=agent,
         models_dir=Path(args.models_dir),
         wake_model=Path(args.wake_model),
         stt_model=args.stt_model,
@@ -113,10 +133,11 @@ def main(argv: list[str] | None = None) -> int:
 
     trigger = "wake word 'KAVACH' or hold Space" if voice.wake else "hold Space (push-to-talk)"
     print("─" * 62)
-    print("  KAVACH voice loop — Phase 2 (echo, no LLM yet)")
+    print("  KAVACH voice loop — wake word · STT · router · TTS")
     print("─" * 62)
     print(f"  trigger    {trigger}")
     print(f"  stt        {args.stt_model}")
+    print(f"  reasoning  {'echo (--no-reasoning)' if router is None else f'router → {args.local_model} | claude'}")
     print(f"  bridge     ws://{args.host}:{args.port}  → the orb")
     print(f"  kill       ⌃⌥⌘K, menu bar, or `kavach kill`")
     print("─" * 62)
