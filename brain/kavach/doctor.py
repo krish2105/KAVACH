@@ -134,6 +134,34 @@ def check_gate(tmp: Path) -> list[Check]:
 
 # ─────────────────────────── voice ───────────────────────────
 
+def check_speech_model() -> list[Check]:
+    """Which model KAVACH is actually listening with (§21).
+
+    Worth a line of its own: selecting a model that was never downloaded falls
+    back to stock deliberately, and without this you would only find out by
+    noticing your Hinglish still comes out as English.
+    """
+    from kavach.voice import stt_models
+
+    out: list[Check] = []
+    name = stt_models.selected_name()
+    resolved = stt_models.resolve()
+
+    if name == "stock":
+        out.append(Check("voice", "speech model", PASS, "stock (large-v3-turbo)"))
+        return out
+
+    installed = stt_models.is_installed(name)
+    out.append(Check("voice", "speech model",
+                     PASS if installed else WARN,
+                     f"{name}" if installed else
+                     f"{name} selected but NOT downloaded — using stock. "
+                     f"`uv run kavach-stt pull {name}`"))
+    if installed:
+        out.append(Check("voice", "speech model file", PASS, resolved))
+    return out
+
+
 def check_voice_gates() -> list[Check]:
     import numpy as np
 
@@ -477,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         checks += check_wake_word()
         if not args.skip_slow:
             checks += check_voice_gates()
+        checks += check_speech_model()
 
     width = max(len(c.name) for c in checks) + 2
     layer = None

@@ -32,7 +32,15 @@ class Transcript:
 
 
 class SpeechToText:
-    def __init__(self, model_name: str = DEFAULT_MODEL, n_threads: int | None = None):
+    def __init__(self, model_name: str | None = None, n_threads: int | None = None):
+        # §21. None means "whatever is selected", which is stock unless you
+        # chose otherwise — and resolves back to stock if the chosen model is
+        # not on disk. An explicit name still wins, so tests and --stt-model
+        # can pin one.
+        if model_name is None:
+            from .stt_models import resolve
+
+            model_name = resolve()
         self.model_name = model_name
         self.n_threads = n_threads or max(4, (os.cpu_count() or 8) - 2)
         self._model = None

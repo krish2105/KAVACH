@@ -188,7 +188,49 @@ in another room."
 
 ---
 
-## 7 · Run it at login *(optional)*
+## 7 · Hinglish speech *(optional)*
+
+KAVACH listens with stock Whisper `large-v3-turbo` by default, which treats
+Hinglish as accented English. Four Hindi/English code-switching models are
+available, all **apache-2.0**, all converted to GGML locally so whisper.cpp
+stays the only backend:
+
+```bash
+cd brain && uv run kavach-stt list
+```
+
+| | Download | Base | When |
+|---|---|---|---|
+| **apex** | 1.62 GB | `large-v3-turbo` | **Start here** — same size and base as stock, so it swaps in cleanly |
+| swift | 290 MB | `whisper-base` | Tiny and fast; noticeably less accurate |
+| prime | 6.17 GB | `large-v3` | Most downloaded, but its own README says Apex supersedes it |
+| trelis | 6.17 GB | vaani-hindi | Purpose-built for code-switching |
+
+Converting needs two extra packages, and only for the conversion:
+
+```bash
+uv sync --group stt-convert
+```
+
+Then, once per model:
+
+```bash
+uv run kavach-stt pull apex
+```
+
+```bash
+uv run kavach-stt use apex
+```
+
+Restart KAVACH. **`uv run kavach-stt use stock` switches back** — that is the
+point of the toggle, and nothing is deleted when you do.
+
+If you select a model you haven't downloaded, KAVACH keeps using stock and says
+so in `kavach-doctor` rather than refusing to listen.
+
+---
+
+## 8 · Run it at login *(optional)*
 
 ```bash
 cp daemon/com.krishna.kavach.plist ~/Library/LaunchAgents/

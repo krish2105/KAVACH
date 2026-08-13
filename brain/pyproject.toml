@@ -89,8 +89,19 @@ kavach-memory = "kavach.memory.cli:main"
 kavach-ghost = "kavach.privacy.ghost_cli:main"
 kavach-meetings = "kavach.privacy.meetings_cli:main"
 kavach-export = "kavach.memory.export_cli:main"
+kavach-stt = "kavach.voice.stt_cli:main"
 
 [dependency-groups]
+# Only needed to CONVERT a Hugging Face checkpoint to GGML (§21). A normal
+# install never pulls these — running a converted model needs nothing beyond
+# pywhispercpp, which is already a main dependency.
+#   uv sync --group stt-convert
+stt-convert = [
+    "transformers>=4.44",
+    "openai-whisper>=20231117",   # only for whisper/assets/mel_filters.npz
+    "huggingface-hub>=0.24",
+]
+
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.0.0",

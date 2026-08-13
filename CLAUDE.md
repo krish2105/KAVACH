@@ -134,6 +134,7 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
 | 12 — Speaker ID | built (Resemblyzer, threshold 0.613, margin 0.196). The **config toggle** is the missing piece. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
 | 13 — Explainability | **complete** — `reason`/`intent` in the snapshot and the STATUS panel. `respond()` now publishes its decision; before, an API turn computed and logged a route the HUD never saw |
+| 21 — Hinglish speech | **complete** — `kavach-stt` registry + GGML conversion. Stock stays default |
 | 14 — Ghost mode | **complete** — `kavach/privacy/ghost.py`. Stops mic **and** camera, suppresses *perception* logging only |
 | 15 — Meeting-aware muting | **complete** — `kavach/privacy/meetings.py`. Window-title detection; needs a real call to finish verifying |
 | 16 — Session recorder | **complete** — `kavach/memory/session.py`. Rolling 15 min, `kavach-export`, no network path |
@@ -205,6 +206,36 @@ voice loop can only stop the mic; `privacy/camera_gate.py` closes it from the
 other side, driven by the same snapshot stream the menu bar uses. The unit
 tests missed this for a while because they attached a *fake* tracker in-process
 — green tests, live camera.
+
+### Speech models verified 2026-08-13 (§21 — do not re-derive)
+
+Read off the Hugging Face file listings, not estimated. **The name tells you
+nothing about the size** — that was the whole point of verifying.
+
+| Model | Params | Download | Pulls | Licence | Base |
+|---|---|---|---|---|---|
+| stock `large-v3-turbo` | 809 M | ~1.6 GB | — | MIT | — |
+| `Oriserve/…-Apex` | 809 M | 1.62 GB | 156 K | apache-2.0 | **`large-v3-turbo`** |
+| `Oriserve/…-Prime` | 1543 M | 6.17 GB | 395 K | apache-2.0 | large-v3 |
+| `Oriserve/…-Swift` | 72.6 M | 290 MB | 24.6 K | apache-2.0 | whisper-base |
+| `Trelis/whisper-hinglish-preview` | 1543 M | 6.17 GB | 6.8 K | apache-2.0 | vaani-hindi |
+
+**None of them ship GGML** — all transformers checkpoints, and KAVACH runs
+whisper.cpp. That gap is invisible on the model cards and is why
+`voice/convert_ggml.py` exists.
+
+**Apex is the one to recommend**: a fine-tune of the exact model KAVACH already
+runs, same size. Prime's own README says Apex supersedes it.
+
+`gripened/auderly-whisper-hinglish-ggml` is a ready-made 1.08 GB GGML of the
+Trelis model and is **deliberately not used**: 0 downloads, and its licence
+reads `other` while the weights it derives from are apache-2.0. A test asserts
+every registry entry declares a permissive licence, so it cannot be added by
+forgetting a field.
+
+The converter is whisper.cpp's own `convert-h5-to-ggml.py`, pinned at v1.8.2
+and **SHA-256 checked before it runs** (`9cc282df…`, 7891 bytes, byte-identical
+across v1.7.6–v1.8.2). Do not swap it for a hand-written GGML serialiser.
 
 ### Apple constraints verified 2026-08-13 (do not re-derive)
 
