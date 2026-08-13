@@ -8,6 +8,7 @@ import {
   createMockSource,
   type KavachSnapshot,
   type KavachSource,
+  STATE_LABEL,
 } from "@/lib/kavachState";
 import { createLiveSource } from "@/lib/liveSource";
 import { StatusPanel } from "@/components/hud/StatusPanel";
@@ -49,6 +50,21 @@ export default function JarvisOrb() {
   useEffect(() => {
     snapshotRef.current = snapshot;
   }, [snapshot]);
+
+  // ?overlay=1 — the floating desktop panel (see brain/kavach/presence).
+  //
+  // A 340pt panel is a different medium from a browser window, not a smaller
+  // one: the full HUD covers the canvas entirely at that size, which is why
+  // the orb was invisible in the overlay. Overlay mode strips everything back
+  // to the orb plus the one line of state worth glancing at, and drops the
+  // page background so it floats on the desktop rather than sitting in a box.
+  const [overlayMode, setOverlayMode] = useState(false);
+  useEffect(() => {
+    const on = new URLSearchParams(window.location.search).get("overlay") === "1";
+    setOverlayMode(on);
+    document.documentElement.classList.toggle("kv-overlay", on);
+    return () => document.documentElement.classList.remove("kv-overlay");
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -234,24 +250,46 @@ export default function JarvisOrb() {
       <div className="overlay-grain" />
       <div className="overlay-scanlines" />
 
-      <div className="hud hud-title">
-        <span className="title-mark">KAVACH</span>
-        <span className="title-sub">
-          कवच · local-first presence
-          <span
-            className={`brain-badge${brainOnline ? " is-online" : usingMock ? " is-mock" : ""}`}
-            title={
-              brainOnline
-                ? "Connected to the Brain over ws://127.0.0.1:8765"
-                : usingMock
-                  ? "Brain not running — this is the scripted demo, not live audio"
-                  : "Connecting to the Brain…"
-            }
-          >
-            {brainOnline ? "BRAIN LIVE" : usingMock ? "DEMO (MOCK)" : "CONNECTING…"}
+      {overlayMode ? (
+        // One glanceable line. Anything more competes with the orb, which is
+        // the thing you are actually meant to be looking at.
+        <div className="hud overlay-caption">
+          <span className={`state-pill state-${snapshot.state}`}>
+            <span className="state-dot" aria-hidden="true" />
+            {STATE_LABEL[snapshot.state]}
           </span>
-        </span>
-      </div>
+          {snapshot.killSwitch === "disarmed" && (
+            <span className="kill-badge is-disarmed">⛔ DISARMED</span>
+          )}
+          {(snapshot.partial || snapshot.transcript) && (
+            <p className="overlay-transcript">
+              {snapshot.transcript}
+              {snapshot.partial && (
+                <span className="transcript-partial">{snapshot.partial}</span>
+              )}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="hud hud-title">
+          <span className="title-mark">KAVACH</span>
+          <span className="title-sub">
+            कवच · local-first presence
+            <span
+              className={`brain-badge${brainOnline ? " is-online" : usingMock ? " is-mock" : ""}`}
+              title={
+                brainOnline
+                  ? "Connected to the Brain over ws://127.0.0.1:8765"
+                  : usingMock
+                    ? "Brain not running — this is the scripted demo, not live audio"
+                    : "Connecting to the Brain…"
+              }
+            >
+              {brainOnline ? "BRAIN LIVE" : usingMock ? "DEMO (MOCK)" : "CONNECTING…"}
+            </span>
+          </span>
+        </div>
+      )}
 
       <ToolCallPackets toolCalls={snapshot.toolCalls} targetRef={toolPanelRef} />
 

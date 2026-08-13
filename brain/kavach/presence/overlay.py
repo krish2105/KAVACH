@@ -43,7 +43,7 @@ ACTIVE_STATES = {"listening", "thinking", "acting", "speaking", "halted"}
 #: mid-sentence the instant a turn ends.
 LINGER_SECONDS = 2.5
 
-PANEL_SIZE = 340.0
+PANEL_SIZE = 400.0
 MARGIN = 28.0
 
 
@@ -51,6 +51,12 @@ class OverlayWindow:
     """A floating, transparent, non-activating panel hosting the orb."""
 
     def __init__(self, url: str, size: float = PANEL_SIZE):
+        # `?overlay=1` puts the app in its compact, transparent mode.
+        # Appending it here without a path separator produced
+        # `http://host:3100?overlay=1`, whose query did not survive to
+        # `window.location.search` — so the app rendered its full-window
+        # HUD inside a 400pt panel and the orb stayed hidden behind it.
+        # The caller passes a complete URL instead.
         self.url = url
         self.size = size
         self._visible = False
@@ -92,30 +98,13 @@ class OverlayWindow:
         self.panel.setAlphaValue_(0.0)
 
         config = WebKit.WKWebViewConfiguration.alloc().init()
-
-        # The orb page paints an opaque black body — correct for a full-screen
-        # browser tab, wrong for a floating panel, where it reads as a black
-        # rectangle stuck to the desktop. Strip the background at document
-        # start so it is transparent from the first frame rather than flashing
-        # black and then clearing.
-        css = (
-            "html,body{background:transparent !important;"
-            "background-color:transparent !important;overflow:hidden !important}"
-            # The vignette and scanline overlays assume a dark page behind
-            # them; floating over the desktop they just muddy it.
-            ".overlay-vignette,.overlay-grain,.overlay-scanlines{display:none !important}"
+        # A fresh, non-persistent store each launch. WKWebView otherwise caches
+        # the app's JS hard enough that restarting the overlay kept running the
+        # previous build — new code on disk, old code on screen, and no way to
+        # tell from the outside which you were looking at.
+        config.setWebsiteDataStore_(
+            WebKit.WKWebsiteDataStore.nonPersistentDataStore()
         )
-        script_source = (
-            "(function(){var s=document.createElement('style');"
-            f"s.textContent={json.dumps(css)};"
-            "document.documentElement.appendChild(s);})();"
-        )
-        user_script = WebKit.WKUserScript.alloc().initWithSource_injectionTime_forMainFrameOnly_(
-            script_source,
-            0,  # WKUserScriptInjectionTimeAtDocumentStart
-            True,
-        )
-        config.userContentController().addUserScript_(user_script)
 
         self.web = WebKit.WKWebView.alloc().initWithFrame_configuration_(
             Foundation.NSMakeRect(0, 0, size, size), config
@@ -125,8 +114,12 @@ class OverlayWindow:
         self.web.setValue_forKey_(False, "drawsBackground")
         self.web.setUnderPageBackgroundColor_(AppKit.NSColor.clearColor())
 
-        request = Foundation.NSURLRequest.requestWithURL_(
-            Foundation.NSURL.URLWithString_(self.url)
+        # Bypass every cache layer. A non-persistent data store still let
+        # NSURLCache serve the previous JS bundle, so the panel kept running
+        # code that no longer existed on disk.
+        # 4 = NSURLRequestReloadIgnoringLocalAndRemoteCacheData
+        request = Foundation.NSURLRequest.requestWithURL_cachePolicy_timeoutInterval_(
+            Foundation.NSURL.URLWithString_(self.url), 4, 30.0
         )
         self.web.loadRequest_(request)
         self.panel.setContentView_(self.web)
@@ -164,6 +157,28 @@ class OverlayWindow:
         elif self._visible and self._hide_at is None:
             self._hide_at = time.monotonic() + LINGER_SECONDS
 
+    def probe(self) -> None:
+        """Log what the page actually loaded.
+
+        The panel is opaque from the outside: there is no console and no
+        inspector, so a stale bundle or a dropped query string looks identical
+        to a styling bug. Asking the page directly is the only honest check.
+        """
+
+        def handler(result, error) -> None:
+            if error is not None:
+                log.warning("probe failed: %s", error)
+            else:
+                log.info("page reports: %s", result)
+
+        self.web.evaluateJavaScript_completionHandler_(
+            "JSON.stringify({href:location.href,"
+            "overlay:document.documentElement.classList.contains('kv-overlay'),"
+            "canvas:!!document.querySelector('.orb-root canvas'),"
+            "caption:!!document.querySelector('.overlay-caption')})",
+            handler,
+        )
+
     def tick(self) -> None:
         """Called on the AppKit main thread. The only place the panel moves."""
         state, self.pending_state = self.pending_state, None
@@ -191,13 +206,14 @@ class BridgeListener(threading.Thread):
         self._stop = threading.Event()
 
     def run(self) -> None:
-        # The *synchronous* websocket client, deliberately.
+        # The *synchronous* websocket client: one fewer event loop in a
+        # process that already has AppKit's run loop, and a plain blocking
+        # thread is easier to reason about than asyncio-inside-a-thread.
         #
-        # Running `asyncio.run()` on this thread alongside AppKit's run loop
-        # made NSApplication.run() return the moment a connection was
-        # established — the process exited cleanly, no traceback, no crash
-        # report, and the overlay simply vanished as soon as the voice loop
-        # came up. The sync client needs no event loop, so the two never meet.
+        # It was originally swapped in to fix a crash that turned out not to
+        # exist — the liveness check was grepping for the wrong process name,
+        # so a healthy overlay looked dead. Keeping the sync client on its
+        # merits, not on that story.
         from websockets.sync.client import connect
 
         def pump() -> None:

@@ -92,7 +92,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 500);
   camera.position.copy(HOME_POSITION);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // `alpha` + a zero clear-alpha let the canvas be genuinely see-through, so
+  // the floating desktop panel is an orb rather than an orb in a black box.
+  // In the browser it changes nothing visible: the page behind it is #000.
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;

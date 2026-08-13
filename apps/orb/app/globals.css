@@ -698,3 +698,92 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .gh-fill { transition: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   OVERLAY MODE — ?overlay=1, the floating desktop panel
+   (brain/kavach/presence/overlay.py)
+
+   A 340pt panel is a different medium from a browser window, not just a
+   smaller one. The full HUD is absolutely positioned for a large viewport,
+   so at panel size it covers the canvas completely — which is exactly why
+   the orb was invisible in the overlay while every panel rendered fine.
+
+   Here the orb is the interface. Everything else is one caption line.
+   ═══════════════════════════════════════════════════════════ */
+
+.kv-overlay,
+.kv-overlay body {
+  /* Floats on the desktop rather than sitting in a black box. */
+  background: transparent !important;
+  overflow: hidden;
+}
+
+/* These assume a dark page behind them; over the desktop they just muddy it. */
+.kv-overlay .overlay-vignette,
+.kv-overlay .overlay-grain,
+.kv-overlay .overlay-scanlines {
+  display: none;
+}
+
+/* Full-size HUD furniture has no place at 340pt. */
+.kv-overlay .hud-stack,
+.kv-overlay .hud-hint,
+.kv-overlay .hud-controls,
+.kv-overlay .hud-title {
+  display: none;
+}
+
+/* The orb fills the panel and is the whole point. */
+.kv-overlay .orb-root {
+  position: fixed;
+  inset: 0;
+}
+
+.kv-overlay .overlay-caption {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.6rem;
+  pointer-events: none;
+}
+
+.kv-overlay .state-pill {
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  padding: 0.2rem 0.6rem;
+  /* Legible against a bright wallpaper as well as a dark one. */
+  background: rgba(3, 11, 16, 0.72);
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+}
+
+.kv-overlay .overlay-transcript {
+  max-width: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 0.6rem;
+  line-height: 1.35;
+  color: var(--kv-hot);
+  background: rgba(3, 11, 16, 0.72);
+  backdrop-filter: blur(8px);
+  border-radius: 0.5rem;
+  padding: 0.3rem 0.55rem;
+  /* Two lines, then ellipsis — a long reply must not grow the panel. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 0 6px rgba(98, 224, 255, 0.5);
+}
+
+.kv-overlay .kill-badge.is-disarmed {
+  font-size: 0.55rem;
+  background: rgba(3, 11, 16, 0.8);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}

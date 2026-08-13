@@ -29,7 +29,7 @@ RULE = "─" * 62
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="KAVACH desktop orb overlay.")
-    parser.add_argument("--url", default="http://127.0.0.1:3100",
+    parser.add_argument("--url", default="http://127.0.0.1:3100/?overlay=1",
                         help="where the orb is served")
     parser.add_argument("--bridge", default="ws://127.0.0.1:8765",
                         help="agent-state bridge")
@@ -78,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
             log.exception("overlay tick failed")
 
     Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.25, True, tick)
+
+    # One-shot probe a few seconds in, once the page has settled.
+    Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+        6.0, False, lambda _t: overlay.probe()
+    )
 
     signal.signal(signal.SIGINT, lambda *_: app.terminate_(None))
     app.run()
