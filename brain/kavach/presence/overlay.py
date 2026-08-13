@@ -76,8 +76,31 @@ class OverlayWindow:
         necessarily means it also intercepts clicks that land on it.
         """
         self.interactive = interactive
+        self.geometry.interactive = interactive
+        self.geometry.save()
         self.panel.setIgnoresMouseEvents_(not interactive)
         self.panel.setMovableByWindowBackground_(interactive)
+
+        # The web view eats every mouse event, so the window itself never sees
+        # a drag. A transparent view above it forwards one.
+        if interactive:
+            if self._drag_view is None:
+                from .controls import DragView
+
+                self._drag_view = DragView.alloc().initWithFrame_(
+                    Foundation.NSMakeRect(0, 0, self.geometry.size, self.geometry.size)
+                )
+                self._drag_view.setAutoresizingMask_(
+                    AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable
+                )
+            self.panel.contentView().addSubview_(self._drag_view)
+        elif self._drag_view is not None:
+            self._drag_view.removeFromSuperview()
+        # Changing the style mask on a borderless window makes AppKit
+        # recompute the frame, which silently moved and shrank the panel every
+        # time move/resize was toggled — the size kept "reverting" to a value
+        # nobody chose. Capture and restore it around the change.
+        before = self.panel.frame()
         self.panel.setStyleMask_(
             (AppKit.NSWindowStyleMaskBorderless
              | AppKit.NSWindowStyleMaskNonactivatingPanel
@@ -86,6 +109,7 @@ class OverlayWindow:
             (AppKit.NSWindowStyleMaskBorderless
              | AppKit.NSWindowStyleMaskNonactivatingPanel)
         )
+        self.panel.setFrame_display_(before, True)
         if interactive:
             # Visible while you are positioning it, regardless of agent state.
             self.show()
@@ -139,6 +163,7 @@ class OverlayWindow:
         self._hide_at: float | None = None
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
+        self._drag_view = None
 
         size = self.geometry.size
         visible = AppKit.NSScreen.mainScreen().visibleFrame()
@@ -293,10 +318,15 @@ class OverlayWindow:
                 log.info("page reports: %s", result)
 
         self.web.evaluateJavaScript_completionHandler_(
-            "JSON.stringify({href:location.href,"
+            "(function(){var c=document.querySelector('.orb-root canvas');"
+            "return JSON.stringify({"
             "overlay:document.documentElement.classList.contains('kv-overlay'),"
-            "canvas:!!document.querySelector('.orb-root canvas'),"
-            "caption:!!document.querySelector('.overlay-caption')})",
+            "canvas:!!c,"
+            "cssPx:c?c.clientWidth:0,"
+            "devicePx:c?c.width:0,"
+            "ratio:c&&c.clientWidth?+(c.width/c.clientWidth).toFixed(2):0,"
+            "dpr:window.devicePixelRatio,"
+            "caption:!!document.querySelector('.overlay-caption')})})()",
             handler,
         )
 

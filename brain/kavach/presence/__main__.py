@@ -66,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
     overlay = OverlayWindow(args.url, size=args.size)
+    # Restore move/resize if it was left on.
+    if overlay.geometry.interactive:
+        overlay.set_interactive(True)
     if args.always:
         overlay.show()
 

@@ -45,6 +45,9 @@ class Geometry:
     x: float | None = None
     y: float | None = None
     hidden: bool = False
+    #: Persisted, unlike a normal mode. Restarting the agent otherwise turns
+    #: dragging silently off and the panel looks broken again.
+    interactive: bool = False
 
     @classmethod
     def load(cls) -> "Geometry":
@@ -78,6 +81,28 @@ class Geometry:
             smaller = [s for s in ordered if s < self.size - 1]
             self.size = smaller[-1] if smaller else self.size / 1.15
         self.clamp()
+
+
+class DragView(AppKit.NSView):
+    """A transparent layer that makes the panel draggable.
+
+    `movableByWindowBackground` moves a window when you drag its *background* —
+    but the panel's entire content is a WKWebView, which consumes every mouse
+    event before the window sees one. So switching interactive mode on
+    appeared to do nothing: the panel accepted clicks and still refused to
+    move.
+
+    This sits above the web view and hands the drag to the window itself.
+    """
+
+    def acceptsFirstMouse_(self, _event):
+        # The panel never becomes key, so without this the first click after
+        # focusing another app is swallowed just to activate — meaning every
+        # drag would need two attempts.
+        return True
+
+    def mouseDown_(self, event):
+        self.window().performWindowDragWithEvent_(event)
 
 
 class MenuBarController(AppKit.NSObject):

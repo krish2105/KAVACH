@@ -116,7 +116,20 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   const inPanel =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("overlay") === "1";
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, inPanel ? 3 : 2));
+  // Supersample in the panel — deliberately *above* devicePixelRatio.
+  //
+  // `Math.min(devicePixelRatio, 3)` cannot exceed the display's own ratio, so
+  // on a 2x screen it silently stayed at 2 and the "3x" did nothing. Going
+  // over dpr renders more pixels than the screen has and downsamples, which
+  // is what actually sharpens fine wireframe.
+  //
+  // Affordable only because the panel is small and now pauses entirely while
+  // hidden; the window keeps the ordinary 2x ceiling.
+  renderer.setPixelRatio(
+    inPanel
+      ? Math.min(window.devicePixelRatio * 1.5, 3)
+      : Math.min(window.devicePixelRatio, 2),
+  );
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.8;
   container.appendChild(renderer.domElement);
