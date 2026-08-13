@@ -1,15 +1,15 @@
 {
   "_comment": [
-    "Device-scoped allowlist (spec \u00a77). An ALLOWLIST, not a blocklist: a device",
+    "Device-scoped allowlist (spec §7). An ALLOWLIST, not a blocklist: a device",
     "or app KAVACH has never heard of is denied by default. Ask before adding.",
     "",
-    "IMPORTANT \u2014 the two devices are governed differently, because the servers",
+    "IMPORTANT — the two devices are governed differently, because the servers",
     "behind them are shaped differently:",
     "",
-    "  mac    \u2014 the MCP tools are APP-scoped (AppleScript names the app it is",
+    "  mac    — the MCP tools are APP-scoped (AppleScript names the app it is",
     "           talking to), so the unit of permission is the app.",
     "",
-    "  iphone \u2014 mirroir-mcp's tools are DEVICE-scoped. screenshot,",
+    "  iphone — mirroir-mcp's tools are DEVICE-scoped. screenshot,",
     "           describe_screen and start_recording all operate on whatever is",
     "           on the phone screen; none of them take an app name. A per-app",
     "           iPhone allowlist is therefore NOT ENFORCEABLE through this",
@@ -17,7 +17,7 @@
     "           The unit of permission is the tool instead: reading is allowed,",
     "           recording and calibration require confirmation.",
     "",
-    "Bundle IDs were read off this machine \u2014 note Calendar is com.apple.iCal."
+    "Bundle IDs were read off this machine — note Calendar is com.apple.iCal."
   ],
   "version": 2,
   "devices": {
@@ -47,6 +47,10 @@
         {
           "name": "Spotify",
           "bundle_id": "com.spotify.client"
+        },
+        {
+          "name": "Google Chrome",
+          "bundle_id": "com.google.Chrome"
         }
       ]
     },

@@ -105,14 +105,31 @@ def test_enabling_lets_an_allowed_app_through(controller):
 # ═══ 2. the allowlist decides which apps ═══
 
 def test_an_app_not_on_the_allowlist_is_refused(controller):
+    """Mail, not Chrome.
+
+    This used Chrome until Chrome was added to the allowlist on 2026-08-13 at
+    the user's request — the example went stale because the world changed, not
+    because the rule did. Mail is a real application that is deliberately not
+    on the list, which is what makes it a fair test.
+    """
     controller.enable()
-    controller.frontmost = FakeFrontmost("Google Chrome", "com.google.Chrome")
+    controller.frontmost = FakeFrontmost("Mail", "com.apple.mail")
 
     with pytest.raises(ControlRefused) as caught:
         controller.scroll(0.0, 0.05)
 
-    assert "chrome" in str(caught.value).lower()
+    assert "mail" in str(caught.value).lower()
     assert controller.poster.events == []
+
+
+def test_chrome_is_allowed_because_it_was_asked_for(controller):
+    """Added deliberately, so its being allowed is asserted deliberately."""
+    controller.enable()
+    controller.frontmost = FakeFrontmost("Google Chrome", "com.google.Chrome")
+
+    controller.scroll(0.0, 0.05)
+
+    assert len(controller.poster.events) == 1
 
 
 def test_an_unidentifiable_app_is_refused(controller):

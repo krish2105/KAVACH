@@ -237,7 +237,13 @@ from the snapshot it already receives and writes to the same `ActionLog` file
 Sessions log `appcontrol.start`/`.end`, not frames. Both are absent from
 `SUPPRESSED_IN_GHOST` — ghost hides what KAVACH *saw*, never what it *did*.
 
-**Chrome is not on the allowlist.** Ask before adding it (§7).
+**Chrome was added on 2026-08-13 at the user's request.** The allowlist now
+holds Safari, Notes, Calendar, Finder, Music, Spotify, Google Chrome.
+
+One list gates **both** paths, deliberately: adding an app for hand control
+also grants KAVACH's MCP tools access to it. Two lists is how one of them goes
+stale. `tests/test_allowlist.py` requires a recorded reason per entry, so an
+app cannot arrive without someone having asked.
 
 ### Ghost mode — the boundary that matters (§14)
 

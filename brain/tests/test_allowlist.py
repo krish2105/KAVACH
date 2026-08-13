@@ -27,6 +27,14 @@ APPROVED = {
     "Finder": "spec §7 starting four",
     "Music": "user asked for spoken music control, 2026-08-13",
     "Spotify": "user asked for spoken music control, 2026-08-13",
+    # Asked for explicitly on 2026-08-13, to scroll and zoom it by hand.
+    #
+    # Worth recording that this list gates BOTH paths: adding Chrome here also
+    # lets KAVACH's MCP tools act on it, not only your hand. That is the
+    # consequence of one list rather than two, and it was chosen deliberately —
+    # two lists is how one of them goes stale.
+    "Google Chrome": "user asked, 2026-08-13, for hand scroll/zoom — also "
+                     "grants MCP tools access to Chrome",
 }
 
 
