@@ -27,6 +27,7 @@ from ..killswitch.core import KillSwitch, KillSwitchDisarmed
 from . import tts as tts_mod
 from .latency import TurnTimer
 from .mic import EndpointConfig, MicStream, Recorder, rms_to_amplitude
+from . import stt as stt_mod
 from .stt import SpeechToText
 from .tts import TextToSpeech
 from .wake import WakeWordDetector
@@ -211,6 +212,14 @@ class VoiceLoop:
         record_ms = timer.stop("record")
 
         if len(audio) < 16_000 * 0.3:  # under 300 ms is a cough, not a command
+            self.set_state("idle", amplitude=0.0)
+            return
+
+        # Gate on energy before spending a multi-second decode. Whisper does
+        # not return empty for silence — it confabulates ("Thank you.") — and
+        # from Phase 4 those strings reach a router that can act on them.
+        if stt_mod.is_probably_silence(audio):
+            log.info("no speech energy in the clip, discarding turn")
             self.set_state("idle", amplitude=0.0)
             return
 

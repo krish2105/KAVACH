@@ -148,3 +148,40 @@ def test_voice_state_reports_kill_switch_to_the_orb(tmp_path):
     assert state.as_dict()["killSwitch"] == "armed"
     state.killSwitch = "disarmed"
     assert state.as_dict()["killSwitch"] == "disarmed"
+
+
+# ——— silence must not become a command (§7) ———
+
+def test_known_silence_hallucinations_are_rejected():
+    """Whisper confabulates on silence rather than returning nothing. Observed
+    live: near-silent audio transcribed as 'Thank you.' From Phase 4 these
+    strings reach a router that can act on them."""
+    from kavach.voice.stt import is_hallucination
+
+    for text in ["Thank you.", "thank you", "Thanks for watching!", "you", "Bye."]:
+        assert is_hallucination(text), text
+
+
+def test_real_commands_are_not_rejected_as_hallucinations():
+    from kavach.voice.stt import is_hallucination
+
+    for text in ["open Safari", "what's on my calendar tomorrow",
+                 "thank you for opening Safari", "delete the draft"]:
+        assert not is_hallucination(text), text
+
+
+def test_silence_is_gated_before_transcription():
+    """Cheaper and more reliable than filtering Whisper's output afterwards."""
+    from kavach.voice.stt import is_probably_silence
+
+    assert is_probably_silence(np.zeros(16000, dtype=np.float32))
+    assert is_probably_silence(np.zeros(0, dtype=np.float32))
+    # Room tone: audible to a meter, not speech.
+    assert is_probably_silence(np.random.normal(0, 0.001, 16000).astype(np.float32))
+
+
+def test_actual_speech_passes_the_gate():
+    from kavach.voice.stt import is_probably_silence
+
+    speech = (np.sin(np.linspace(0, 400 * np.pi, 16000)) * 0.15).astype(np.float32)
+    assert not is_probably_silence(speech)

@@ -132,6 +132,19 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(run_all())
     except KeyboardInterrupt:
         print("\nstopping…")
+    except OSError as exc:
+        if exc.errno == 48:  # EADDRINUSE
+            # Almost always a second copy of this command, and the raw
+            # traceback buries that behind ten frames of asyncio internals.
+            print(
+                f"\n✗ port {args.port} is already in use — a KAVACH voice loop "
+                f"is probably already running.\n"
+                f"  check:  lsof -nP -iTCP:{args.port} -sTCP:LISTEN\n"
+                f"  stop it, or start this one on another port with --port\n",
+                file=sys.stderr,
+            )
+            return 2
+        raise
     finally:
         voice.stop()
     return 0

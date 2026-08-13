@@ -71,4 +71,43 @@ class SpeechToText:
         # nothing, and they should not reach the router as a user utterance.
         for marker in ("[BLANK_AUDIO]", "(silence)", "[silence]", "[ Silence ]"):
             text = text.replace(marker, "")
-        return Transcript(text=text.strip(), segments=len(segments), model=self.model_name)
+        text = text.strip()
+
+        if is_hallucination(text):
+            log.info("discarding known silence hallucination: %r", text)
+            text = ""
+
+        return Transcript(text=text, segments=len(segments), model=self.model_name)
+
+
+# Whisper does not return nothing for silence — it confabulates, and always
+# from the same small set drawn from its training data (YouTube captions).
+# Observed here: near-silent audio transcribed as "Thank you."
+#
+# This matters well beyond tidiness: from Phase 4 these strings reach a router
+# that can act on them. An assistant that invents commands out of room noise
+# is the exact failure §7 exists to prevent.
+_HALLUCINATIONS = {
+    "thank you.", "thank you", "thanks for watching!", "thanks for watching.",
+    "you", "you.", "bye.", "bye", ".", "so", "so.", "oh", "oh.",
+    "please subscribe", "subtitles by the amara.org community",
+    "thank you for watching.", "thank you for watching",
+    "i'm going to go get some water.",
+}
+
+
+def is_hallucination(text: str) -> bool:
+    return text.strip().casefold() in _HALLUCINATIONS
+
+
+def is_probably_silence(audio: np.ndarray, threshold: float = 0.006) -> bool:
+    """True if the clip carries no plausible speech energy.
+
+    Cheaper and far more reliable than trying to filter Whisper's output after
+    the fact — and it also saves a multi-second decode on nothing.
+    """
+    if not len(audio):
+        return True
+    rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+    peak = float(np.max(np.abs(audio)))
+    return rms < threshold or peak < 0.02
