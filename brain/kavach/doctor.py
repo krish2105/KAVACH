@@ -373,6 +373,27 @@ def check_tailscale() -> list[Check]:
                      f"https://{name}/" if proxied and name else
                      "run `tailscale serve --bg 8770` — see SETUP.md"))
 
+    # The config saying "served" is not the same as the path working. One real
+    # request over the tailnet name exercises DNS, the tunnel, Serve and the
+    # API at once. Sent WITHOUT the token on purpose: a 401 proves every hop
+    # without putting the secret on the wire to prove it.
+    if proxied and name:
+        import urllib.error
+        import urllib.request
+
+        try:
+            urllib.request.urlopen(f"https://{name}/status", timeout=8)
+            reached = "unauthenticated request was ACCEPTED"
+            ok = False
+        except urllib.error.HTTPError as exc:
+            ok = exc.code == 401
+            reached = "" if ok else f"expected 401, got {exc.code}"
+        except Exception as exc:
+            ok = False
+            reached = f"unreachable: {str(exc)[:50]}"
+        out.append(Check("reach", "tailnet path works end to end",
+                         PASS if ok else FAIL, reached))
+
     # Serving to the tailnet must NOT have quietly widened the binding. This is
     # the whole reason Serve was chosen over binding to the LAN, so it is
     # checked here rather than assumed.

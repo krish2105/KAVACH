@@ -156,6 +156,29 @@ Then follow [`docs/iphone-setup.md`](docs/iphone-setup.md) for the two
 shortcuts. It gives you a `curl` command for each one, so you can prove the
 server works before building anything on the phone.
 
+### When is KAVACH actually reachable?
+
+A sleeping Mac answers nothing, and remote access does not get to skip that.
+Read off *this* machine with `pmset -g custom`:
+
+| Setting | On AC | On battery | Meaning |
+|---|---|---|---|
+| `womp` | **1** | **0** | Wake for network traffic — on AC an incoming request can wake it; on battery it cannot |
+| `tcpkeepalive` | 1 | 1 | Existing connections survive sleep |
+| `sleep` | 1 | 1 | System sleeps quickly when idle |
+
+So: **plugged in, KAVACH stays reachable. On battery with the lid shut, expect
+it not to answer.**
+
+I have deliberately not changed any of these. You told me the battery matters,
+and keeping a laptop awake to be reachable is exactly the trade that drains it.
+If you want guaranteed reachability for a specific window, do it deliberately
+and temporarily rather than as a setting:
+
+```bash
+caffeinate -s -t 3600     # stay awake one hour, then go back to normal
+```
+
 **One limitation, stated up front:** without push notifications — which need
 the $99/year Apple Developer Program — your phone cannot be *woken* when
 KAVACH needs an approval. Approvals are pull-only: you open the shortcut and

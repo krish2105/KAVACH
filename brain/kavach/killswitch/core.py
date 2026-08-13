@@ -119,7 +119,8 @@ class KillSwitch:
 
     # --- trigger ----------------------------------------------------------
 
-    def trigger(self, source: str, reason: str = "") -> dict[str, Any]:
+    def trigger(self, source: str, reason: str = "",
+                **extra: Any) -> dict[str, Any]:
         """Halt everything in flight and latch disarmed. Safe to call from any
         thread, and safe to call repeatedly.
 
@@ -142,6 +143,11 @@ class KillSwitch:
             cancelled_tasks=cancelled,
             killed_processes=killed,
             errors=kill_errors,
+            # Passed through to the audit record, never interpreted. The switch
+            # does not care who asked and must not start caring — everything
+            # that reaches here has already been authorised, and a latch that
+            # weighed up its caller would be a latch with a bypass.
+            **extra,
         )
         with self._lock:
             self._last_trigger = record

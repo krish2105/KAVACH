@@ -512,3 +512,81 @@ def test_no_route_re_arms_the_switch(client):
 
     source = inspect.getsource(app_mod.create_app)
     assert ".rearm(" not in source, "a route re-arms the kill switch"
+
+
+# ═══ 10. where a request came from (Phase 9) ═══
+#
+# Tailscale Serve injects Tailscale-User-Login on tailnet traffic and strips
+# any client-supplied copy before forwarding, so the header is a usable audit
+# signal. It is NOT an authorisation one, and the difference matters enough
+# that the third test here is the reason this section exists: everything else
+# is bookkeeping, that one is a door.
+
+TAILNET = {"Tailscale-User-Login": "krishna@example.com"}
+
+
+def _origins(kill_switch) -> list[str]:
+    return [e.get("origin") for e in kill_switch.log.read_all() if "origin" in e]
+
+
+def test_a_tailnet_request_records_where_it_came_from(client, kill_switch):
+    client.post("/command", headers={**auth(), **TAILNET},
+                json={"text": "what time is it"})
+
+    assert _origins(kill_switch) == ["tailnet:krishna@example.com"]
+
+
+def test_a_local_request_records_that_it_was_local(client, kill_switch):
+    client.post("/command", headers=auth(), json={"text": "what time is it"})
+
+    assert _origins(kill_switch) == ["local"]
+
+
+def test_an_identity_header_does_not_authenticate(client, loop):
+    """The load-bearing test of this phase.
+
+    Serve strips client-supplied identity headers, so a forged one can only
+    come from something already running on this Mac — which has better options
+    than forging a header. That makes it fine for an audit trail and unfit for
+    a decision. If this ever passes with a 200, the token has been quietly
+    demoted to optional.
+    """
+    response = client.post("/command", headers=TAILNET,
+                           json={"text": "delete everything"})
+
+    assert response.status_code == 401
+    assert loop.commands == []
+
+
+def test_an_identity_header_does_not_outrank_the_kill_switch(client, kill_switch, loop):
+    kill_switch.trigger(source="test", reason="latched")
+    response = client.post("/command", headers={**auth(), **TAILNET},
+                           json={"text": "what time is it"})
+
+    assert response.status_code == 409
+    assert loop.commands == []
+
+
+def test_a_remote_kill_records_its_origin(client, kill_switch):
+    """"Who stopped it, and from where" is the question you ask afterwards."""
+    client.post("/kill", headers={**auth(), **TAILNET},
+                json={"reason": "from the car"})
+
+    halts = [e for e in kill_switch.log.read_all()
+             if e.get("event") == "killswitch.trigger"]
+    assert len(halts) == 1
+    assert halts[0]["origin"] == "tailnet:krishna@example.com"
+
+
+def test_a_forged_origin_is_still_recorded_as_claimed_not_trusted(client, kill_switch):
+    """A header we cannot verify must not be written as though we had.
+
+    Recorded with the tailnet: prefix that says where it claims to be from,
+    never as a bare verified identity — the log should not assert more than it
+    knows.
+    """
+    client.post("/command", headers={**auth(), **TAILNET},
+                json={"text": "what time is it"})
+
+    origin = _origins(kill_switch)[0]
+    assert origin.startswith("tailnet:"), "origin must say how it was learned"

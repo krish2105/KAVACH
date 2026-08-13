@@ -84,6 +84,25 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
 
     guard = [Depends(require_token)]
 
+    def origin_of(request: Request) -> str:
+        """Where a request came from, for the action log only.
+
+        Tailscale Serve injects `Tailscale-User-Login` on tailnet traffic and
+        strips any client-supplied copy before forwarding, so its presence
+        means the request arrived through Serve.
+
+        Read carefully: this is an **audit** signal, not an authorisation one.
+        Because the API is bound to 127.0.0.1, the only thing that could forge
+        this header is something already running on this Mac — which has better
+        options available to it than forging a header. So it is worth
+        recording and worth nothing as a permission. The `tailnet:` prefix is
+        deliberate: it records how the origin was learned rather than asserting
+        a verified identity, because the log should not claim more than it
+        knows.
+        """
+        login = request.headers.get("Tailscale-User-Login", "").strip()
+        return f"tailnet:{login}" if login else "local"
+
     # ——— reading ———
 
     @app.get("/status", response_model=StatusResponse, dependencies=guard)
@@ -119,8 +138,10 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
     # ——— acting ———
 
     @app.post("/command", response_model=CommandResponse, dependencies=guard)
-    async def command(request: CommandRequest) -> CommandResponse:
+    async def command(request: CommandRequest,
+                      http: Request = None) -> CommandResponse:
         text = request.cleaned()
+        origin = origin_of(http)
         if not text:
             raise HTTPException(status_code=422, detail="Empty command.")
 
@@ -132,7 +153,7 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
                 detail="Kill switch is latched. Re-arm before sending commands.",
             )
 
-        kill_switch.log.append("api.command", text=text)
+        kill_switch.log.append("api.command", text=text, origin=origin)
 
         # The same path a spoken command takes — router, handlers, search,
         # music, then a model. There is deliberately no second route to the
@@ -151,7 +172,8 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
                                route=loop.state.as_dict().get("route"))
 
     @app.post("/confirm", response_model=ConfirmResponse, dependencies=guard)
-    async def confirm(request: ConfirmRequest) -> ConfirmResponse:
+    async def confirm(request: ConfirmRequest,
+                      http: Request = None) -> ConfirmResponse:
         """Answer a waiting confirmation.
 
         Two kinds of item end up here and they resolve differently:
@@ -189,7 +211,8 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
             )
 
         kill_switch.log.append("api.confirm", id=request.id,
-                               approved=request.approved)
+                               approved=request.approved,
+                               origin=origin_of(http))
 
         if item.payload is not None and hasattr(loop, "resolve_pending"):
             reply = await asyncio.to_thread(
@@ -203,7 +226,7 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
                                status="answered")
 
     @app.post("/kill", response_model=KillResponse, dependencies=guard)
-    def kill(request: KillRequest) -> KillResponse:
+    def kill(request: KillRequest, http: Request = None) -> KillResponse:
         """Halt KAVACH from anywhere. The one route the kill switch does not gate.
 
         Three properties this deliberately has:
@@ -220,11 +243,14 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
           from a device that is not in the room is safe; starting it again from
           one is not. Re-arming stays a deliberate act at this Mac.
         """
+        origin = origin_of(http)
         record = kill_switch.trigger(
             source="api",
             reason=request.reason or "halted from the API",
+            origin=origin,
         )
-        log.warning("halted from the API: %s", request.reason or "(no reason)")
+        log.warning("halted from the API (%s): %s", origin,
+                    request.reason or "(no reason)")
         return KillResponse(
             kill_switch="disarmed",
             cancelled_tasks=record.get("cancelled_tasks", 0),

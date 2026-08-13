@@ -139,7 +139,13 @@ In the Shortcuts editor, tap ⓘ:
   internet. The Mac's own binding stays `127.0.0.1`; Serve proxies to it. That
   is why `kavach-doctor` still reports "not listening on the network" — verify
   it does, and treat a change there as a real problem.
-* Every request from the phone lands in the action log with a timestamp:
+* Every request from the phone lands in the action log with a timestamp **and
+  where it came from**. Tailscale Serve injects `Tailscale-User-Login` on
+  tailnet traffic and strips any client-supplied copy, so a request through
+  Serve is recorded as `origin: "tailnet:<your login>"` and one made on the Mac
+  itself as `origin: "local"`. That is an **audit** signal, not a permission —
+  the bearer token is still the only thing that authorises anything, and a
+  request carrying a perfect identity header and no token is refused.
 
   ```bash
   curl -s -H "Authorization: Bearer $KAVACH_API_TOKEN" "https://$KAVACH/log?limit=20"

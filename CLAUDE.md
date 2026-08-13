@@ -105,10 +105,51 @@ user's global nvm default stays on 20 — do not change it.
 |---|---|
 | 0 — Setup, orb forked, MCP installed, kill switch tested | **complete** (tag `phase-0`) |
 | 1 — Presence polish (HUD, state-reactive orb, boot sequence, packets) | **complete** (tag `phase-1`) |
-| 2 — Local voice loop (wake word → Whisper → Kokoro → orb) | **complete**; "KAVACH" wake word trained: recall 0.9915, FPPH 0.0 |
+| 2 — Local voice loop (wake word → Whisper → Kokoro → orb) | **complete**; wake word **v2** in use — see below |
 | 3 — Brain + router | **complete** (tag `phase-3`) |
 | 4 — Hands + guardrail enforcement (gate, allowlist, spoken confirm) | **complete** (tag `phase-4`) |
 | 5 — Integration + demo | **complete** (tag `phase-5`); demo video is yours to record |
+
+**Wake word v2** (2026-08-13): AUT 0.0040, FPPH 0.00, recall 83.8%, measured
+optimum **0.20**. v1's headline recall was higher (99.15%) and *meaningless* —
+trained on one American voice, it scored the user's real utterances 0.027–0.571
+against 0.789 for an unrelated phrase. v2 uses accent-diverse VoxCPM synthesis.
+`find_wake_model()` now takes the newest export, and a calibration carries a
+content hash of the model it measured — a threshold from a different model is
+refused, not applied. **Still uncalibrated**: `uv run kavach-waketune` needs the
+user's voice.
+
+### Reach phases (the user's second numbering — restarts at 6)
+
+Tags are `reach-N`, because `phase-6/7/8` were already taken by the earlier
+expansion numbering. **Do not re-propose anything marked cut or blocked.**
+
+| Phase | State |
+|---|---|
+| 6 — Local API surface | **complete** (tag `reach-6`) — FastAPI on 127.0.0.1:8770, bearer token, pending-confirmation flow |
+| 7 — The phone commands KAVACH | **complete** (tag `reach-7`) — two Apple Shortcuts, `POST /kill`, Tailscale Serve |
+| 8 — Apple Watch | **CUT — the user owns no Apple Watch.** Also: Tailscale has **no watchOS app** (iOS/iPadOS/tvOS/visionOS only), and `Get Contents of URL` is unreliable on watchOS. A Watch app would need the iPhone as a WatchConnectivity relay, hence Xcode |
+| 9 — Remote access | in progress — mostly delivered by Phase 7's transport; needs the tailnet leg proven |
+| 10 — Tiered memory | mostly built (`kavach/memory/store.py`, sqlite-vec). **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
+| 11 — Smart home | **CUT — the user owns no smart-home devices** |
+| 12 — Speaker ID | built (Resemblyzer, threshold 0.613, margin 0.196). The **config toggle** is the missing piece. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
+| 13 — Explainability | half built — `RoutingDecision.reason` exists and is logged, just never surfaced |
+| 14–18 | **skipped** — never recorded in the repo and lost to context; the user chose to drop them rather than re-paste |
+| 19 — Dynamic Island / Live Activities | **BLOCKED — needs a native app, which needs Xcode.** Also needs push for remote updates, which needs the paid membership |
+| 20 — Garage mode | not started; depends on 9. Get the user's definition before planning |
+
+**CarPlay was cut by the user and must not be built.**
+
+### Apple constraints verified 2026-08-13 (do not re-derive)
+
+* **No Xcode on this machine** — Command Line Tools only, no Simulator. Any
+  native iOS/watchOS work starts with a ~15GB install. The user declined it.
+* **Free personal team**: 7-day provisioning profiles, 3 apps, 10 App IDs/week,
+  and Xcode **refuses App Groups, Push Notifications and iCloud** outright.
+* **No push ⇒ phone approvals are pull-only.** Nothing can wake the phone when
+  KAVACH needs an answer, and confirmations expire after 120 s.
+* `tailscale serve --bg 8770` — auto TLS, no admin console setup, survives
+  reboots, works on the Mac App Store build.
 
 ---
 
