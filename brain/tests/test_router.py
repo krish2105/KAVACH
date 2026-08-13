@@ -213,3 +213,30 @@ def test_draft_as_a_noun_is_not_a_generation_task(router):
 
 def test_draft_as_a_verb_still_escalates(router):
     assert router.route("draft a reply to my manager").route is Route.CLAUDE
+
+
+# ——— screen understanding (Peekaboo was installed in Phase 0, never reached) ———
+
+@pytest.mark.parametrize("utterance", [
+    "what's on my screen",
+    "what am I looking at",
+    "describe my screen",
+    "read the screen for me",
+    "what does this say on my screen",
+])
+def test_screen_questions_escalate_for_vision(router, utterance):
+    """Peekaboo has been installed, permission-granted and gated since Phase 0,
+    but the router had no intent that led to it, so it was never reachable."""
+    decision = router.route(utterance)
+    assert decision.route is Route.CLAUDE, f"{utterance!r} → {decision.reason}"
+
+
+def test_screen_questions_are_not_treated_as_destructive(router):
+    """Looking is not acting; asking to confirm a read trains reflexive yeses."""
+    assert not router.route("what's on my screen").needs_confirmation
+
+
+def test_screen_wording_does_not_hijack_unrelated_requests(router):
+    """'open Safari' must stay a simple local intent even though a screen is
+    involved in the abstract."""
+    assert router.route("open Safari").route is Route.LOCAL

@@ -392,3 +392,50 @@ async def test_discovery_is_still_blocked_by_the_kill_switch(ks):
     gate = make_gate(ks)
     ks.trigger(source="test")
     assert not await allowed(gate, "ToolSearch", {"query": "anything"})
+
+
+# ═══ 10. whole-screen capture — the honest exception ═══
+
+async def test_whole_screen_capture_asks_before_capturing(ks):
+    """A full-screen grab has no single target app BY DESIGN, so the usual
+    "unidentifiable target" denial would kill the feature. But it will capture
+    apps deliberately kept off the allowlist — mail, password managers — so it
+    is asked about rather than silently allowed."""
+    confirmer = RecordingConfirmer(True)
+    gate = make_gate(ks, confirmer)
+
+    result = await gate.check("mcp__peekaboo__image",
+                              {"app_target": "screen:0"}, context=None)
+    assert result.behavior == "allow"
+    assert confirmer.prompts
+    assert "not on the allowlist" in confirmer.prompts[0]
+
+
+async def test_declining_a_whole_screen_capture_denies_it(ks):
+    gate = make_gate(ks, RecordingConfirmer(False))
+    assert not await allowed(gate, "mcp__peekaboo__image", {"app_target": "screen:0"})
+
+
+async def test_whole_screen_capture_without_a_confirmer_is_denied(ks):
+    gate = make_gate(ks, confirmer=None)
+    assert not await allowed(gate, "mcp__peekaboo__image", {"app_target": "screen:0"})
+
+
+async def test_capturing_an_allowlisted_app_window_needs_no_confirmation(ks):
+    """Scoped to Safari, it is an ordinary read of an approved app."""
+    confirmer = RecordingConfirmer(True)
+    gate = make_gate(ks, confirmer)
+    assert await allowed(gate, "mcp__peekaboo__image", {"app_target": "Safari"})
+    assert not confirmer.prompts
+
+
+async def test_capturing_an_unlisted_app_window_is_still_denied(ks):
+    """The exception is for the *whole screen*, not a licence to name any app."""
+    gate = make_gate(ks, RecordingConfirmer(True))
+    assert not await allowed(gate, "mcp__peekaboo__image", {"app_target": "Mail"})
+
+
+async def test_non_capture_tools_get_no_whole_screen_exception(ks):
+    """A click with no target must not sneak through as a "capture"."""
+    gate = make_gate(ks, RecordingConfirmer(True))
+    assert not await allowed(gate, "mcp__peekaboo__click", {})

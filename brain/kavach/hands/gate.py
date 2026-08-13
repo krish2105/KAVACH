@@ -98,6 +98,22 @@ def load_configured_servers(path: Path = MCP_CONFIG) -> set[str]:
         return set()
 
 
+#: Peekaboo capture tools, and the pseudo-targets that mean "the whole
+#: screen" rather than a specific app.
+_CAPTURE_TOOLS = frozenset({"image", "capture", "see", "screenshot"})
+_WHOLE_SCREEN_TARGETS = ("screen:", "screen", "display:", "frontmost")
+
+
+def is_whole_screen_capture(tool: str, args: dict[str, Any]) -> bool:
+    """True for a capture of the display rather than a named app window."""
+    if tool not in _CAPTURE_TOOLS:
+        return False
+    target = str(args.get("app_target") or args.get("target") or "").strip().lower()
+    if not target:
+        return True  # no target at all means the whole screen
+    return any(target.startswith(prefix) for prefix in _WHOLE_SCREEN_TARGETS)
+
+
 def extract_target_app(tool: str, args: dict[str, Any]) -> str | None:
     """Work out which app a call would touch, or None if it can't be told.
 
@@ -248,6 +264,32 @@ class ToolGate:
         # 3 — if we can't tell what it touches, we can't clear it.
         app = extract_target_app(tool, args)
         if app is None:
+            # A whole-screen capture is the one honest exception. It has no
+            # single target app *by design* — and that is exactly why it needs
+            # asking about rather than either silently allowing or blanket
+            # refusing: it will capture whatever is on screen, including apps
+            # that are deliberately NOT on the allowlist (mail, password
+            # managers, private messages).
+            if is_whole_screen_capture(match.group("tool"), args):
+                if self.confirmer is None:
+                    return (
+                        "deny",
+                        "A whole-screen capture would include apps that are not "
+                        "on the allowlist, and there is no way to ask you. "
+                        "Refusing.",
+                        {"server": server, "whole_screen": True},
+                    )
+                granted = await self.confirmer.confirm(
+                    "This captures your entire screen, including anything from "
+                    "apps that are not on the allowlist. Should I?"
+                )
+                if not granted:
+                    return ("deny", "You declined.",
+                            {"server": server, "whole_screen": True})
+                return ("allow", "whole-screen capture confirmed by user",
+                        {"server": server, "whole_screen": True,
+                         "confirmed": True})
+
             return (
                 "deny",
                 "Cannot determine which app this would affect, so it is "

@@ -141,6 +141,14 @@ _COMPLEX_PATTERNS = [
     (r"\btell me (what|which|why|how)\b", "judgement"),
     (r"\blook at\b", "inspection"),
     (r"\bread\b.*\band\b", "read-then-act"),
+    # Screen questions need vision + judgement, so they escalate. Peekaboo
+    # was installed and gated in Phase 0 but never reachable, because the
+    # router had no intent that led here.
+    (r"\bwhat('?s| is| am i)\b.*\b(on|in)\b.*\b(screen|display|monitor)\b", "screen query"),
+    (r"\b(read|describe|look at|check)\b.*\bscreen\b", "screen query"),
+    (r"\bwhat does (this|that|it) say\b", "screen query"),
+    (r"\bwhat am i looking at\b", "screen query"),
+    (r"\bon my (screen|display)\b", "screen query"),
     (r"\bfix\b", "open-ended"),
     (r"\breview\b", "judgement"),
 ]
