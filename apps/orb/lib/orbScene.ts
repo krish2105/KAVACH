@@ -107,9 +107,16 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setClearColor(0x000000, 0);
   renderer.setSize(width, height);
-  // 2x, not 3x. 3x is 2.25 times the pixels every frame and measurably warms
-  // the machine for a difference only visible side by side.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // The floating panel renders ~5.6x fewer pixels than a full browser window
+  // (400pt at 2x is 0.64 Mpx against roughly 3.6 Mpx), which is most of why it
+  // looked soft next to the same orb in a tab. Because the panel is small, 3x
+  // there still costs less in absolute pixels than the window does at 2x — so
+  // the sharpness is nearly free, and the earlier 3x-everywhere experiment
+  // that warmed the machine is not repeated.
+  const inPanel =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("overlay") === "1";
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, inPanel ? 3 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.8;
   container.appendChild(renderer.domElement);
@@ -164,6 +171,10 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
       }
     `,
   };
+  //: 1.0 at a full window, ~0.55 in a small panel. Derived from width rather
+  //: than hardcoded per mode so an intermediate size lands sensibly too.
+  const bloomScale = Math.max(0.5, Math.min(1, width / 1400));
+
   const chromaticPass = new ShaderPass(chromaticShader);
   composer.addPass(chromaticPass);
 
@@ -1122,11 +1133,15 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
       icoWireMat.color.copy(icoBaseColor).lerp(DANGER, drive.halt);
     }
 
-    // Bloom pulse — base from the state, breathing from the audio.
+    // Bloom pulse — base from the state, breathing from the audio, scaled to
+    // the canvas. UnrealBloomPass spreads in pixels, so a strength tuned for a
+    // 1900px window swamps an 800px panel: the fine wireframe disappears into
+    // glow and the orb reads as a bright disc. Scaling it back is what makes
+    // the panel look like the same orb rather than a blown-out copy.
     bloom.strength =
-      drive.bloom +
-      Math.sin(t * 0.8) * 0.3 * (1 - drive.halt) +
-      drive.amplitude * drive.ring * 0.9;
+      (drive.bloom +
+        Math.sin(t * 0.8) * 0.3 * (1 - drive.halt) +
+        drive.amplitude * drive.ring * 0.9) * bloomScale;
 
     // Update chromatic aberration time
     chromaticPass.uniforms.uTime.value = t;

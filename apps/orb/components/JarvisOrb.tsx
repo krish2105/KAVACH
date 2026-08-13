@@ -98,10 +98,10 @@ export default function JarvisOrb() {
     let cancelled = false;
 
     // A square panel crops the orb at its widest points, so it reads as a
-    // circle jammed into a box. Pull the camera back in overlay mode to leave
-    // margin — the browser window is wide enough not to need it.
+    // circle jammed into a box. A little margin fixes that; 1.45 was too much
+    // and left the orb small and lost in the frame.
     if (new URLSearchParams(window.location.search).get("overlay") === "1") {
-      scene.zoomBy(1.45);
+      scene.zoomBy(1.12);
     }
 
     void scene.playBoot().then(() => {
