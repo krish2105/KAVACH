@@ -68,6 +68,23 @@ Two things I only learned by measuring:
 
 ---
 
+## Beyond the original spec
+
+Six features built after the spec's five phases, each tested:
+
+| | |
+|---|---|
+| **Speaker verification** | Confirmations require an affirmative answer **in your voice**. Resemblyzer, on-device, threshold calibrated at enrolment. Closes the hole where anyone in earshot could approve a delete. |
+| **Gesture confirmation** | A held thumbs-up (0.8s, with a filling ring) approves without speaking. A bystander cannot supply a gesture from across the room. |
+| **iPhone control** | `mirroir-mcp` drives a real iPhone through macOS iPhone Mirroring — no app on the phone. Gated per-tool, because its tools are device-scoped rather than app-scoped. |
+| **Screen understanding** | "What's on my screen" reaches Peekaboo. A whole-screen capture is confirmed, because it sees apps deliberately kept off the allowlist. |
+| **Memory + file search** | `sqlite-vec` + `nomic-embed-text`, one file, no server. Indexing is explicit, auditable and revocable. |
+| **Multilingual** | Replies in the language you spoke — 8 languages including Hindi. The wake word stays English-only, because that is what its 99.15% recall measures. |
+
+Setup steps that need you: [`SETUP.md`](SETUP.md).
+
+---
+
 ## The guardrails are the point
 
 An agent holding Accessibility, Automation and Screen Recording can click
@@ -118,10 +135,11 @@ Every claim here has a command behind it.
 
 | | |
 |---|---|
-| Tests | **175 passing** — kill switch, router, gate, confirmation, contract |
+| Tests | **250 Python + 13 TypeScript** — kill switch, router, gate, confirmation, voiceprint, gestures, devices, memory |
 | Kill switch | live: task cancelled, child `exit -9`, latched, all 5 surfaces |
-| MCP servers | 3/3 handshake + a real privileged call each |
 | Gate | live denials for a non-allowlisted app, `Shell`, and `Bash` |
+| Wake word | trained from scratch: **recall 0.9915, FPPH 0.00** at threshold 0.18 |
+| MCP servers | **4/4** handshake + a real privileged call each |
 | Full loop | speech → router → Claude → AppleScript → Finder → spoken reply |
 
 One test reads `apps/orb/lib/kavachState.ts` and asserts the Python snapshot
