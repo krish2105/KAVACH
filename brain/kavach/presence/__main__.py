@@ -62,6 +62,23 @@ def main(argv: list[str] | None = None) -> int:
                         help="stay visible even when idle (for demos)")
     args = parser.parse_args(argv)
 
+    # One panel, enforced by a file rather than by remembering to pkill.
+    #
+    # Four of these were once running at once, drawing two panels on top of
+    # each other, because `pkill -f` missed some. Process-name matching is what
+    # keeps failing here; a lock the process takes itself does not care what
+    # the command line looks like. A stale lock is still taken over, so a hard
+    # kill cannot leave the panel unstartable.
+    from ..single import InstanceLock
+
+    panel_lock = InstanceLock("overlay")
+    if not panel_lock.acquire():
+        print(f"✗ another KAVACH overlay is already running "
+              f"({panel_lock.describe_holder()})", file=sys.stderr)
+        print("  quit it from the 🛡 menu, or kill that pid, then retry.",
+              file=sys.stderr)
+        return 1
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -86,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
         if tracker is not None:
             tracker.stop()
         listener.stop()
+        try:
+            panel_lock.release()
+        except Exception:
+            log.debug("could not release the overlay lock", exc_info=True)
         app.terminate_(None)
 
     listener = BridgeListener(overlay, args.bridge)

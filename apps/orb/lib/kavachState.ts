@@ -54,6 +54,17 @@ export interface KavachSnapshot {
    * ambiguous, so this deliberately overrides the look of every other state.
    */
   ghost: boolean;
+  /**
+   * §13 — why the router chose this path, in one line.
+   *
+   * The router's own explanation of the *routing decision* ("simple intent
+   * (clock)", "open-ended reasoning"), not a rationale about the answer. It
+   * is already written to the action log; this is the same string, shown
+   * where you are actually looking.
+   */
+  reason: string;
+  /** What the router thought you wanted, when it could name it. */
+  intent: string;
 }
 
 export interface KavachSource {
@@ -89,6 +100,8 @@ export const INITIAL_SNAPSHOT: KavachSnapshot = {
   toolCalls: [],
   killSwitch: "armed",
   ghost: false,
+  reason: "",
+  intent: "",
 };
 
 // ───────────────────────────────────────────────────────────────

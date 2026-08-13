@@ -386,6 +386,8 @@ export default function JarvisOrb() {
           killSwitch={snapshot.killSwitch}
           amplitude={snapshot.amplitude}
         ghost={snapshot.ghost}
+            reason={snapshot.reason}
+            intent={snapshot.intent}
           />
         <TranscriptPanel
           transcript={snapshot.transcript}

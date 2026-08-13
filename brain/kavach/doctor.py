@@ -223,6 +223,22 @@ def check_services() -> list[Check]:
         except Exception as exc:
             out.append(Check("services", "orb responds", FAIL, str(exc)[:60]))
 
+    # Counted, not just detected. Four of these once ran at once and drew two
+    # panels on top of each other; "is it running" would have said yes.
+    try:
+        found = subprocess.run(["pgrep", "-f", "kavach-overlay"],
+                               capture_output=True, text=True)
+        pids = [p for p in found.stdout.split() if p.strip()]
+    except Exception:
+        pids = []
+    if len(pids) > 2:
+        # Two is normal: `uv run` wraps the real process.
+        out.append(Check("services", "only one overlay running", FAIL,
+                         f"{len(pids)} processes — panels will overlap. "
+                         f"kill them and start one"))
+    elif pids:
+        out.append(Check("services", "only one overlay running", PASS))
+
     overlay = _running("kavach-overlay")
     out.append(Check("services", "desktop orb panel",
                      PASS if overlay else WARN,

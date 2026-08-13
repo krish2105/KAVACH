@@ -396,3 +396,87 @@ def test_the_newest_trained_model_is_found(tmp_path, monkeypatch):
     monkeypatch.setattr(loop_mod, "_WAKEWORD_DIR", tmp_path)
     found = loop_mod.find_wake_model()
     assert found.name == "kavach_v2.onnx", f"found {found} instead of v2"
+
+
+# ═══ Explainability (Phase 13) ═══
+#
+# The raw material already existed and was already logged: RoutingDecision
+# carries route, confidence, reason and intent, and every decision goes to the
+# action log. It simply never reached the HUD — the snapshot had no field for
+# it, so the one place you actually look could not tell you why KAVACH chose
+# the path it chose.
+#
+# Honest scope: `reason` is the router's own short explanation of the routing
+# decision, not a model-generated rationale about the answer. It says why this
+# path was taken, which is what the phase asks for.
+
+def test_the_snapshot_carries_the_routing_reason():
+    from kavach.voice.loop import VoiceState
+
+    fields = VoiceState().as_dict()
+    assert "reason" in fields
+    assert "intent" in fields
+
+
+def test_reason_and_intent_match_the_typescript_contract():
+    """Same drift guard the other fields have.
+
+    VoiceState.as_dict() is serialised straight to the orb, so a field that
+    exists on one side and not the other fails silently — the HUD just renders
+    nothing and nobody notices.
+    """
+    from pathlib import Path
+
+    from kavach.voice.loop import VoiceState
+
+    ts = (Path(__file__).resolve().parents[2] / "apps" / "orb" / "lib"
+          / "kavachState.ts").read_text()
+    block = ts.split("interface KavachSnapshot")[1].split("}")[0]
+
+    for field in ("reason", "intent"):
+        assert field in block, f"{field} is missing from KavachSnapshot"
+
+
+def test_a_routed_turn_puts_its_reason_in_the_snapshot():
+    from tests.test_api import StubRouter, make_loop
+    from kavach.api.confirm import PendingRegistry
+    from kavach.killswitch.core import KillSwitch
+    from kavach.killswitch.log import ActionLog
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ks = KillSwitch(log=ActionLog(Path(tmp) / "a.jsonl"))
+        loop = make_loop(PendingRegistry(), ks, router=StubRouter())
+        loop.respond("what time is it")
+
+        snapshot = loop.state.as_dict()
+        assert snapshot["reason"] == "stub"
+        assert snapshot["intent"] == "stub"
+
+
+def test_a_rejected_turn_does_not_leak_a_reason():
+    """A rejected utterance produces no reply, so it must not leave a stale
+    explanation sitting in the HUD from the previous turn either."""
+    from tests.test_api import make_loop
+    from kavach.api.confirm import PendingRegistry
+    from kavach.killswitch.core import KillSwitch
+    from kavach.killswitch.log import ActionLog
+    from kavach.reasoning.router import Route, RoutingDecision
+    import tempfile
+    from pathlib import Path
+
+    class RejectingRouter:
+        def route(self, text):
+            return RoutingDecision(route=Route.REJECT, confidence=0.1,
+                                   reason="not addressed to KAVACH",
+                                   intent=None, needs_confirmation=False)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ks = KillSwitch(log=ActionLog(Path(tmp) / "a.jsonl"))
+        loop = make_loop(PendingRegistry(), ks, router=RejectingRouter())
+        loop.state.reason = "stale from last time"
+
+        loop.respond("mumble")
+
+        assert loop.state.as_dict()["reason"] != "stale from last time"

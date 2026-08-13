@@ -121,6 +121,8 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
             voiceprint=_voiceprint_state(loop),
             pending=len(registry.list()),
             ghost=bool(getattr(getattr(loop, "ghost", None), "is_active", False)),
+            reason=snapshot.get("reason", ""),
+            intent=snapshot.get("intent", ""),
         )
 
     @app.get("/log", response_model=LogResponse, dependencies=guard)

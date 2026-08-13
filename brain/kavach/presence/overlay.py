@@ -43,6 +43,8 @@ ACTIVE_STATES = {"listening", "thinking", "acting", "speaking", "halted"}
 
 #: How long to linger after returning to idle, so the orb does not vanish
 #: mid-sentence the instant a turn ends.
+MAX_RELOAD_ATTEMPTS = 3
+
 LINGER_SECONDS = 2.5
 
 #: Move/resize returns to click-through after this long untouched.
@@ -200,6 +202,9 @@ class OverlayWindow:
         #: pending_state: written by the bridge thread, read on the main
         #: thread, never touched by AppKit from anywhere else.
         self.pending_snapshot: dict | None = None
+        #: Bounded, so a genuinely-down server becomes a loud error rather
+        #: than an infinite reload loop against nothing.
+        self._reload_attempts = 0
         #: Set by the presence process; called on the main thread with each
         #: snapshot so the status item can follow along.
         self.on_snapshot = None
@@ -400,8 +405,39 @@ class OverlayWindow:
         def handler(result, error) -> None:
             if error is not None:
                 log.warning("probe failed: %s", error)
+                return
+
+            log.info("page reports: %s", result)
+
+            # Recover rather than sit there broken.
+            #
+            # A page whose CSS never arrived still renders — as a column of
+            # unstyled text reading "KAVACHकवच · local-first presence
+            # CONNECTING…" — and WKWebView keeps showing that indefinitely.
+            # It happened when the overlay loaded while `next start` was
+            # mid-restart. Reloading costs a second; not reloading costs the
+            # whole panel until somebody notices and restarts it by hand.
+            try:
+                import json as _json
+
+                report = _json.loads(result) if isinstance(result, str) else {}
+            except Exception:
+                return
+
+            if report.get("styled") is False or report.get("canvas") is False:
+                if self._reload_attempts >= MAX_RELOAD_ATTEMPTS:
+                    log.error("page still broken after %d reloads — is "
+                              "`next start` running on 3100?",
+                              self._reload_attempts)
+                    return
+                self._reload_attempts += 1
+                log.warning("page loaded unstyled (styled=%s canvas=%s) — "
+                            "reloading, attempt %d",
+                            report.get("styled"), report.get("canvas"),
+                            self._reload_attempts)
+                self.reload()
             else:
-                log.info("page reports: %s", result)
+                self._reload_attempts = 0
 
         self.web.evaluateJavaScript_completionHandler_(
             "(function(){var c=document.querySelector('.orb-root canvas');"
@@ -412,8 +448,32 @@ class OverlayWindow:
             "devicePx:c?c.width:0,"
             "ratio:c&&c.clientWidth?+(c.width/c.clientWidth).toFixed(2):0,"
             "dpr:window.devicePixelRatio,"
-            "caption:!!document.querySelector('.overlay-caption')})})()",
+            "caption:!!document.querySelector('.overlay-caption'),"
+            # Did the stylesheet actually load? A page whose CSS 404'd still
+            # renders — as a column of unstyled text — and WKWebView keeps
+            # showing it forever. That happened when the overlay loaded while
+            # `next start` was mid-restart, and nothing noticed.
+            "styled:(document.styleSheets.length>0)&&"
+            "(getComputedStyle(document.body).fontFamily||'').length>0&&"
+            "!!document.querySelector('.hud,.orb-root')})})()",
             handler,
+        )
+
+    def reload(self) -> None:
+        """Re-fetch the page, bypassing every cache.
+
+        Same cache policy as the initial load: a plain reload let NSURLCache
+        hand back the broken response it had just cached, which is precisely
+        the thing being recovered from.
+        """
+        request = Foundation.NSURLRequest.requestWithURL_cachePolicy_timeoutInterval_(
+            Foundation.NSURL.URLWithString_(self.url), 4, 30.0
+        )
+        self.web.loadRequest_(request)
+        # Re-probe after it has had a chance to settle, so a reload that also
+        # fails is noticed rather than assumed to have worked.
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            6.0, False, lambda _t: self.probe()
         )
 
     def tick(self) -> None:

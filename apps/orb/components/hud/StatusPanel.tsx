@@ -11,12 +11,23 @@ interface Props {
   killSwitch: KillSwitchState;
   amplitude: number;
   ghost: boolean;
+  reason: string;
+  intent: string;
 }
 
 /** Circumference of the r=13 confidence ring, for the stroke-dash trick. */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 13;
 
-export function StatusPanel({ state, route, confidence, killSwitch, amplitude, ghost }: Props) {
+export function StatusPanel({
+  state,
+  route,
+  confidence,
+  killSwitch,
+  amplitude,
+  ghost,
+  reason,
+  intent,
+}: Props) {
   const halted = killSwitch === "disarmed";
 
   return (
@@ -99,6 +110,20 @@ export function StatusPanel({ state, route, confidence, killSwitch, amplitude, g
           />
         </div>
       </div>
+
+      {/* §13 — why that route, in one line.
+          The router already produces this and already logs it; showing it
+          here is the whole phase. It explains the *routing decision*, not the
+          answer, and the wording is the router's own so it can never drift
+          from what the action log recorded.
+
+          Hidden while halted: a stale explanation next to a stopped agent
+          reads as if it were still working on something. */}
+      {reason && !halted && (
+        <p className="route-reason" title={intent ? `intent: ${intent}` : undefined}>
+          {reason}
+        </p>
+      )}
     </section>
   );
 }

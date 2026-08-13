@@ -133,7 +133,7 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 10 — Tiered memory | mostly built (`kavach/memory/store.py`, sqlite-vec). **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
 | 12 — Speaker ID | built (Resemblyzer, threshold 0.613, margin 0.196). The **config toggle** is the missing piece. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
-| 13 — Explainability | half built — `RoutingDecision.reason` exists and is logged, just never surfaced |
+| 13 — Explainability | **complete** — `reason`/`intent` in the snapshot and the STATUS panel. `respond()` now publishes its decision; before, an API turn computed and logged a route the HUD never saw |
 | 14 — Ghost mode | **complete** — `kavach/privacy/ghost.py`. Stops mic **and** camera, suppresses *perception* logging only |
 | 15 — Meeting-aware muting | **complete** — `kavach/privacy/meetings.py`. Window-title detection; needs a real call to finish verifying |
 | 16 — Session recorder | **complete** — `kavach/memory/session.py`. Rolling 15 min, `kavach-export`, no network path |
@@ -143,6 +143,25 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 20 — Garage mode | not started; depends on 9. Get the user's definition before planning |
 
 **CarPlay was cut by the user and must not be built.**
+
+### One instance, enforced by a file (§18 extended)
+
+`InstanceLock(name)` in `kavach/single.py`; `WakeWordLock` is a thin alias.
+The overlay takes `~/.kavach/overlay.lock` and a second one **exits 1** naming
+the holder.
+
+Added after four overlay processes drew two panels on top of each other. Every
+duplicate-instance bug in this project has come from `pgrep`/`pkill` patterns
+not matching the process name — **do not add another one.** A lock the process
+takes itself does not care what the command line looks like.
+
+Related: `.kv-overlay *` sets `-webkit-user-drag: none`. Dragging the TALK
+button out of the WKWebView wrote 1.3 MB `.textClipping` files to the Desktop.
+`user-select: none` does not prevent this and was only on `.hud` anyway.
+
+`OverlayWindow.probe()` also checks whether the page is *styled* and reloads
+(max 3) if not — a page whose CSS 404'd renders as unstyled text and WKWebView
+keeps showing it forever.
 
 ### Ghost mode — the boundary that matters (§14)
 

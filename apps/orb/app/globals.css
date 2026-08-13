@@ -988,3 +988,40 @@ body {
 .status-panel.is-ghost {
   border-color: color-mix(in srgb, var(--kv-dim, #8a8f98) 60%, transparent);
 }
+
+
+/* ── Nothing in the panel can be torn out (§14 bug fix) ──────────
+   Dragging the TALK button out of the WKWebView wrote a 1.3 MB
+   `TALK.textClipping` onto the Desktop — twice. `user-select: none` was
+   already set, but only on `.hud`, and it does not stop a WebKit element
+   drag anyway; `-webkit-user-drag` is the property that does.
+
+   Applied to the whole overlay rather than to the button, because every
+   other control in the panel has the same problem and would have been the
+   next one to end up on the desktop. */
+.kv-overlay,
+.kv-overlay * {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* The canvas still needs the pointer for drag-to-spin, which is a mouse
+   gesture the scene handles itself rather than a element drag. */
+.kv-overlay .orb-root {
+  -webkit-user-drag: none;
+}
+
+
+/* ── §13 the routing explanation ─────────────────────────────────
+   Deliberately quiet: it answers "why did it do that?" when you look,
+   and must not compete with the state pill you read at a glance. */
+.route-reason {
+  margin: 0.45rem 0 0;
+  padding-top: 0.4rem;
+  border-top: 1px solid color-mix(in srgb, var(--kv-dim, #8a8f98) 28%, transparent);
+  color: color-mix(in srgb, var(--kv-bright, #ffb84d) 72%, transparent);
+  font-size: 0.66rem;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+}

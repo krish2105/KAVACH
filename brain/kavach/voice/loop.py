@@ -110,6 +110,11 @@ class VoiceState:
     #: Ghost mode (§14). True means every input is off — the orb renders this
     #: unmistakably, because "is it listening?" must never be a guess.
     ghost: bool = False
+    #: §13. Why the router chose this path, and what it thought you wanted.
+    #: Already produced by RoutingDecision and already logged; these carry it
+    #: to the one place you actually look.
+    reason: str = ""
+    intent: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -122,6 +127,8 @@ class VoiceState:
             "toolCalls": self.toolCalls,
             "killSwitch": self.killSwitch,
             "ghost": self.ghost,
+            "reason": self.reason,
+            "intent": self.intent,
         }
 
 
@@ -610,6 +617,19 @@ class VoiceLoop:
         decision = self.router.route(text)
         # Confidence drives the orb's outer shell (§4 #3).
         self.state.confidence = decision.confidence
+        # §13: surfaced, not newly computed. Set before the REJECT branch
+        # returns, so a rejected turn clears the previous turn's explanation
+        # rather than leaving a stale one on screen next to a blank reply.
+        self.state.reason = decision.reason or ""
+        self.state.intent = decision.intent or ""
+        # Published here, not left for the next set_state().
+        #
+        # The spoken path happens to publish afterwards anyway, on its way back
+        # to idle. A typed command over the API does not touch set_state at
+        # all, so route/reason/intent were computed, logged, and never shown —
+        # the HUD sat on "ROUTE —" for every API turn. §13 is about the
+        # explanation reaching you, so it has to be pushed when it is produced.
+        self.publish()
         self.state.route = (
             decision.route.value if decision.route.value != "reject" else None
         )
@@ -650,6 +670,16 @@ class VoiceLoop:
             if answer:
                 self.state.confidence = 0.9
                 self.state.route = "search"
+                # Keep the explanation with the route that actually handled it.
+                #
+                # The router's reason describes the router's classification.
+                # When a handler overrides the route afterwards, leaving that
+                # reason in place makes the HUD say "search" beside a sentence
+                # about local classification — true of the router, and
+                # misleading about the turn.
+                self.state.reason = "needed current information — searched"
+                self.state.intent = "search"
+                self.publish()
                 return answer
 
         # Cheapest tier first: a deterministic handler is sub-millisecond

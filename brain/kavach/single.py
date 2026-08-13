@@ -1,4 +1,4 @@
-"""One wake-word listener at a time (Phase 18).
+"""One of each at a time (Phase 18, extended).
 
 > A simple heartbeat/lock-file guard so only one instance runs the wake-word
 > listener if KAVACH ever runs on a second Mac. Don't overbuild this into a
@@ -9,10 +9,16 @@ consensus, no network, no second machine talking to the first. Two processes
 both listening for "KAVACH" means two of them fighting over the microphone and
 both answering — the guard exists to stop that and nothing more.
 
-It also fixes something that already happened here: **25 overlay instances ran
-simultaneously** earlier in this project, burning CPU, and because a `pgrep`
-pattern didn't match the process name the symptom was misread as a crash for
-about an hour.
+It also fixes something that already happened here, twice. **25 overlay
+instances ran simultaneously** earlier in this project, burning CPU, and
+because a `pgrep` pattern didn't match the process name the symptom was misread
+as a crash for about an hour. Later, four overlay processes drew two panels on
+top of each other on screen — again after repeated restarts where `pkill -f`
+missed some. Pattern-matching process names is what keeps failing, so the guard
+is a file the process itself takes.
+
+`InstanceLock(name)` is the general form; `WakeWordLock` is a thin alias kept so
+Phase 18's call sites and tests do not care that it moved.
 
 Two failure modes it has to survive, and they need different mechanisms:
 
@@ -40,7 +46,8 @@ from pathlib import Path
 
 log = logging.getLogger("kavach.single")
 
-DEFAULT_LOCK_PATH = Path.home() / ".kavach" / "wake.lock"
+LOCK_DIR = Path.home() / ".kavach"
+DEFAULT_LOCK_PATH = LOCK_DIR / "wake.lock"
 
 #: How old a heartbeat may get before the holder is presumed dead.
 #:
@@ -68,18 +75,27 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
-class WakeWordLock:
-    """Advisory lock over the wake-word listener.
+class InstanceLock:
+    """Advisory lock over one named resource — the microphone, the panel.
 
-    Advisory on purpose: it gates whether KAVACH *starts* the listener, and
-    does not try to prevent a determined process from opening the microphone.
-    The goal is to stop accidental duplicates, which is the thing that actually
-    happens.
+    Advisory on purpose: it gates whether KAVACH *starts* a thing, and does not
+    try to prevent a determined process from opening the microphone or drawing
+    a window. The goal is to stop accidental duplicates, which is the thing
+    that actually happens.
+
+    Named, so the overlay and the wake word do not block each other: they are
+    different resources that happen to want the same guarantee.
     """
 
-    def __init__(self, path: Path | str | None = None,
+    def __init__(self, name: str = "wake", path: Path | str | None = None,
+                 directory: Path | str | None = None,
                  stale_after: float = DEFAULT_STALE_AFTER):
-        self.path = Path(path) if path is not None else DEFAULT_LOCK_PATH
+        if path is not None:
+            self.path = Path(path)
+        else:
+            base = Path(directory) if directory is not None else LOCK_DIR
+            self.path = base / f"{name}.lock"
+        self.name = name
         self.stale_after = float(stale_after)
         self.held = False
         #: Identity is per lock OBJECT, not per process.
@@ -231,3 +247,15 @@ class WakeWordLock:
                     log.debug("could not remove the wake lock", exc_info=True)
             self.held = False
         log.info("wake-word listener lock released")
+
+
+class WakeWordLock(InstanceLock):
+    """The wake-word listener's lock.
+
+    A thin alias over InstanceLock, kept so Phase 18's call sites and tests do
+    not have to know the implementation was generalised for the overlay.
+    """
+
+    def __init__(self, path: Path | str | None = None,
+                 stale_after: float = DEFAULT_STALE_AFTER):
+        super().__init__(name="wake", path=path, stale_after=stale_after)

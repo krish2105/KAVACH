@@ -172,3 +172,68 @@ def test_releasing_a_lock_you_do_not_hold_leaves_it_alone(lock_path):
     WakeWordLock(path=lock_path).release()
 
     assert lock_path.exists(), "a non-holder deleted the live lock"
+
+
+# ═══ 4. the same guard, for the overlay (panel bug fix) ═══
+#
+# Not hypothetical either. Four overlay processes were found running at once
+# after repeated restarts during Phase 14-18 verification, putting two panels
+# on screen on top of each other. `pkill -f` had been the only thing stopping
+# duplicates, and pattern matching is precisely what failed — the same class of
+# mistake that once made 25 running instances look like a crash.
+#
+# So the wake-word lock is generalised rather than copied: one lock
+# implementation, two names.
+
+from kavach.single import InstanceLock
+
+
+def test_two_locks_with_the_same_name_conflict(tmp_path):
+    first = InstanceLock("overlay", directory=tmp_path)
+    second = InstanceLock("overlay", directory=tmp_path)
+
+    assert first.acquire() is True
+    assert second.acquire() is False
+
+
+def test_locks_with_different_names_do_not_conflict(tmp_path):
+    """The overlay and the wake word are separate resources."""
+    overlay = InstanceLock("overlay", directory=tmp_path)
+    wake = InstanceLock("wake", directory=tmp_path)
+
+    assert overlay.acquire() is True
+    assert wake.acquire() is True, "the wake lock blocked on the overlay's"
+
+
+def test_the_name_decides_the_file(tmp_path):
+    lock = InstanceLock("overlay", directory=tmp_path)
+    lock.acquire()
+
+    assert (tmp_path / "overlay.lock").exists()
+
+
+def test_a_dead_overlay_does_not_lock_you_out(tmp_path):
+    """A hard kill must not leave the panel unstartable until someone finds
+    and deletes a file they do not know exists."""
+    import json
+    import os
+
+    (tmp_path / "overlay.lock").write_text(json.dumps({
+        "owner": "someone-else", "pid": 999_999,
+        "host": os.uname().nodename,
+        "heartbeat": 1_000_000_000.0, "started": 1_000_000_000.0,
+    }))
+
+    assert InstanceLock("overlay", directory=tmp_path).acquire() is True
+
+
+def test_the_wake_word_lock_still_works(tmp_path):
+    """WakeWordLock is kept as a thin alias — Phase 18's tests must not care
+    that the implementation moved underneath them."""
+    from kavach.single import WakeWordLock
+
+    first = WakeWordLock(path=tmp_path / "wake.lock")
+    second = WakeWordLock(path=tmp_path / "wake.lock")
+
+    assert first.acquire() is True
+    assert second.acquire() is False

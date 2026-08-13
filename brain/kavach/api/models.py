@@ -105,3 +105,7 @@ class StatusResponse(BaseModel):
     voiceprint: str
     pending: int
     ghost: bool
+    #: §13. Why the router chose this path — the same string the HUD shows and
+    #: the action log records, so a phone and the orb never disagree.
+    reason: str = ""
+    intent: str = ""
