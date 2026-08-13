@@ -58,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="override the remembered size, in points")
     parser.add_argument("--no-gestures", action="store_true",
                         help="skip hand tracking and the camera prompt")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="start filling the display (⌃⌥⌘F toggles it)")
     parser.add_argument("--always", action="store_true",
                         help="stay visible even when idle (for demos)")
     args = parser.parse_args(argv)
@@ -272,6 +274,22 @@ def main(argv: list[str] | None = None) -> int:
     Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
         6.0, False, lambda _t: overlay.probe()
     )
+
+    if args.fullscreen:
+        # After the page exists: the class is set on a live DOM, and setting it
+        # before the first paint would be dropped by the load that follows.
+        def go_fullscreen(_timer) -> None:
+            # Wrapped, because anything raised inside a pyobjc block is
+            # swallowed whole: the first version of this simply never ran and
+            # left no trace at all in the log.
+            try:
+                overlay.toggle_fullscreen()
+            except Exception:
+                log.exception("could not enter full screen")
+
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            4.0, False, go_fullscreen
+        )
 
     signal.signal(signal.SIGINT, lambda *_: app.terminate_(None))
     app.run()

@@ -155,6 +155,30 @@ duplicate-instance bug in this project has come from `pgrep`/`pkill` patterns
 not matching the process name — **do not add another one.** A lock the process
 takes itself does not care what the command line looks like.
 
+**A LaunchAgent respawns the overlay.** `com.krishna.kavach.overlay` is loaded
+with KeepAlive, so killing the overlay brings it straight back and a manual
+`kavach-overlay` stacks on top of it — that is where the duplicate panels
+actually came from. To test a variant, `launchctl bootout
+gui/$UID/com.krishna.kavach.overlay` first and bootstrap it back afterwards.
+**Never `rm ~/.kavach/overlay.lock` while an instance is running** — that is
+the one action that defeats the guard.
+
+### Full screen (`⌃⌥⌘F`, or `kavach-overlay --fullscreen`)
+
+Full screen is opaque, not a bigger transparent panel. Three things had to
+change together, and all three were separately invisible as bugs:
+
+* `html.kv-overlay.kv-fullscreen` restores an opaque black ground and the
+  vignette/grain/scanline layers overlay mode strips. CSS alone is not enough —
+  the NSWindow is also set opaque, or the desktop composites through anything
+  not fully opaque, which is most of a glowing orb.
+* The camera drops `PANEL_MARGIN` (1.12). That pull-back exists because the
+  floating panel is *square* and crops the orb; full screen is 1800x1169 and
+  the margin just left the orb small.
+* **`bloomScale` is recomputed on resize.** It was a `const` fixed at scene
+  creation, so a 760pt panel going full screen kept a bloom tuned for 760pt —
+  the orb filled the display with the glow of a thumbnail.
+
 Related: `.kv-overlay *` sets `-webkit-user-drag: none`. Dragging the TALK
 button out of the WKWebView wrote 1.3 MB `.textClipping` files to the Desktop.
 `user-select: none` does not prevent this and was only on `.hud` anyway.

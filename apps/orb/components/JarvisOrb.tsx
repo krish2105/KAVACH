@@ -24,6 +24,13 @@ const MODE_LABEL: Record<TrackerStatus["mode"], string> = {
   zoom: "ZOOM",
 };
 
+/** How far the camera pulls back for the square floating panel.
+ *
+ * A square frame crops the orb at its widest points, so it reads as a circle
+ * jammed into a box. 1.45 was too much and left it small and lost in the frame.
+ * Full screen deliberately does NOT use this — see the framing observer. */
+const PANEL_MARGIN = 1.12;
+
 export default function JarvisOrb() {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -95,14 +102,39 @@ export default function JarvisOrb() {
     let unsubscribeLive: (() => void) | undefined;
     let unsubscribeMock: (() => void) | undefined;
     let fallbackTimer = 0;
+    let framingObserver: MutationObserver | null = null;
     let cancelled = false;
 
     // A square panel crops the orb at its widest points, so it reads as a
     // circle jammed into a box. A little margin fixes that; 1.45 was too much
     // and left the orb small and lost in the frame.
-    if (new URLSearchParams(window.location.search).get("overlay") === "1") {
-      scene.zoomBy(1.12);
+    const isOverlay =
+      new URLSearchParams(window.location.search).get("overlay") === "1";
+    if (isOverlay) {
+      scene.zoomBy(PANEL_MARGIN);
     }
+
+    // Full screen reframes to the browser's composition.
+    //
+    // The 1.12 pull-back above exists because the floating panel is *square*
+    // and crops the orb at its widest points. Full screen is 1800x1169, so
+    // that margin buys nothing and simply leaves the orb small in a large
+    // frame — which is exactly how it differed from the reference.
+    //
+    // resetView() returns the camera to HOME_POSITION, which is the framing
+    // the page loads with in a browser, so full screen and the browser agree
+    // by construction rather than by a hand-tuned number.
+    const root = document.documentElement;
+    let wasFullscreen = root.classList.contains("kv-fullscreen");
+    const framing = new MutationObserver(() => {
+      const now = root.classList.contains("kv-fullscreen");
+      if (now === wasFullscreen) return;
+      wasFullscreen = now;
+      scene.resetView();
+      if (!now && isOverlay) scene.zoomBy(PANEL_MARGIN);
+    });
+    framing.observe(root, { attributes: true, attributeFilter: ["class"] });
+    framingObserver = framing;
 
     void scene.playBoot().then(() => {
       if (cancelled) return;
@@ -118,6 +150,7 @@ export default function JarvisOrb() {
     return () => {
       cancelled = true;
       window.clearTimeout(fallbackTimer);
+      framingObserver?.disconnect();
       unsubscribeLive?.();
       unsubscribeMock?.();
       mock?.stop();

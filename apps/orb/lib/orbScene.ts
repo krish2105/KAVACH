@@ -199,7 +199,13 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   };
   //: 1.0 at a full window, ~0.55 in a small panel. Derived from width rather
   //: than hardcoded per mode so an intermediate size lands sensibly too.
-  const bloomScale = Math.max(0.5, Math.min(1, width / 1400));
+  //:
+  //: `let`, and recomputed on resize. As a `const` it was fixed at scene
+  //: creation, so a 760pt panel going full screen kept a bloom tuned for
+  //: 760pt: the orb filled the display with the glow of a thumbnail, and the
+  //: core read as a dim wireframe instead of the white-hot centre it has in a
+  //: browser window. Nothing about it looked broken — just wrong.
+  let bloomScale = Math.max(0.5, Math.min(1, width / 1400));
 
   const chromaticPass = new ShaderPass(chromaticShader);
   composer.addPass(chromaticPass);
@@ -1191,6 +1197,10 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
+    // Retune the glow for the new size. UnrealBloomPass spreads in pixels, so
+    // the same strength is a halo at 760pt and a rumour at 1800pt.
+    bloomScale = Math.max(0.5, Math.min(1, w / 1400));
+    bloom.setSize(w, h);
   }
   window.addEventListener("resize", onResize);
   // The container can change size without the window doing so (a docked

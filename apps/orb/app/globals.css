@@ -1025,3 +1025,44 @@ body {
   line-height: 1.35;
   letter-spacing: 0.02em;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   FULL SCREEN — the browser's composition, on the desktop
+   ═══════════════════════════════════════════════════════════════
+
+   The floating panel is transparent on purpose: it is a presence sitting on
+   your desktop, not a window. Full screen is the opposite intent — the orb IS
+   the screen — and inheriting the panel's transparency made it a washed-out
+   overlay with the wallpaper reading straight through the orb's own glow.
+
+   So full screen puts back exactly what overlay mode strips: an opaque black
+   ground, and the vignette/grain/scanline layers that give the orb depth.
+   Those layers were disabled for the panel because they "assume a dark page
+   behind them" — full screen IS that dark page. */
+
+html.kv-overlay.kv-fullscreen,
+html.kv-overlay.kv-fullscreen body {
+  background: #000 !important;
+}
+
+html.kv-overlay.kv-fullscreen .overlay-vignette,
+html.kv-overlay.kv-fullscreen .overlay-grain,
+html.kv-overlay.kv-fullscreen .overlay-scanlines {
+  display: block;
+}
+
+/* The panel's caption is a one-line summary for a 280pt window. At full size
+   the real HUD panels are already showing, so the caption would duplicate
+   them on top of each other. */
+html.kv-overlay.kv-fullscreen .overlay-caption {
+  display: none;
+}
+
+/* Everything is clickable here — full screen is a mode you entered
+   deliberately, not something you need to click through. */
+html.kv-overlay.kv-fullscreen .hud,
+html.kv-overlay.kv-fullscreen .hud-btn,
+html.kv-overlay.kv-fullscreen .talk-btn {
+  pointer-events: auto;
+}

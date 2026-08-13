@@ -134,6 +134,7 @@ class OverlayWindow:
             self.web.setFrame_(
                 Foundation.NSMakeRect(0, 0, self.geometry.size, self.geometry.size)
             )
+            self._set_fullscreen_chrome(False)
             log.info("full screen off")
             return
 
@@ -143,8 +144,39 @@ class OverlayWindow:
         self.web.setFrame_(
             Foundation.NSMakeRect(0, 0, frame.size.width, frame.size.height)
         )
+        self._set_fullscreen_chrome(True)
+        # Cancel any dismissal already in flight, or a linger scheduled just
+        # before this call will hide the panel moments after it fills the screen.
+        self._hide_at = None
         self.show()
         log.info("full screen on (%.0fx%.0f)", frame.size.width, frame.size.height)
+
+    def _set_fullscreen_chrome(self, on: bool) -> None:
+        """Opaque black in full screen, transparent as a floating panel.
+
+        Both halves are needed and neither is sufficient. The CSS alone still
+        composites against a transparent NSWindow, so the desktop reads through
+        anything not fully opaque — which is most of a glowing orb. The window
+        alone leaves the page painting `background: transparent !important`
+        over it. Set them together or the result is the washed-out overlay this
+        exists to fix.
+        """
+        colour = (AppKit.NSColor.blackColor() if on
+                  else AppKit.NSColor.clearColor())
+        try:
+            self.panel.setOpaque_(bool(on))
+            self.panel.setBackgroundColor_(colour)
+            self.web.setUnderPageBackgroundColor_(colour)
+            # The WKWebView draws its own background only when told to; left
+            # off, an opaque window shows through as grey behind the page.
+            self.web.setValue_forKey_(bool(on), "drawsBackground")
+        except Exception:
+            log.debug("could not set full-screen chrome", exc_info=True)
+
+        js = ("document.documentElement.classList."
+              + ("add" if on else "remove")
+              + "('kv-fullscreen')")
+        self.web.evaluateJavaScript_completionHandler_(js, lambda *_: None)
 
     @property
     def is_fullscreen(self) -> bool:
@@ -386,7 +418,10 @@ class OverlayWindow:
                     self._on_interactive_change()
             else:
                 return
-        if self.geometry.always:
+        if self.geometry.always or self.is_fullscreen:
+            # Full screen is a mode you entered deliberately. Letting the idle
+            # linger timer dismiss it means the orb fills the display and then
+            # silently disappears a few seconds later, which reads as a crash.
             self.show()
             return
         if state in ACTIVE_STATES:
