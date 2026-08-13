@@ -82,7 +82,8 @@ class OverlayWindow:
         self._interactive_since = time.monotonic()
         self.geometry.interactive = interactive
         self.geometry.save()
-        self.panel.setIgnoresMouseEvents_(not interactive)
+        # Mouse events stay on regardless — the panel is clickable at all
+        # times now. Interactive mode only governs dragging and resizing.
         self.panel.setMovableByWindowBackground_(interactive)
 
         # The web view eats every mouse event, so the window itself never sees
@@ -204,7 +205,12 @@ class OverlayWindow:
         # Never take focus, even when clicked.
         self.panel.setBecomesKeyOnlyIfNeeded_(True)
         self.panel.setFloatingPanel_(True)
-        self.panel.setIgnoresMouseEvents_(True)
+        # Clickable always, by request: the HUD buttons in the panel need the
+        # mouse. The cost is real and worth stating — a 760pt square sitting
+        # above every window now intercepts any click that lands on it, so it
+        # is no longer a ghost you can click straight through. It still never
+        # takes focus, so it cannot interrupt what you are typing into.
+        self.panel.setIgnoresMouseEvents_(False)
         self.panel.setAlphaValue_(0.0)
 
         config = WebKit.WKWebViewConfiguration.alloc().init()

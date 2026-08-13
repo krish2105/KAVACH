@@ -65,6 +65,7 @@ kavach = "kavach.killswitch.cli:main"
 kavach-enrol = "kavach.identity.enrol:main"
 kavach-waketune = "kavach.voice.waketune_cli:main"
 kavach-overlay = "kavach.presence.__main__:main"
+kavach-doctor = "kavach.doctor:main"
 kavach-memory = "kavach.memory.cli:main"
 
 [dependency-groups]

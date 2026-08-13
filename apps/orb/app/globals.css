@@ -726,11 +726,26 @@ body {
 }
 
 /* Full-size HUD furniture has no place at 340pt. */
+/* The full HUD, scaled to the panel.
+
+   The HUD is laid out for a ~1900px window. Rather than hide it (what this
+   used to do) or redesign every panel at panel size, it is zoomed as a whole:
+   `zoom` scales layout rather than just paint, so the absolute insets stay
+   proportional and nothing overlaps that did not overlap before.
+
+   0.42 ~= 760pt / 1800px, so the panel shows the same composition as the
+   window. Below Large this genuinely does cover the orb, which is why size
+   now matters more than it did. */
 .kv-overlay .hud-stack,
 .kv-overlay .hud-hint,
 .kv-overlay .hud-controls,
 .kv-overlay .hud-title {
-  display: none;
+  zoom: 0.42;
+}
+
+/* The buttons are live now, so they must receive the mouse. */
+.kv-overlay .hud-btn {
+  pointer-events: auto;
 }
 
 /* The orb fills the panel and is the whole point. */
@@ -837,4 +852,12 @@ body {
 .kv-paused *::after {
   animation-play-state: paused !important;
   transition: none !important;
+}
+
+/* Last word on the caption. The full HUD carries state and transcript now, so
+   the compact caption would only duplicate them. Declared at the end because
+   the caption's own layout block sets `display: flex` further down the file
+   and would otherwise win on order. */
+.kv-overlay .overlay-caption {
+  display: none;
 }
