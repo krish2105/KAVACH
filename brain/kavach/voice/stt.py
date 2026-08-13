@@ -88,6 +88,66 @@ def language_of_script(text: str) -> str | None:
     return None
 
 
+#: Hindi function words as people actually type them in Roman script.
+#:
+#: Function words only. Content words like "meeting", "time" or "office" are
+#: shared with English and would flag ordinary English sentences; grammar words
+#: are what make a sentence Hindi regardless of its vocabulary. "aaj meri
+#: meeting kitne baje hai" is four English letters' worth of English and
+#: entirely Hindi structure.
+#:
+#: Spelling is not standardised in romanised Hindi — "hai/hain", "kya/kyaa",
+#: "nahi/nahin" — so common variants are listed rather than stemmed.
+_HINGLISH_MARKERS = frozenset({
+    "hai", "hain", "haan", "nahi", "nahin", "nai",
+    "kya", "kyaa", "kyun", "kyon", "kaise", "kaisa", "kaisi",
+    "kitne", "kitna", "kitni", "kab", "kahan", "kaun",
+    "mera", "meri", "mere", "tera", "teri", "aap", "aapka", "aapki",
+    "mujhe", "mujhko", "hum", "humein", "tum", "tumhara",
+    "aaj", "kal", "abhi", "phir", "bhi", "hi", "toh", "tha", "thi", "the",
+    "karo", "kar", "karna", "karke", "diya", "dijiye", "batao", "bata",
+    "chahiye", "sakta", "sakte", "sakti", "raha", "rahi", "rahe",
+    "acha", "accha", "theek", "thik", "bas", "sab", "kuch", "koi",
+    "baje", "waqt", "samay", "din", "raat", "subah", "shaam",
+    "ka", "ki", "ke", "ko", "se", "mein", "par", "aur", "ya",
+})
+
+#: How many marker words before a Latin sentence counts as Hinglish.
+#:
+#: Two, not one: "say namaste to the team" and "order some chai" are English
+#: sentences with a borrowed word, and flipping the whole reply into Hinglish
+#: for one loan word would be the wrong-language failure in miniature.
+_HINGLISH_MIN_MARKERS = 2
+
+
+def is_romanised_hindi(text: str) -> bool:
+    """Whether Latin-script text is actually Hindi written in Roman letters.
+
+    The script test cannot answer this — Hinglish and English are both Latin —
+    and it is the difference between mirroring what you said and answering a
+    Hindi question in English.
+    """
+    if not text or language_of_script(text) is not None:
+        return False
+
+    words = [w.strip(".,!?;:'\"()").lower() for w in text.split()]
+    hits = sum(1 for w in words if w in _HINGLISH_MARKERS)
+    return hits >= _HINGLISH_MIN_MARKERS
+
+
+def reply_style(text: str) -> str:
+    """Which of the three styles to answer in: hindi, hinglish or english.
+
+    Derived from what was heard rather than asked of a model, so it costs
+    nothing and cannot disagree with the transcript on screen.
+    """
+    if language_of_script(text) == "hi":
+        return "hindi"
+    if is_romanised_hindi(text):
+        return "hinglish"
+    return "english"
+
+
 def detect_language(model, audio) -> str | None:
     """What language was actually spoken, or None if it is not clear.
 

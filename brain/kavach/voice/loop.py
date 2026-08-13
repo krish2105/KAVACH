@@ -546,7 +546,16 @@ class VoiceLoop:
         timer.start("tts")
         # Reply in whatever language was spoken, when Kokoro has a voice
         # for it. Falls back to English rather than guessing.
-        speech = self.tts.synthesize(reply, language=result.language)
+        # Voiced from the REPLY's script, not the question's.
+        #
+        # They usually agree, but not always — and when they disagree the reply
+        # is the thing being spoken. A Hinglish answer in Roman letters must be
+        # read by the English voice: handing Roman text to the Hindi voice
+        # phonemises Latin letters with Hindi rules and produces gibberish.
+        from .stt import language_of_script
+
+        spoken_language = language_of_script(reply) or result.language
+        speech = self.tts.synthesize(reply, language=spoken_language)
         tts_ms = timer.stop("tts")
 
         self.set_state("speaking", transcript=reply)

@@ -45,6 +45,25 @@ DEFAULT_HOST = "http://127.0.0.1:11434"
 #   llama3.2:3b   421ms, "The ocean covers over 70% of the Earth's surface."
 DEFAULT_MODEL = "llama3.2:3b"
 
+
+#: Told explicitly, rather than hoped for.
+#:
+#: llama3.2 answers Hindi in Hindi unprompted most of the time — tested — but
+#: "most of the time" means a Hindi question occasionally comes back in English
+#: and gets spoken by the Hindi voice, which is the worst of both. Naming the
+#: script removes the coin flip and costs one line of prompt.
+_LANGUAGE_INSTRUCTIONS = {
+    "hindi": "Reply in Hindi, written in Devanagari script.",
+    "hinglish": "Reply in Hinglish — Hindi words written in Roman script, "
+                "the way the user wrote them. Do not use Devanagari.",
+    "english": "",
+}
+
+
+def language_instruction(style: str) -> str:
+    """The line appended to the prompt so the reply mirrors the question."""
+    return _LANGUAGE_INSTRUCTIONS.get(style, "")
+
 _CLASSIFY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -162,6 +181,16 @@ class LocalModel:
 
     def respond(self, utterance: str, context: str = "") -> str:
         messages = [{"role": "system", "content": _RESPOND_SYSTEM}]
+
+        # Mirror the language the question was asked in. Derived from the
+        # utterance itself rather than from a model call, so it costs nothing
+        # and can never disagree with the transcript shown on screen.
+        from ..voice.stt import reply_style
+
+        instruction = language_instruction(reply_style(utterance))
+        if instruction:
+            messages.append({"role": "system", "content": instruction})
+
         if context:
             messages.append({"role": "system", "content": context})
         messages.append({"role": "user", "content": utterance})

@@ -678,3 +678,63 @@ def test_empty_text_is_not_a_language():
 
     assert language_of_script("") is None
     assert language_of_script("   ") is None
+
+
+# ═══ mirroring the language you actually used ═══
+#
+# You asked for: English in → English out, Hindi in → Hindi out, Hinglish in →
+# Hinglish out. Script alone gets two of the three. Devanagari is unambiguously
+# Hindi, but romanised Hinglish and plain English are both Latin, and telling
+# them apart is what this adds.
+#
+# Marker words rather than a language model: "aaj meri meeting kitne baje hai"
+# is mostly English letters and entirely Hindi grammar, and a handful of
+# extremely common function words identify it without another 600 ms pass.
+# Content words are deliberately excluded — "meeting" and "time" appear in both.
+
+def test_romanised_hinglish_is_recognised():
+    from kavach.voice.stt import is_romanised_hindi
+
+    assert is_romanised_hindi("aaj meri meeting kitne baje hai")
+    assert is_romanised_hindi("kya aap mujhe bata sakte hain")
+    assert is_romanised_hindi("mera naam Krishna hai")
+
+
+def test_plain_english_is_not_hinglish():
+    from kavach.voice.stt import is_romanised_hindi
+
+    assert not is_romanised_hindi("what time is my meeting today")
+    assert not is_romanised_hindi("open safari and search for flights")
+    assert not is_romanised_hindi("remind me about the standup at nine")
+
+
+def test_a_single_borrowed_word_is_not_hinglish():
+    """"namaste" or "chai" in an English sentence is English."""
+    from kavach.voice.stt import is_romanised_hindi
+
+    assert not is_romanised_hindi("say namaste to the team for me")
+    assert not is_romanised_hindi("order some chai please")
+
+
+def test_devanagari_is_not_treated_as_romanised():
+    from kavach.voice.stt import is_romanised_hindi
+
+    assert not is_romanised_hindi("आज मेरी मीटिंग कितने बजे है")
+
+
+def test_reply_style_mirrors_what_was_said():
+    """The instruction handed to the model, derived from what it heard."""
+    from kavach.voice.stt import reply_style
+
+    assert reply_style("आज मेरी मीटिंग कितने बजे है") == "hindi"
+    assert reply_style("aaj meri meeting kitne baje hai") == "hinglish"
+    assert reply_style("what time is my meeting today") == "english"
+    assert reply_style("") == "english"
+
+
+def test_the_model_is_told_which_style_to_mirror():
+    from kavach.reasoning.local import language_instruction
+
+    assert "devanagari" in language_instruction("hindi").lower()
+    assert "roman" in language_instruction("hinglish").lower()
+    assert language_instruction("english") == ""
