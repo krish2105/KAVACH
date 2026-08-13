@@ -54,6 +54,19 @@ NEVER_ALLOWED_TOOLS = frozenset({
     "Desktop",   # macos-accessibility: creates/switches virtual desktops
 })
 
+#: Non-MCP tools that are permitted because they cannot touch the machine.
+#:
+#: The CLI defers MCP tool schemas and loads them on demand via `ToolSearch`.
+#: Denying it — which the original name check did, since it isn't an
+#: `mcp__server__tool` — meant the MCP tools were never loaded at all and the
+#: agent could not act on anything, gate or no gate.
+#:
+#: Deliberately a fixed set of one. `Bash`, `Read`, `Write` and friends stay
+#: denied: those are exactly the routes around the allowlist that §7 cares
+#: about, and the agent has already been observed reaching for `Bash` as a
+#: fallback when the MCP path failed.
+SAFE_META_TOOLS = frozenset({"ToolSearch"})
+
 #: Argument keys that name an app across the three servers.
 _APP_ARG_KEYS = ("app_target", "app", "application", "appName", "bundle_id", "name")
 
@@ -173,7 +186,11 @@ class ToolGate:
         if not self.ks.is_armed:
             return ("deny", "Kill switch is latched; no action may run.", {})
 
-        # 2 — must be a tool on a server we configured.
+        # 2 — schema discovery is allowed; it cannot reach the machine.
+        if tool in SAFE_META_TOOLS:
+            return ("allow", f"{tool} loads tool schemas only", {"meta": True})
+
+        # 3 — must be a tool on a server we configured.
         match = _TOOL_NAME_RE.match(tool or "")
         if not match:
             return ("deny", f"{tool!r} is not a recognised MCP tool name.", {})

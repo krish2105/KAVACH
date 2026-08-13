@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KAVACH voice loop as a launchd Launch Agent (spec §3 "Background service",
+  §8 layout).
+
+  Keeps the wake-word listener running at login without a Terminal window.
+
+  ⚠️  READ docs/permissions-setup.md FIRST.
+
+  macOS grants Accessibility / Screen Recording / Input Monitoring to the
+  process that LAUNCHES a tool, not to the tool itself. A Launch Agent is its
+  own process as far as TCC is concerned, so it needs its OWN grants —
+  the ones you gave your terminal do not carry over. The first run will
+  therefore be able to hear you but not act, until you grant it separately.
+
+  Install:
+    cp daemon/com.krishna.kavach.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.krishna.kavach.plist
+
+  Stop / uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.krishna.kavach.plist
+
+  Deliberately NOT installed by default. A background process that listens to
+  the microphone and can drive your Mac should be started by a decision, not
+  by a build step.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.krishna.kavach</string>
+
+    <!-- uv resolves the project's own venv, so no interpreter path is hardcoded. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/krishnamathurm4pro/.local/bin/uv</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>kavach.voice</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/krishnamathurm4pro/Desktop/KAVACH/brain</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it dies, but not in a tight loop: a crash-looping process
+         that holds the microphone is worse than one that stays down. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/krishnamathurm4pro/.kavach/logs/daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/krishnamathurm4pro/.kavach/logs/daemon.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Homebrew + uv, since launchd starts with a minimal PATH and the
+             MCP servers are launched via npx/uvx. -->
+        <key>PATH</key>
+        <string>/Users/krishnamathurm4pro/.nvm/versions/node/v24.19.0/bin:/Users/krishnamathurm4pro/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Nice-d down: this runs all day, and Whisper should not fight the
+         foreground app for CPU while idle. -->
+    <key>ProcessType</key>
+    <string>Adaptive</string>
+</dict>
+</plist>

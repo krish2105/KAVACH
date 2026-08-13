@@ -2,190 +2,168 @@
 
 **कवच** — *armor, a protective shield.*
 
-A local-first voice + gesture AI presence for macOS. Three layers, one machine:
+A local-first voice and gesture AI presence for macOS. Say something, and it
+reasons about whether it can answer instantly, whether a small local model will
+do, or whether it needs Claude — then acts on your Mac through MCP, behind an
+allowlist, a confirmation gate and a kill switch.
 
-- **Presence** — a Three.js holographic orb with MediaPipe hand tracking
-- **Brain** — wake word → speech-to-text → a router that splits work between a
-  fast local model and Claude → text-to-speech
-- **Hands** — real macOS control through MCP servers, behind a permission layer
+The wake word, speech-to-text, the voice, and the fast reasoning path all run
+on-device. Nothing leaves the machine except the requests the router
+deliberately escalates.
 
-Nothing leaves the machine except the reasoning deliberately routed to Claude.
-
-Full specification: [`KAVACH_master_prompt.md`](KAVACH_master_prompt.md).
-Working agreement: [`CLAUDE.md`](CLAUDE.md).
-
----
-
-## Status
-
-| Phase | State |
-|---|---|
-| **0 — Setup, orb forked, MCP installed, kill switch tested** | **complete** |
-| **1 — Presence polish (HUD, state-reactive orb, boot sequence)** | **complete** |
-| **2 — Local voice loop (push-to-talk → Whisper → Kokoro → orb)** | **complete**; custom wake word still training |
-| 3 — Brain + router | not started |
-| 4 — Hands + guardrail enforcement | not started |
-| 5 — Integration + demo | not started |
+```bash
+nvm use && cd apps/orb && npm ci && npm run dev   # the orb
+cd brain && uv sync && uv run python -m kavach.voice
+```
 
 ---
 
-## The kill switch comes first
+## What it actually does
 
-An agent holding Accessibility, Automation, and Screen Recording can click
-anything on this Mac. So the kill switch was built, tested, and committed
-**before** a single line of device-control code existed — not as polish
-afterwards.
+```
+ mic ─▶ wake word ─▶ Whisper ─▶ ROUTER ─┬─▶ deterministic handler   0.02 ms
+                                        ├─▶ qwen3:4b (local)        ~0.9 s
+                                        └─▶ Claude Agent SDK ─▶ MCP ─▶ macOS
+                                                                 │
+                                              ┌──────────────────┴───────┐
+                                              │  kill switch             │
+                                              │  app allowlist           │
+                                              │  spoken confirmation     │
+                                              │  JSONL action log        │
+                                              └──────────────────────────┘
+                                        ▼
+                              Kokoro TTS ─▶ the orb reacts
+```
 
-It **halts and latches disarmed**. Triggering cancels in-flight async work and
-SIGKILLs registered subprocesses (by process group, so `npx`/`uvx`
-grandchildren die too), then refuses every subsequent action until an explicit
-re-arm. There is no auto-recovery: an ambiguous state stays stopped.
+**Measured on an M4 Pro:** 1171 ms from silence to first audio out for a local
+turn (821 ms of that is Whisper `large-v3-turbo`). The cold first turn is
+~7.7 s — reported rather than hidden, because it's what you actually
+experience once.
 
-Four ways to fire it, one core:
+---
 
-| Surface | How | Needs permission? |
+## The part worth looking at
+
+**The router.** Always calling Claude is slow and burns credit on "what time is
+it"; routing a multi-step request to a 4B model produces confident nonsense. So
+there are three tiers, and each boundary came from a measurement:
+
+| Tier | When | Cost |
 |---|---|---|
-| Global hotkey | **⌃⌥⌘K** | Input Monitoring |
-| Menu bar | 🛡 → *PANIC — Halt Everything* | no |
-| CLI | `kavach kill` | no |
-| Unix socket | `~/.kavach/kill.sock` (0600) | no |
+| Deterministic handler | the clock, the battery | **0.02 ms** |
+| `qwen3:4b` via Ollama | simple, open-ended | ~877 ms |
+| Claude Agent SDK + MCP | judgement, multiple steps, tools | ~7 s |
 
-The three unprivileged surfaces exist because the one that needs a permission
-is the one that can silently fail — and a kill switch that quietly doesn't work
-is worse than none. The daemon self-tests Input Monitoring at startup and says
-`[NOT WORKING]` rather than pretending.
+Two things I only learned by measuring:
 
-```bash
-cd brain
-uv run python -m kavach.killswitch.daemon      # hotkey + menu bar + socket
-uv run kavach status                            # armed?
-uv run kavach kill                              # halt everything, latch
-uv run kavach rearm                             # the only way back
-```
-
-See it work end to end — a real subprocess and a real async task, really killed:
-
-```bash
-cd brain && uv run python -m kavach.killswitch.demo
-```
+- **qwen3:4b cannot answer "what time is it."** It spends 3.4 seconds
+  explaining it has no access to the system clock. The obvious reading of
+  "send simple intents to the small model" is wrong twice over — slower *and*
+  unable to answer. Adding a deterministic tier took that turn from 9494 ms to
+  1171 ms.
+- **Its self-reported confidence is a constant** — exactly `0.95` on every
+  call, right or wrong. The orb renders confidence as the outer shell's
+  opacity, so passing that through would have shown a ring that never moves.
+  The router derives confidence from *how* it decided and discards the field.
 
 ---
 
-## The Presence layer
+## The guardrails are the point
 
-The orb is a *view of the agent's state*, never its owner. `lib/kavachState.ts`
-defines what the Brain will publish; Phase 1 ships a mock that produces it, so
-Phase 3 adds a WebSocket source beside the mock and changes no HUD code.
+An agent holding Accessibility, Automation and Screen Recording can click
+anything on your screen. So the kill switch was built, tested and committed
+**before any device-control code existed** — not added afterwards.
 
-What the orb tells you without any text on screen:
+**Kill switch.** Halts in-flight work, SIGKILLs MCP subprocesses by process
+group, then **latches disarmed**. No auto-recovery. Five surfaces, one latch:
+global hotkey **⌃⌥⌘K**, a menu bar PANIC item, `kavach kill`, a Unix socket,
+and the orb itself. The three unprivileged surfaces exist because the one
+needing a permission is the one that can fail silently — the daemon self-tests
+Input Monitoring at startup and reports `[NOT WORKING]` rather than pretending.
 
-| State | Orb |
+**Allowlist, not blocklist.** Safari, Notes, Calendar, Finder. An app nobody
+thought of is denied by default. An action whose target app can't be
+identified is denied too — if it can't be checked, it doesn't run.
+
+**Tools that defeat the model are never offered.** `macos-accessibility` ships
+a `Shell` tool. A shell command names no app, so the allowlist can't check it;
+that's a complete bypass rather than an edge case. `Shell`, `agent` and
+`Desktop` are refused outright, with no confirmation path that could unlock
+them.
+
+**Confirmation is fail-safe.** Destructive or externally visible actions are
+spoken back and wait. Denials include: no confirmer, silence, a timeout, an
+unparsed answer, and a kill switch firing mid-question. *"Sure"* and *"okay"*
+are deliberately not affirmative — they appear far too readily in ordinary
+speech to authorise a delete.
+
+### The bug I'd tell you about in an interview
+
+My first wiring listed `allowed_tools=["mcp__<server>__*"]`. That
+auto-approves tools **before** the permission callback runs — so the kill
+switch, the allowlist and the confirmation flow were all unreachable. The agent
+still *appeared* to behave, because the system prompt asked it nicely.
+
+It would have demoed perfectly and protected nothing. The SDK emitted a
+`CanUseToolShadowedWarning`; the only reason I caught it was reading the
+warning instead of filtering it. The enforcement point is now a `PreToolUse`
+hook, verified live by watching a Mail script get denied — and by watching the
+agent try `Bash` as a fallback and get denied too.
+
+---
+
+## Verified, not asserted
+
+Every claim here has a command behind it.
+
+| | |
 |---|---|
-| `idle` | slow ambient rotation |
-| `listening` | pulse rings expand outward with mic amplitude |
-| `thinking` | inner core spins hard, bloom tightens |
-| `acting` | packets travel core → tool-call panel and back |
-| `speaking` | bloom breathes with the TTS envelope |
-| `halted` | **core extinguished, orb frozen, everything cold and red** |
+| Tests | **175 passing** — kill switch, router, gate, confirmation, contract |
+| Kill switch | live: task cancelled, child `exit -9`, latched, all 5 surfaces |
+| MCP servers | 3/3 handshake + a real privileged call each |
+| Gate | live denials for a non-allowlisted app, `Shell`, and `Bash` |
+| Full loop | speech → router → Claude → AppleScript → Finder → spoken reply |
 
-The outer shell's opacity tracks reasoning confidence (§4 #3) — a thinner shell
-means it was less sure. A suit-up boot sequence assembles the shells on launch
-and ignites the core last.
-
-Keys: `G` gestures · `R` reset · `+`/`−` zoom · **`K` kill switch** · `Esc`
-interrupt · `Space` push-to-talk (Phase 2).
+One test reads `apps/orb/lib/kavachState.ts` and asserts the Python snapshot
+matches the TypeScript interface field-for-field — drift there would fail
+silently at runtime, with the HUD rendering a stale value forever.
 
 ---
 
-## The voice loop
+## Built on
 
-```bash
-cd brain
-uv run python -m kavach.voice                # wake word if trained, else push-to-talk
-uv run python -m kavach.voice --no-wake-word # push-to-talk only
-uv run python -m kavach.voice --bench "hello there"   # latency, no mic needed
-```
+[Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) ·
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp) (Metal) ·
+[Kokoro TTS](https://github.com/thewh1teagle/kokoro-onnx) ·
+[Ollama](https://ollama.com) + Qwen3 4B ·
+[livekit-wakeword](https://github.com/livekit/livekit-wakeword) ·
+[macos-automator-mcp](https://github.com/steipete/macos-automator-mcp) ·
+[MacOS-MCP](https://github.com/CursorTouch/MacOS-MCP) ·
+[Peekaboo](https://github.com/openclaw/Peekaboo) ·
+MediaPipe Tasks Vision · Three.js · Next.js 16
 
-Hold **Space** to talk. The orb shows `BRAIN LIVE` when it's connected to the
-real loop and `DEMO (MOCK)` when it has fallen back to the Phase 1 script —
-a demo that looks live but isn't is worse than no demo.
+The orb is forked from [ULTRON Orb UI](https://github.com/SAGAR-TAMANG/ultron-by-sagar-builds)
+by **Sagar Tamang** (MIT, commit `a65306f`) — see
+[`docs/attribution.md`](docs/attribution.md).
 
-**Measured on an M4 Pro** (`--bench`, Whisper `large-v3-turbo` + Kokoro), while
-wake-word training was saturating the GPU, so these are pessimistic:
-
-| run | STT | TTS | perceived (silence → audio out) |
-|---|---|---|---|
-| 1 (cold) | 6963 ms | 702 ms | **7665 ms** |
-| 2 | 681 ms | 582 ms | **1263 ms** |
-| 3 | 1051 ms | 594 ms | **1645 ms** |
-
-The cold run is reported rather than discarded — it is what a user actually
-experiences on the first sentence, which is why models are loaded eagerly at
-startup instead of lazily on first use.
-
-**Wake word:** Porcupine was the spec's choice, but Picovoice discontinued its
-free tier on 2026-06-30 with no non-commercial replacement. KAVACH trains its
-own instead:
-
-```bash
-uv sync --group wakeword-training
-uv run livekit-wakeword run wakeword/kavach.yaml
-```
-
-Push-to-talk needs none of that and always works.
-
----
-
-## Quick start
-
-```bash
-nvm use                                  # Node 24 — required, see below
-cd apps/orb && npm ci && npm run dev     # the orb at localhost:3000
-
-cd brain && uv sync && uv run pytest     # 30 tests
-python3 hands/probe_mcp.py               # all three MCP servers
-```
-
-**Node 24 is mandatory.** `@steipete/macos-automator-mcp` declares
-`engines: node >=24` and Peekaboo `>=22`; Node 20 cannot run either. Pinned via
-`.nvmrc` — the global nvm default is left alone.
-
-macOS permissions: [`docs/permissions-setup.md`](docs/permissions-setup.md).
+**Porcupine is not in this list.** Spec'd as the wake word, but Picovoice
+discontinued its free tier on 2026-06-30 with no non-commercial replacement,
+so KAVACH trains its own instead.
 
 ---
 
 ## Layout
 
 ```
-apps/orb/     Next.js 16 + Three.js — forked from Ultron (MIT)
-brain/        Python (uv) — killswitch/, hands/allowlist; later stt, router, agent, tts
-hands/        MCP server configs, app allowlist, probe/call scripts
-daemon/       launchd service definition (Phase 5)
-docs/         permissions-setup, attribution, demo-script
+apps/orb/     Next.js 16 + Three.js — Presence
+brain/        Python (uv) — killswitch, voice, reasoning, hands, bridge
+hands/        MCP configs, app allowlist, probe scripts
+daemon/       launchd Launch Agent (not installed by default)
+docs/         permissions-setup, demo-script, attribution
 ```
 
----
+**Node 24 is mandatory** — `@steipete/macos-automator-mcp` declares
+`engines: node >=24`. Pinned via `.nvmrc`.
 
-## Guardrails
-
-Not polish — the difference between a portfolio piece and a story about the
-time your assistant sent an email it shouldn't have.
-
-- Kill switch built and tested before any device control existed
-- **Allowlist, not blocklist** — Safari, Notes, Calendar, Finder
-  ([`hands/allowlist.json`](hands/allowlist.json)). Unknown apps are denied by
-  default; expanding the list is a deliberate act
-- Destructive or externally visible actions (send, delete, purchase, submit)
-  are spoken back and confirmed before they run
-- `permission_mode` is **never** set to auto-approve
-- Full timestamped JSONL action log of every tool call — gitignored, because it
-  records everything the agent touched
-- Wake-word audio that wasn't acted on is never logged or transmitted
-
----
-
-## Attribution
-
-The orb is forked from [ULTRON Orb UI](https://github.com/SAGAR-TAMANG/ultron-by-sagar-builds)
-by **Sagar Tamang**, MIT licensed, at commit `a65306f`. Full credits and the
-other building blocks: [`docs/attribution.md`](docs/attribution.md).
+macOS permissions: [`docs/permissions-setup.md`](docs/permissions-setup.md).
+Working agreement: [`CLAUDE.md`](CLAUDE.md).

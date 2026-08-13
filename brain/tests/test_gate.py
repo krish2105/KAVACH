@@ -363,3 +363,32 @@ async def test_bypass_tools_are_denied_before_confirmation_is_asked(ks):
     await gate.check("mcp__macos-accessibility__Shell",
                      {"app": "Safari", "command": "rm -rf ~"}, context=None)
     assert not confirmer.prompts
+
+
+# ═══ 9. schema discovery must work, without opening a hole ═══
+
+async def test_tool_schema_discovery_is_permitted(ks):
+    """The CLI defers MCP schemas and loads them via ToolSearch. Denying it
+    meant the MCP tools never loaded and the agent could not act at all —
+    a gate so strict it broke the thing it was gating."""
+    gate = make_gate(ks)
+    assert await allowed(gate, "ToolSearch", {"query": "macos automator"})
+
+
+@pytest.mark.parametrize("tool", [
+    "Bash", "Read", "Write", "Edit", "WebFetch", "Task", "NotebookEdit",
+])
+async def test_other_builtin_tools_stay_denied(ks, tool):
+    """Bash in particular: the agent has been observed reaching for it as a
+    fallback when the MCP path failed. That is the route around the allowlist
+    §7 exists to close."""
+    gate = make_gate(ks, RecordingConfirmer(True))
+    assert not await allowed(gate, tool, {"command": "whoami"})
+
+
+async def test_discovery_is_still_blocked_by_the_kill_switch(ks):
+    """Even a harmless tool does not run while latched — the switch outranks
+    every other rule, including this exemption."""
+    gate = make_gate(ks)
+    ks.trigger(source="test")
+    assert not await allowed(gate, "ToolSearch", {"query": "anything"})
