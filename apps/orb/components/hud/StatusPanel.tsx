@@ -13,6 +13,8 @@ interface Props {
   ghost: boolean;
   reason: string;
   intent: string;
+  /** A pinch is driving the camera right now. */
+  handControl?: boolean;
 }
 
 /** Circumference of the r=13 confidence ring, for the stroke-dash trick. */
@@ -27,6 +29,7 @@ export function StatusPanel({
   ghost,
   reason,
   intent,
+  handControl = false,
 }: Props) {
   const halted = killSwitch === "disarmed";
 
@@ -57,6 +60,16 @@ export function StatusPanel({
           outside the floating panel, ghost mode was being signalled by colour
           alone. Colour is exactly what a glance gets wrong, and "is it
           listening?" is the one question that must never need interpreting. */}
+      {/* Hand control, while it is happening. The orb moving is not enough of
+          a signal — it is a sphere, so a small rotation looks like nothing,
+          and "my pinch was not seen" and "it was seen and moved a little"
+          were indistinguishable. */}
+      {handControl && !ghost && (
+        <p className="hand-banner" role="status">
+          ✋ HAND CONTROL — pinch to rotate, spread to zoom
+        </p>
+      )}
+
       {ghost && (
         <p className="ghost-banner" role="status" aria-live="assertive">
           👻 GHOST MODE — mic and camera off, not listening

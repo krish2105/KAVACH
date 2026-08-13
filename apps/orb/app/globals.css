@@ -1066,3 +1066,26 @@ html.kv-overlay.kv-fullscreen .hud-btn,
 html.kv-overlay.kv-fullscreen .talk-btn {
   pointer-events: auto;
 }
+
+
+/* ── Hand control, while a pinch is driving the camera ───────────
+   Deliberately loud while it lasts: it appears only when your fingers
+   are actually together, and disappears half a second after you let go,
+   so it doubles as the answer to "did it see me?". */
+.hand-banner {
+  margin: 0 0 0.55rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--kv-bright, #ffb84d) 55%, transparent);
+  background: color-mix(in srgb, var(--kv-bright, #ffb84d) 16%, transparent);
+  color: var(--kv-bright, #ffb84d);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  animation: handPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes handPulse {
+  0%, 100% { opacity: 0.75; }
+  50%      { opacity: 1; }
+}

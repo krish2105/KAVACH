@@ -297,18 +297,25 @@ class MenuBarController(AppKit.NSObject):
         """
         import AppKit as _AppKit
 
-        visible = False
-        try:
-            visible = self._item is not None and self._item.button() is not None
-        except Exception:
-            visible = False
-
-        if not visible:
-            bar = _AppKit.NSStatusBar.systemStatusBar()
-            self._item = bar.statusItemWithLength_(
-                _AppKit.NSVariableStatusItemLength)
-            self._item.setMenu_(self._menu)
-            log.warning("menu bar item re-created after launch")
+        # Always re-created, never "only if the button is missing".
+        #
+        # The previous version checked button() and found it perfectly alive —
+        # so it never retried, and the item it was so confident about was not
+        # in the bar at all. A status item made before the application has
+        # finished launching reports healthy and attaches to nothing.
+        bar = _AppKit.NSStatusBar.systemStatusBar()
+        old = self._item
+        self._item = bar.statusItemWithLength_(_AppKit.NSSquareStatusItemLength)
+        # Fixed width, not variable: a variable-length item has to negotiate
+        # for space and is the first thing dropped when the bar is busy.
+        self._item.setLength_(72.0)
+        self._item.setMenu_(self._menu)
+        if old is not None:
+            try:
+                bar.removeStatusItem_(old)
+            except Exception:
+                pass
+        log.info("menu bar item re-created after launch")
 
         button = self._item.button()
         if button is not None:

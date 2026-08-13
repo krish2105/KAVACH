@@ -46,6 +46,11 @@ export default function JarvisOrb() {
   const [snapshot, setSnapshot] = useState<KavachSnapshot>(INITIAL_SNAPSHOT);
   const [brainOnline, setBrainOnline] = useState(false);
   const [usingMock, setUsingMock] = useState(false);
+  /** True while a pinch is actively driving the camera. */
+  const [handControl, setHandControl] = useState(false);
+  /** Clears the banner shortly after the last pinch frame — a ref, because
+   *  the control hook is installed once and must not close over stale state. */
+  const handTimerRef = useRef(0);
   const [gestureHold, setGestureHold] = useState<{
     gesture: "confirm" | "deny" | null;
     progress: number;
@@ -151,6 +156,7 @@ export default function JarvisOrb() {
       cancelled = true;
       window.clearTimeout(fallbackTimer);
       framingObserver?.disconnect();
+      window.clearTimeout(handTimerRef.current);
       unsubscribeLive?.();
       unsubscribeMock?.();
       mock?.stop();
@@ -178,6 +184,13 @@ export default function JarvisOrb() {
     wc.__kavachControl = (dx: number, dy: number, scale: number) => {
       const scene = sceneRef.current;
       if (!scene) return;
+      // Say so on screen. Moving the camera is not feedback: the orb is a
+      // sphere, so a small rotation looks like nothing happened, and there was
+      // no way to tell "my pinch was not detected" from "it was detected and
+      // moved the view slightly".
+      setHandControl(true);
+      window.clearTimeout(handTimerRef.current);
+      handTimerRef.current = window.setTimeout(() => setHandControl(false), 500);
       // Horizontal hand movement spins around the vertical axis, which is the
       // mapping a trackpad drag already trains you to expect. The multiplier
       // makes a comfortable hand movement a satisfying rotation rather than a
@@ -436,10 +449,11 @@ export default function JarvisOrb() {
           confidence={snapshot.confidence}
           killSwitch={snapshot.killSwitch}
           amplitude={snapshot.amplitude}
-        ghost={snapshot.ghost}
-            reason={snapshot.reason}
-            intent={snapshot.intent}
-          />
+          ghost={snapshot.ghost}
+          reason={snapshot.reason}
+          intent={snapshot.intent}
+          handControl={handControl}
+        />
         <TranscriptPanel
           transcript={snapshot.transcript}
           partial={snapshot.partial}
