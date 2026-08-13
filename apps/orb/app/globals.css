@@ -1166,3 +1166,22 @@ html.kv-overlay.kv-fullscreen .talk-btn {
   background: transparent;
   color: color-mix(in srgb, var(--kv-dim, #8a8f98) 90%, white);
 }
+
+
+/* A blocked gesture looks different from a working one. "Nothing happened"
+   and "that app is not allowed" must not share a colour. */
+.hand-banner.is-blocked {
+  border-color: color-mix(in srgb, #ff5a4d 55%, transparent);
+  background: color-mix(in srgb, #ff5a4d 14%, transparent);
+  color: #ff9c93;
+  animation: none;
+}
+
+
+/* Armed app control is loud on purpose: it is the one control here that lets a
+   gesture reach outside KAVACH. */
+.control-btn.is-armed {
+  border-color: #ff9c4d;
+  background: color-mix(in srgb, #ff9c4d 26%, transparent);
+  color: #ffd7a8;
+}

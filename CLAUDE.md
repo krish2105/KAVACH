@@ -213,6 +213,32 @@ and a websocket hop per frame feels like lag in your hand.
 **Only the orb so far.** Driving the frontmost app needs synthesised scroll/zoom
 events and Accessibility permission, and lands under §7 gating — not built.
 
+### Hand control of other apps — the first thing that acts outside KAVACH
+
+`gestures/appcontrol.py`. Scroll and zoom only; **zoom is ⌘+scroll**, the idiom
+Safari/Preview/Maps already understand, so no keystroke synthesis and no
+private API. **Rotation is impossible** — macOS has no public rotate-gesture
+API — so it drives the orb and nothing else, and the HUD says which.
+
+Verified: `CGPreflightPostEventAccess()` is the correct permission for *posting*
+events (not the Accessibility AX API), and `pyobjc-framework-ApplicationServices`
+is **not needed**. `NSWorkspace.frontmostApplication()` needs no permission.
+
+**Six gates, denial default at each**: armed explicitly (off every launch, and
+a test greps the module for persistence so it stays that way), post-event
+access, the frontmost app on `hands/allowlist.json`, no confirmation pending,
+kill switch armed, not ghost. Each has its own test — a single "it works" test
+would pass with five of six in place.
+
+The presence process has no `KillSwitch` object, so it **observes** the latch
+from the snapshot it already receives and writes to the same `ActionLog` file
+(opened per write with `O_APPEND`, safe across processes).
+
+Sessions log `appcontrol.start`/`.end`, not frames. Both are absent from
+`SUPPRESSED_IN_GHOST` — ghost hides what KAVACH *saw*, never what it *did*.
+
+**Chrome is not on the allowlist.** Ask before adding it (§7).
+
 ### Ghost mode — the boundary that matters (§14)
 
 Ghost suppresses **perception**, never **action**. `ActionLog.SUPPRESSED_IN_GHOST`

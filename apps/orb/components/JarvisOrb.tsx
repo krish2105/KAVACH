@@ -52,6 +52,10 @@ export default function JarvisOrb() {
   /** Clears the banner shortly after the last pinch frame — a ref, because
    *  the control hook is installed once and must not close over stale state. */
   const handTimerRef = useRef(0);
+  /** What a gesture is driving, as the overlay reports it. */
+  const [handTarget, setHandTarget] = useState("orb");
+  const [handRefusal, setHandRefusal] = useState<string | null>(null);
+  const [appControl, setAppControl] = useState(false);
   const [gestureHold, setGestureHold] = useState<{
     gesture: "confirm" | "deny" | null;
     progress: number;
@@ -217,6 +221,19 @@ export default function JarvisOrb() {
       scene.rotateBy(dx * 6, dy * 6);
     };
 
+    const wt = window as unknown as {
+      __kavachTarget?: (info: { target: string; refusal: string | null }) => void;
+    };
+    wt.__kavachTarget = (info) => {
+      setHandTarget(info.target);
+      setHandRefusal(info.refusal);
+      // A refusal is still hand activity: showing "blocked" is the whole
+      // point, so the banner has to appear for it too.
+      setHandControl(true);
+      window.clearTimeout(handTimerRef.current);
+      handTimerRef.current = window.setTimeout(() => setHandControl(false), 700);
+    };
+
     const w = window as unknown as { __kavachSetRendering?: (on: boolean) => void };
     w.__kavachSetRendering = (on: boolean) => {
       sceneRef.current?.setRendering(on);
@@ -228,6 +245,7 @@ export default function JarvisOrb() {
       delete w.__kavachSetRendering;
       delete wc.__kavachControl;
       delete ws.__kavachScroll;
+      delete wt.__kavachTarget;
     };
   }, [overlayMode]);
 
@@ -475,10 +493,22 @@ export default function JarvisOrb() {
           reason={snapshot.reason}
           intent={snapshot.intent}
           handControl={handControl}
+          handTarget={handTarget}
+          handRefusal={handRefusal}
         />
         <ControlPanel
           ghost={snapshot.ghost}
           killSwitch={snapshot.killSwitch}
+          appControl={appControl}
+          onAppControl={(on) => {
+            setAppControl(on);
+            const w = window as unknown as {
+              webkit?: { messageHandlers?: { kavach?: { postMessage: (m: unknown) => void } } };
+            };
+            w.webkit?.messageHandlers?.kavach?.postMessage({
+              cmd: "appcontrol", value: on,
+            });
+          }}
           onBrainCommand={(payload) => sourceRef.current?.command?.(payload)}
         />
         <TranscriptPanel

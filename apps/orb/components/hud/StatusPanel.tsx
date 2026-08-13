@@ -15,6 +15,10 @@ interface Props {
   intent: string;
   /** A pinch is driving the camera right now. */
   handControl?: boolean;
+  /** What it is driving: "orb", an app name, or "blocked". */
+  handTarget?: string;
+  /** Why it is blocked, when it is. */
+  handRefusal?: string | null;
 }
 
 /** Circumference of the r=13 confidence ring, for the stroke-dash trick. */
@@ -30,6 +34,8 @@ export function StatusPanel({
   reason,
   intent,
   handControl = false,
+  handTarget = "orb",
+  handRefusal = null,
 }: Props) {
   const halted = killSwitch === "disarmed";
 
@@ -64,9 +70,17 @@ export function StatusPanel({
           a signal — it is a sphere, so a small rotation looks like nothing,
           and "my pinch was not seen" and "it was seen and moved a little"
           were indistinguishable. */}
+      {/* Naming the target is the point, not decoration. Whether your hand is
+          about to move a 3D model or the document you are reading must never
+          be a guess — the same principle ghost mode is built on. */}
       {handControl && !ghost && (
-        <p className="hand-banner" role="status">
-          ✋ HAND CONTROL — pinch to rotate, spread to zoom
+        <p className={`hand-banner${handTarget === "blocked" ? " is-blocked" : ""}`}
+           role="status">
+          {handTarget === "blocked"
+            ? `✋ BLOCKED — ${handRefusal || "not allowed here"}`
+            : handTarget === "orb"
+              ? "✋ HAND CONTROL · ORB — pinch to rotate, spread to zoom"
+              : `✋ HAND CONTROL · ${handTarget.toUpperCase()} — scroll and zoom`}
         </p>
       )}
 

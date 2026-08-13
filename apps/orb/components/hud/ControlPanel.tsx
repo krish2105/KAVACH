@@ -23,6 +23,9 @@ import { useState } from "react";
 
 interface Props {
   ghost: boolean;
+  /** True while hand control may drive other applications. */
+  appControl: boolean;
+  onAppControl: (on: boolean) => void;
   killSwitch: "armed" | "disarmed";
   /** Sends a command to the brain over the bridge. */
   onBrainCommand: (payload: Record<string, unknown>) => void;
@@ -41,7 +44,13 @@ function toOverlay(message: PanelMessage) {
 
 const SIZES = ["small", "medium", "large", "huge"] as const;
 
-export function ControlPanel({ ghost, killSwitch, onBrainCommand }: Props) {
+export function ControlPanel({
+  ghost,
+  killSwitch,
+  appControl,
+  onAppControl,
+  onBrainCommand,
+}: Props) {
   const [open, setOpen] = useState(false);
   const halted = killSwitch === "disarmed";
 
@@ -68,6 +77,19 @@ export function ControlPanel({ ghost, killSwitch, onBrainCommand }: Props) {
             onClick={() => onBrainCommand({ cmd: "ghost", on: !ghost, source: "panel" })}
           >
             {ghost ? "👻 RESUME LISTENING" : "👻 GHOST MODE"}
+          </button>
+
+          {/* Off at every launch, never persisted. Arming something that
+              drives your other applications should be a decision you remember
+              making today — and it says which apps it may touch, because "on"
+              is not the same as "on for everything". */}
+          <button
+            type="button"
+            className={`control-btn is-wide${appControl ? " is-active is-armed" : ""}`}
+            onClick={() => onAppControl(!appControl)}
+            title="Scroll and zoom the frontmost app with your hand. Allowlisted apps only."
+          >
+            {appControl ? "✋ APP CONTROL — ARMED" : "✋ APP CONTROL — OFF"}
           </button>
 
           <div className="control-row">

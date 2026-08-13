@@ -54,6 +54,12 @@ KEY_F = 3
 _MENU_BAR = None
 
 
+class _GhostFlag:
+    """Stands in for GhostMode when only the snapshot's flag is available."""
+
+    is_active = True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="KAVACH desktop orb overlay.")
     parser.add_argument("--url", default="http://127.0.0.1:3100/?overlay=1",
@@ -145,6 +151,35 @@ def main(argv: list[str] | None = None) -> int:
 
     camera_gate = CameraGate()
 
+    # Hand control of other applications (§7). Off until armed, every launch.
+    #
+    # The kill switch lives in the brain, not here, so its state is read from
+    # the snapshot the overlay already receives — the same latch, observed
+    # rather than owned. The action log is a file, opened per write with
+    # O_APPEND, so both processes can record to it without coordination.
+    from ..gestures.appcontrol import AppController
+    from ..hands.allowlist import Allowlist
+    from ..killswitch.log import ActionLog
+
+    class _ObservedKillSwitch:
+        """`is_armed` from the last snapshot; `log` is the real file."""
+
+        def __init__(self):
+            self.log = ActionLog()
+            self._armed = True
+
+        @property
+        def is_armed(self) -> bool:
+            return self._armed
+
+    observed = _ObservedKillSwitch()
+    try:
+        app_control = AppController(allowlist=Allowlist(),
+                                    kill_switch=observed)
+    except Exception:
+        log.exception("hand control of other apps unavailable")
+        app_control = None
+
     if not args.no_gestures:
         from ..gestures.permission import camera_status, request_camera
         from ..gestures.tracker import HandTracker
@@ -170,10 +205,36 @@ def main(argv: list[str] | None = None) -> int:
             # a Thread, and a stopped thread cannot be restarted.
             pinch_state = {"engaged": False, "logged": 0.0}
 
+            def route_target() -> str:
+                """Which thing a gesture drives right now, for the HUD."""
+                if app_control is None or not app_control.enabled:
+                    return "orb"
+                target = app_control.target()
+                return target["name"] if target else "blocked"
+
             def on_pinch(move) -> None:
                 # Straight into the WebView. Coalesced by the overlay's own
                 # tick rather than evaluated per frame — MediaPipe delivers
                 # ~30/s and a JS round trip each time would starve the panel.
+                # Route it. The orb is the default and the fallback: if app
+                # control is off, or the app in front is not allowed, the
+                # gesture still moves the orb rather than doing nothing.
+                if app_control is not None and app_control.enabled and move.engaged:
+                    from ..gestures.appcontrol import ControlRefused
+
+                    try:
+                        if move.dx or move.dy:
+                            app_control.scroll(move.dx, move.dy)
+                        if abs(move.scale - 1.0) > 0.005:
+                            app_control.zoom(move.scale)
+                        overlay.pending_target = route_target()
+                        return
+                    except ControlRefused as exc:
+                        overlay.pending_target = "blocked"
+                        overlay.pending_refusal = str(exc)
+                        return
+
+                overlay.pending_target = "orb"
                 overlay.pending_control = move
 
                 # Logged on state change, plus a slow heartbeat while held.
@@ -205,6 +266,19 @@ def main(argv: list[str] | None = None) -> int:
             def on_scroll(move) -> None:
                 import time as _time
 
+                if app_control is not None and app_control.enabled:
+                    from ..gestures.appcontrol import ControlRefused
+
+                    try:
+                        app_control.scroll(move.dx, move.dy)
+                        overlay.pending_target = route_target()
+                        return
+                    except ControlRefused as exc:
+                        overlay.pending_target = "blocked"
+                        overlay.pending_refusal = str(exc)
+                        return
+
+                overlay.pending_target = "orb"
                 overlay.pending_scroll = move
                 now = _time.monotonic()
                 if now - scroll_state["logged"] > 0.5:
@@ -227,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     # websocket client being opened here.
     overlay.send_command = listener.send
     overlay.on_quit = on_quit
+    overlay.app_control = app_control
 
     # Created AFTER the run loop starts, and kept alive at module scope.
     #
@@ -250,6 +325,15 @@ def main(argv: list[str] | None = None) -> int:
         controller.apply_snapshot(snapshot)
 
         camera_gate.apply(bool(snapshot.get("ghost")))
+
+        # The latch and the confirmation state, observed from the brain.
+        if app_control is not None:
+            observed._armed = snapshot.get("killSwitch") != "disarmed"
+            app_control.ghost = None if not snapshot.get("ghost") else _GhostFlag()
+            pending = snapshot.get("toolCalls") or []
+            app_control.confirmation_pending = any(
+                str(c.get("status", "")).lower() == "pending" for c in pending
+            )
 
     overlay.on_snapshot = on_snapshot
 

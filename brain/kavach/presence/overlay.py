@@ -243,6 +243,12 @@ class OverlayWindow:
         self.pending_control = None
         #: Latest two-finger scroll, same hand-off rule as the pinch.
         self.pending_scroll = None
+        #: What a gesture is currently driving — "orb", an app name, or
+        #: "blocked". Shown in the HUD so which one is never a guess.
+        self.pending_target = None
+        self.pending_refusal = None
+        #: Set by the presence process so the panel can arm app control.
+        self.app_control = None
         #: Set by the presence process so the panel's Quit button works.
         self.on_quit = None
         #: Bounded, so a genuinely-down server becomes a loud error rather
@@ -537,6 +543,16 @@ class OverlayWindow:
             self.set_interactive(not self.interactive)
         elif command == "reset":
             self.reset_position()
+        elif command == "appcontrol":
+            # Arming something that drives your other applications. Logged, and
+            # never persisted — see appcontrol.py.
+            controller = self.app_control
+            if controller is None:
+                log.warning("hand control of other apps is unavailable")
+            elif value:
+                controller.enable()
+            else:
+                controller.disable()
         elif command == "quit":
             if self.on_quit is not None:
                 self.on_quit()
@@ -585,6 +601,18 @@ class OverlayWindow:
                     f"{move.dx:.5f},{move.dy:.5f},{move.scale:.5f})",
                     lambda *_: None,
                 )
+
+        target, self.pending_target = self.pending_target, None
+        if target is not None:
+            refusal, self.pending_refusal = self.pending_refusal, None
+            payload = json.dumps({"target": target, "refusal": refusal})
+            self.web.evaluateJavaScript_completionHandler_(
+                f"window.__kavachTarget && window.__kavachTarget({payload})",
+                lambda *_: None,
+            )
+            if not self._visible:
+                self.show()
+            self._hide_at = None
 
         scroll, self.pending_scroll = self.pending_scroll, None
         if scroll is not None and getattr(scroll, "engaged", False):
