@@ -181,13 +181,19 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
         vec4 cr = texture2D(tDiffuse, vUv + dir * offset);
         vec4 cg = texture2D(tDiffuse, vUv);
         vec4 cb = texture2D(tDiffuse, vUv - dir * offset * 0.5);
-        // Alpha comes from the source, not a hardcoded 1.0. Forcing it opaque
-        // here overrode the renderer's zero clear-alpha, so a "transparent"
-        // floating panel was still a solid black square.
-        float alpha = max(max(cr.a, cg.a), cb.a);
-        gl_FragColor = vec4(cr.r, cg.g * 1.05, cb.b * 0.6, alpha) * flicker;
+        vec3 graded = vec3(cr.r, cg.g * 1.05, cb.b * 0.6) * flicker;
         // Warm grade, matching the gold palette.
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(1.15, 0.85, 0.55), 0.3);
+        graded = mix(graded, graded * vec3(1.15, 0.85, 0.55), 0.3);
+
+        // Alpha from brightness, not from the source's alpha channel.
+        //
+        // UnrealBloomPass writes alpha = 1 across the whole frame, so reading
+        // it back made the entire canvas opaque — the panel rendered as a
+        // solid yellow rectangle with the orb somewhere inside it. Luminance
+        // is what we actually want anyway: black background falls away and
+        // the orb's glow carries its own soft edge onto the desktop.
+        float alpha = clamp(max(graded.r, max(graded.g, graded.b)) * 1.15, 0.0, 1.0);
+        gl_FragColor = vec4(graded, alpha);
       }
     `,
   };
