@@ -216,12 +216,28 @@ def test_missing_wake_model_still_reports_a_useful_path():
     assert str(find_wake_model()).endswith(".onnx")
 
 
-def test_wake_threshold_comes_from_training_not_a_guess():
-    """Training measured an optimal threshold of 0.18. Defaulting to 0.5
-    would make the detector ~3x less sensitive than the model was tuned for,
-    which presents as "the wake word doesn't work"."""
+def test_wake_threshold_never_drops_below_the_runtime_floor():
+    """The trained optimum is not the runtime threshold.
+
+    This test previously asserted `threshold == trained_threshold(model)`,
+    on the reasoning that training measured 0.18 as optimal and a higher
+    default would make the detector needlessly deaf.
+
+    Measured on this machine, that reasoning was wrong. 0.18 is optimal
+    *against the training negatives*, which score ~0.004 because they came
+    from the same synthetic generator as the positives. Against audio the
+    model never saw:
+
+        digital silence                     0.705
+        synthetic "what time is it"         0.917
+        the user's real room, loudest 2 s   0.516
+
+    Every one of those clears 0.18. So the runtime applies a floor, and
+    prefers a threshold calibrated on the real user's voice when one exists
+    (`kavach-waketune`) over any number derived from synthetic audio.
+    """
     from kavach.voice.loop import find_wake_model
-    from kavach.voice.wake import WakeWordDetector, trained_threshold
+    from kavach.voice.wake import DEFAULT_THRESHOLD, WakeWordDetector, trained_threshold
 
     model = find_wake_model()
     if not model.exists():
@@ -230,7 +246,28 @@ def test_wake_threshold_comes_from_training_not_a_guess():
 
     measured = trained_threshold(model)
     assert 0.0 < measured < 1.0
-    assert WakeWordDetector(model).threshold == measured
+
+    resolved = WakeWordDetector(model).threshold
+    assert resolved >= DEFAULT_THRESHOLD, "runtime floor must not be undercut"
+    # An explicit threshold is still honoured — tuning tools need to pass 0.0.
+    assert WakeWordDetector(model, threshold=0.4).threshold == 0.4
+
+
+def test_calibration_measured_on_a_real_voice_wins():
+    """A threshold measured on the user beats one derived from synthetic TTS."""
+    import json
+    from unittest.mock import patch
+
+    from kavach.voice.loop import find_wake_model
+    from kavach.voice.wake import WakeWordDetector
+
+    model = find_wake_model()
+    if not model.exists():
+        import pytest
+        pytest.skip("wake word not trained on this machine")
+
+    with patch("kavach.voice.waketune.load_calibration", return_value=0.42):
+        assert WakeWordDetector(model).threshold == 0.42
 
 
 def test_threshold_falls_back_when_metrics_are_missing(tmp_path):
