@@ -88,19 +88,8 @@ class OverlayWindow:
 
         # The web view eats every mouse event, so the window itself never sees
         # a drag. A transparent view above it forwards one.
-        if interactive:
-            if self._drag_view is None:
-                from .controls import DragView
-
-                self._drag_view = DragView.alloc().initWithFrame_(
-                    Foundation.NSMakeRect(0, 0, self.geometry.size, self.geometry.size)
-                )
-                self._drag_view.setAutoresizingMask_(
-                    AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable
-                )
-            self.panel.contentView().addSubview_(self._drag_view)
-        elif self._drag_view is not None:
-            self._drag_view.removeFromSuperview()
+        # The drag layer stays installed either way; it only claims the mouse
+        # while ⌘ is held. Interactive mode now governs resizing alone.
         # Changing the style mask on a borderless window makes AppKit
         # recompute the frame, which silently moved and shrank the panel every
         # time move/resize was toggled — the size kept "reverting" to a value
@@ -247,12 +236,23 @@ class OverlayWindow:
             Foundation.NSURL.URLWithString_(self.url), 4, 30.0
         )
         self.web.loadRequest_(request)
+
+        # Always present, always ⌘-gated. See DragView.hitTest_.
+        from .controls import DragView
+
+        self._drag_view = DragView.alloc().initWithFrame_(
+            Foundation.NSMakeRect(0, 0, self.geometry.size, self.geometry.size)
+        )
+        self._drag_view.setAutoresizingMask_(
+            AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable
+        )
         # The panel starts invisible, so the page should start paused. Give the
         # bridge a moment to exist before calling it.
         Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
             5.0, False, lambda _t: (None if self._visible else self._set_page_rendering(False))
         )
         self.panel.setContentView_(self.web)
+        self.web.addSubview_(self._drag_view)
         self.panel.orderFrontRegardless()
 
     # ——— visibility ———

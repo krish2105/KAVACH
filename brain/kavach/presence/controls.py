@@ -105,6 +105,23 @@ class DragView(AppKit.NSView):
         # drag would need two attempts.
         return True
 
+    def hitTest_(self, point):
+        """Claim the mouse only while ⌘ is held; otherwise let it fall through.
+
+        Sitting permanently over the web view, this would swallow every click
+        meant for the HUD buttons. Gating on a modifier means one layer serves
+        both: ⌘-drag moves the panel from anywhere on it, and an ordinary click
+        passes straight through to whatever is underneath.
+
+        This replaces a "move/resize" mode, which required remembering to turn
+        dragging on before it would work — and silently did nothing when you
+        forgot, which is exactly how it presented.
+        """
+        modifiers = AppKit.NSEvent.modifierFlags()
+        if modifiers & AppKit.NSEventModifierFlagCommand:
+            return self
+        return None
+
     def mouseDown_(self, event):
         self.window().performWindowDragWithEvent_(event)
 
@@ -147,7 +164,7 @@ class MenuBarController(AppKit.NSObject):
         self._menu.removeAllItems()
 
         header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "KAVACH orb", None, ""
+            "KAVACH orb  —  ⌘-drag to move", None, ""
         )
         header.setEnabled_(False)
         self._menu.addItem_(header)
@@ -162,7 +179,7 @@ class MenuBarController(AppKit.NSObject):
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
         self._interactive_item = self._add(
-            "  Move / resize  ⌃⌥⌘M", b"toggleInteractive:"
+            "  Resizable  ⌃⌥⌘M", b"toggleInteractive:"
         )
         self._interactive_item.setState_(
             AppKit.NSControlStateValueOn if self._overlay.interactive
