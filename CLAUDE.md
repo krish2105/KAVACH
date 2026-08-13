@@ -207,6 +207,27 @@ other side, driven by the same snapshot stream the menu bar uses. The unit
 tests missed this for a while because they attached a *fake* tracker in-process
 — green tests, live camera.
 
+### Language detection — how the reply language is chosen
+
+`SpeechToText.transcribe()` **must** pass `language="auto"`. Left unset,
+whisper.cpp pins the decoder to English and Hindi returns as a mistranslation
+("today my meeting is how many hours are"). That was the state until
+2026-08-13, and it silently disabled every multilingual reply Phase 8 built.
+
+The reply language is read from the **script of the transcribed text**
+(`language_of_script`), not from whisper.cpp. Two reasons:
+
+* `get_params()["language"]` returns what we *configured*, not what was heard —
+  it answered `en` for every turn, which is the bug above.
+* `auto_detect_language()` does give the truth (Hindi measured 0.853) but
+  **re-runs the encoder: 597 ms against a 609 ms transcribe**, nearly doubling
+  every turn. Available as `KAVACH_DETECT_LANGUAGE=full` for the Latin-script
+  languages a script test cannot separate.
+
+Script detection is exact for Hindi, Japanese and Mandarin and deliberately
+returns None for Latin — it cannot tell English from Spanish, and a romanised
+Hinglish transliteration (what Apex and Swift return) must stay English-voiced.
+
 ### Speech models verified 2026-08-13 (§21 — do not re-derive)
 
 Read off the Hugging Face file listings, not estimated. **The name tells you

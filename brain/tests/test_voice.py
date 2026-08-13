@@ -480,3 +480,201 @@ def test_a_rejected_turn_does_not_leak_a_reason():
         loop.respond("mumble")
 
         assert loop.state.as_dict()["reason"] != "stale from last time"
+
+
+# ═══ the spoken language reaches the reply ═══
+#
+# Phase 8 wired "reply in the language you spoke" end to end and it never
+# fired once. `transcribe()` called whisper.cpp with no language, which pins
+# the decoder to English, and then read the language back out of
+# `get_params()` — which returns what we *asked for*, not what Whisper *heard*.
+#
+# So speaking Hindi produced a mistranslation into broken English ("today my
+# meeting is how many hours are"), reported as `en`, answered in English. Every
+# other link — the Kokoro Hindi voice, the mapping, the loop passing it to TTS,
+# the local model replying in Hindi — was already working and waiting on this.
+
+class FakeWhisper:
+    """Stands in for pywhispercpp.Model, whose auto_detect_language returns a
+    nested tuple: (("hi", 0.85), {"en": 0.01, "hi": 0.85, ...})."""
+
+    def __init__(self, detected=("hi", 0.85), fail=False):
+        self.detected = detected
+        self.fail = fail
+        self.transcribe_language = None
+
+    def auto_detect_language(self, audio):
+        if self.fail:
+            raise RuntimeError("detection exploded")
+        code, prob = self.detected
+        return (code, prob), {code: prob}
+
+    def transcribe(self, audio, **kwargs):
+        self.transcribe_language = kwargs.get("language")
+        return []
+
+
+def test_the_detected_language_is_read_not_the_configured_one():
+    from kavach.voice.stt import detect_language
+    import numpy as np
+
+    model = FakeWhisper(detected=("hi", 0.85))
+
+    assert detect_language(model, np.zeros(16000, dtype="float32")) == "hi"
+
+
+def test_a_low_confidence_guess_falls_back_to_english():
+    """The load-bearing one.
+
+    languages.py already says it: "a reply spoken in the wrong language is
+    worse than one spoken in the default". An uncertain detection answering
+    you in Mandarin is exactly that failure, so uncertainty means English.
+    """
+    from kavach.voice.stt import detect_language
+    import numpy as np
+
+    model = FakeWhisper(detected=("zh", 0.21))
+
+    assert detect_language(model, np.zeros(16000, dtype="float32")) is None
+
+
+def test_a_confident_guess_is_kept():
+    from kavach.voice.stt import detect_language
+    import numpy as np
+
+    assert detect_language(
+        FakeWhisper(detected=("hi", 0.90)), np.zeros(16000, dtype="float32")
+    ) == "hi"
+
+
+def test_detection_failing_does_not_break_the_turn():
+    """Whisper is mid-sentence with your actual words. A language guess that
+    raises must cost you the accent, not the answer."""
+    from kavach.voice.stt import detect_language
+    import numpy as np
+
+    assert detect_language(
+        FakeWhisper(fail=True), np.zeros(16000, dtype="float32")
+    ) is None
+
+
+def test_english_detection_is_reported_as_english():
+    from kavach.voice.stt import detect_language
+    import numpy as np
+
+    assert detect_language(
+        FakeWhisper(detected=("en", 0.99)), np.zeros(16000, dtype="float32")
+    ) == "en"
+
+
+def test_the_decoder_is_never_left_pinned_to_english():
+    """The actual fix, and the thing that must never regress.
+
+    Calling transcribe() without a language pins whisper.cpp to English, and
+    Hindi comes back as a mistranslation however correctly it is labelled
+    afterwards. "auto" is what makes it decode the language that was spoken.
+    """
+    import numpy as np
+    from kavach.voice.stt import SpeechToText
+
+    stt = SpeechToText("large-v3-turbo")
+    stt._model = FakeWhisper(detected=("hi", 0.9))
+
+    stt.transcribe(np.zeros(16000, dtype="float32"))
+
+    assert stt._model.transcribe_language == "auto", \
+        "the decoder was left on the English default"
+
+
+def test_the_accurate_pass_decodes_in_the_detected_language(monkeypatch):
+    """KAVACH_DETECT_LANGUAGE=full buys the second encoder pass, and then the
+    decoder is told exactly what was detected rather than left on auto."""
+    import numpy as np
+    from kavach.voice.stt import SpeechToText
+
+    monkeypatch.setenv("KAVACH_DETECT_LANGUAGE", "full")
+    stt = SpeechToText("large-v3-turbo")
+    stt._model = FakeWhisper(detected=("hi", 0.9))
+
+    result = stt.transcribe(np.zeros(16000, dtype="float32"))
+
+    assert stt._model.transcribe_language == "hi"
+    assert result.language == "hi"
+
+
+def test_an_unconfident_turn_decodes_as_auto_not_as_a_guess(monkeypatch):
+    import numpy as np
+    from kavach.voice.stt import SpeechToText
+
+    monkeypatch.setenv("KAVACH_DETECT_LANGUAGE", "full")
+    stt = SpeechToText("large-v3-turbo")
+    stt._model = FakeWhisper(detected=("zh", 0.2))
+
+    result = stt.transcribe(np.zeros(16000, dtype="float32"))
+
+    assert result.language is None
+    assert stt._model.transcribe_language in (None, "auto", "")
+
+
+# ═══ deciding the reply language without paying for it twice ═══
+#
+# whisper.cpp detects the language internally during an `auto` transcribe and
+# then does not tell anyone: pywhispercpp's Segment carries only
+# probability/t0/t1/text, and get_params() returns the configured value. The
+# only way to ask is `auto_detect_language()`, which re-runs the encoder —
+# measured at 597 ms against a 609 ms transcribe, so very nearly doubling every
+# turn.
+#
+# The script of the returned text answers the same question for free, and
+# answers it exactly for the languages that matter here: Devanagari is Hindi,
+# kana is Japanese, Han is Mandarin. It cannot separate Latin-script languages
+# from each other, which is why the accurate pass is still available as an
+# opt-in rather than deleted.
+
+def test_devanagari_is_recognised_as_hindi():
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("नमस्ते कवच, आज मेरी मीटिंग कितने बजे है?") == "hi"
+
+
+def test_plain_english_is_not_mistaken_for_anything():
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("what time is my meeting today?") is None
+
+
+def test_japanese_and_mandarin_are_separated():
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("こんにちは、カヴァチ") == "ja"      # kana wins
+    assert language_of_script("你好，今天天气怎么样") == "zh"
+
+
+def test_a_hinglish_transliteration_stays_english_voiced():
+    """Apex and Swift return romanised Hinglish. That is Latin script and is
+    read aloud correctly by the English voice — picking the Hindi voice for it
+    would phonemise Roman letters with Hindi rules."""
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("Namaste kavach, aaj meri meeting kitne baje hai?") is None
+
+
+def test_a_stray_symbol_does_not_decide_the_language():
+    """One character in a sentence of another script is noise — a rupee sign
+    or a quoted word must not flip the whole reply into another language."""
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("the price is ₹500 for the meeting room") is None
+
+
+def test_mostly_hindi_with_an_english_word_is_still_hindi():
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("मेरी meeting कितने बजे है") == "hi"
+
+
+def test_empty_text_is_not_a_language():
+    from kavach.voice.stt import language_of_script
+
+    assert language_of_script("") is None
+    assert language_of_script("   ") is None
