@@ -320,3 +320,79 @@ def test_transcript_carries_the_detected_language():
     assert t.language == "fr"
     # Defaults to None so existing callers are unaffected.
     assert Transcript(text="hi", segments=1, model="m").language is None
+
+
+# ═══ a calibration belongs to the model it was measured on ═══
+#
+# Found when v2 finished training: `find_wake_model()` only looked for v1, and
+# a Calibration recorded no model identity at all. Thresholds are model
+# specific — v1's optimum was 0.70, v2's is 0.20 — so applying one model's
+# threshold to another is not a small error, it is the difference between
+# "never fires" and "fires at everything". Silent, too: nothing would have
+# reported a mismatch.
+
+def test_a_calibration_records_which_model_it_measured(tmp_path, monkeypatch):
+    from kavach.voice import waketune
+
+    model = tmp_path / "kavach_v2.onnx"
+    model.write_bytes(b"fake onnx")
+    monkeypatch.setattr(waketune, "CALIBRATION_PATH", tmp_path / "cal.json")
+
+    cal = waketune.Calibration(threshold=0.2, positives=[0.9], negatives=[0.1],
+                               separated=True, margin=0.8)
+    waketune.save_calibration(cal, model=model)
+
+    import json
+    saved = json.loads((tmp_path / "cal.json").read_text())
+    assert "model" in saved, "a threshold with no model is not usable"
+
+
+def test_a_calibration_is_refused_for_a_different_model(tmp_path, monkeypatch):
+    """The silent-failure case: right file, wrong model."""
+    from kavach.voice import waketune
+
+    v1 = tmp_path / "kavach.onnx"; v1.write_bytes(b"model one")
+    v2 = tmp_path / "kavach_v2.onnx"; v2.write_bytes(b"model two, different")
+    monkeypatch.setattr(waketune, "CALIBRATION_PATH", tmp_path / "cal.json")
+
+    waketune.save_calibration(
+        waketune.Calibration(threshold=0.2, positives=[0.9], negatives=[0.1],
+                             separated=True, margin=0.8),
+        model=v1,
+    )
+
+    assert waketune.load_calibration(model=v1) == pytest.approx(0.2)
+    assert waketune.load_calibration(model=v2) is None, \
+        "v1's threshold was applied to v2"
+
+
+def test_a_changed_model_invalidates_its_calibration(tmp_path, monkeypatch):
+    """Retraining in place must not silently inherit the old threshold."""
+    from kavach.voice import waketune
+
+    model = tmp_path / "kavach_v2.onnx"
+    model.write_bytes(b"first training")
+    monkeypatch.setattr(waketune, "CALIBRATION_PATH", tmp_path / "cal.json")
+    waketune.save_calibration(
+        waketune.Calibration(threshold=0.2, positives=[0.9], negatives=[0.1],
+                             separated=True, margin=0.8),
+        model=model,
+    )
+    assert waketune.load_calibration(model=model) == pytest.approx(0.2)
+
+    model.write_bytes(b"retrained, different weights entirely")
+    assert waketune.load_calibration(model=model) is None
+
+
+def test_the_newest_trained_model_is_found(tmp_path, monkeypatch):
+    """v2 existing must not leave the loop silently using v1."""
+    from kavach.voice import loop as loop_mod
+
+    (tmp_path / "kavach").mkdir()
+    (tmp_path / "kavach" / "kavach.onnx").write_bytes(b"v1")
+    (tmp_path / "kavach_v2").mkdir()
+    (tmp_path / "kavach_v2" / "kavach_v2.onnx").write_bytes(b"v2")
+
+    monkeypatch.setattr(loop_mod, "_WAKEWORD_DIR", tmp_path)
+    found = loop_mod.find_wake_model()
+    assert found.name == "kavach_v2.onnx", f"found {found} instead of v2"

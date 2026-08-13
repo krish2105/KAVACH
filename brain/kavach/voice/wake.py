@@ -99,7 +99,8 @@ class WakeWordDetector:
             # the training optimum and any floor we picked from synthetic audio.
             from .waketune import load_calibration
 
-            calibrated = load_calibration()
+            # Scoped to THIS model — see waketune.load_calibration.
+            calibrated = load_calibration(model=self.model_path)
 
         if threshold is not None:
             self.threshold = threshold

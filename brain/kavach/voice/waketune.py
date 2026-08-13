@@ -109,14 +109,58 @@ def choose_threshold(positives: list[float], negatives: list[float]) -> Calibrat
     )
 
 
-def load_calibration() -> float | None:
+def model_fingerprint(model: Path) -> str:
+    """Content hash of a model file.
+
+    Content rather than path or mtime: retraining writes a different model to
+    the same path, and a threshold measured against the old weights says
+    nothing about the new ones.
+    """
+    import hashlib
+
+    return hashlib.sha256(Path(model).read_bytes()).hexdigest()[:16]
+
+
+def load_calibration(model: Path | None = None) -> float | None:
+    """The calibrated threshold, or None if there isn't a usable one.
+
+    Passing the model is what makes this safe. A threshold is a property of a
+    *specific* model — v1's optimum was 0.70 and v2's is 0.20 — so a
+    calibration measured against different weights is not a worse answer, it is
+    a wrong one, and applying it silently is the failure mode this guards.
+    """
     try:
-        return float(json.loads(CALIBRATION_PATH.read_text())["threshold"])
+        data = json.loads(CALIBRATION_PATH.read_text())
+        threshold = float(data["threshold"])
     except Exception:
         return None
 
+    if model is None:
+        return threshold
 
-def save_calibration(cal: Calibration) -> None:
+    recorded = data.get("model_fingerprint")
+    if recorded is None:
+        # Written before calibrations recorded a model. Refused rather than
+        # trusted: it probably belongs to v1, and we cannot tell.
+        log.warning("calibration predates model tracking — recalibrate")
+        return None
+    try:
+        if recorded != model_fingerprint(model):
+            log.warning("calibration was measured on a different model (%s) "
+                        "— ignoring it. Run kavach-waketune.",
+                        data.get("model", "unknown"))
+            return None
+    except Exception:
+        return None
+    return threshold
+
+
+def save_calibration(cal: Calibration, model: Path | None = None) -> None:
     CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CALIBRATION_PATH.write_text(json.dumps(cal.as_dict(), indent=2))
+    payload = cal.as_dict()
+    if model is not None:
+        payload["model"] = str(model)
+        payload["model_fingerprint"] = model_fingerprint(model)
+    CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CALIBRATION_PATH.write_text(json.dumps(payload, indent=2))
     CALIBRATION_PATH.chmod(0o600)

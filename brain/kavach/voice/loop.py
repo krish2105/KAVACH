@@ -67,14 +67,21 @@ _WAKE_MODEL_CANDIDATES = (
 
 
 def find_wake_model() -> Path:
-    """First candidate that exists, else the canonical export path.
+    """The most recently trained model, else the canonical export path.
+
+    Was a fixed two-entry list, which meant training a v2 left the loop
+    silently loading v1 — the exact problem v2 existed to fix. Now every
+    exported model is considered and the newest wins, so retraining under any
+    name is picked up without editing this.
 
     Returning the canonical path when nothing exists keeps the "not trained
     yet" error message pointing somewhere useful.
     """
-    for candidate in _WAKE_MODEL_CANDIDATES:
-        if candidate.exists():
-            return candidate
+    found = list(_WAKEWORD_DIR.glob("*/*.onnx")) + list(_WAKEWORD_DIR.glob("*.onnx"))
+    if found:
+        # Name breaks mtime ties so the choice is deterministic rather than
+        # dependent on filesystem timestamp resolution.
+        return max(found, key=lambda p: (p.stat().st_mtime, p.name))
     return _WAKE_MODEL_CANDIDATES[0]
 
 
@@ -192,7 +199,7 @@ class VoiceLoop:
         """
         from .waketune import load_calibration
 
-        if load_calibration() is not None:
+        if load_calibration(model=self.wake.model_path) is not None:
             return True
         log.warning(
             "wake word not calibrated — staying on push-to-talk. The model "

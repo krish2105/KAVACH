@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
     if args.status:
-        current = load_calibration()
+        current = load_calibration(model=find_wake_model())
         if current is None:
             print("✗ not calibrated — the runtime floor is in use")
             print("  run `uv run kavach-waketune` to measure your own voice")
@@ -137,7 +137,9 @@ def main(argv: list[str] | None = None) -> int:
     print(RULE)
 
     if cal.separated:
-        save_calibration(cal)
+        # Stamped with the model it was measured on, so it cannot be
+        # silently applied to a differently-trained one later.
+        save_calibration(cal, model=model)
         print(f"  ✓ threshold {cal.threshold:.3f}  (saved)")
         print(f"    {CALIBRATION_PATH}")
         say(f"Calibrated. Threshold {cal.threshold:.2f}.")
