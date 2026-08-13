@@ -185,3 +185,32 @@ def test_actual_speech_passes_the_gate():
 
     speech = (np.sin(np.linspace(0, 400 * np.pi, 16000)) * 0.15).astype(np.float32)
     assert not is_probably_silence(speech)
+
+
+# ——— the wake model must be found where training actually writes it ———
+
+def test_wake_model_is_looked_for_where_training_exports_it():
+    """livekit-wakeword exports to <output_dir>/<name>/<name>.onnx — the name
+    is doubled. An earlier default pointed one directory too high, which would
+    have meant hours of training finishing and the loop quietly reporting
+    "no wake-word model, push-to-talk only"."""
+    from kavach.voice.loop import _WAKE_MODEL_CANDIDATES
+
+    from livekit.wakeword.config import load_config
+
+    config = load_config(
+        str(Path(__file__).resolve().parents[1] / "wakeword" / "kavach.yaml")
+    )
+    exported = (Path(__file__).resolve().parents[1] / config.model_output_dir
+                / f"{config.model_name}.onnx").resolve()
+
+    candidates = {c.resolve() for c in _WAKE_MODEL_CANDIDATES}
+    assert exported in candidates, (
+        f"training exports to {exported}, which the loop never checks: {candidates}"
+    )
+
+
+def test_missing_wake_model_still_reports_a_useful_path():
+    from kavach.voice.loop import find_wake_model
+
+    assert str(find_wake_model()).endswith(".onnx")

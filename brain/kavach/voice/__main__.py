@@ -27,7 +27,7 @@ from ..reasoning.local import LocalModel
 from ..hands.confirm import VoiceConfirmer
 from ..hands.gate import ToolGate
 from ..reasoning.router import Router
-from .loop import DEFAULT_MODELS_DIR, DEFAULT_WAKE_MODEL, VoiceLoop
+from .loop import DEFAULT_MODELS_DIR, VoiceLoop, find_wake_model
 
 
 def _bench(loop: VoiceLoop, phrase: str, rounds: int) -> int:
@@ -83,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kavach-voice")
     parser.add_argument("--no-wake-word", action="store_true",
                         help="push-to-talk only; skip the wake-word model")
-    parser.add_argument("--wake-model", default=str(DEFAULT_WAKE_MODEL))
+    parser.add_argument("--wake-model", default=None,
+                        help="defaults to the trained model if one exists")
     parser.add_argument("--models-dir", default=str(DEFAULT_MODELS_DIR))
     parser.add_argument("--stt-model", default="large-v3-turbo")
     parser.add_argument("--host", default=DEFAULT_HOST)
@@ -123,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         local=local,
         agent=agent,
         models_dir=Path(args.models_dir),
-        wake_model=Path(args.wake_model),
+        wake_model=Path(args.wake_model) if args.wake_model else find_wake_model(),
         stt_model=args.stt_model,
         use_wake_word=not args.no_wake_word,
     )

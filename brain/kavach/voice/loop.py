@@ -38,9 +38,31 @@ from .wake import WakeWordDetector
 log = logging.getLogger("kavach.voice.loop")
 
 DEFAULT_MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
-DEFAULT_WAKE_MODEL = (
-    Path(__file__).resolve().parents[2] / "wakeword" / "output" / "kavach.onnx"
+
+_WAKEWORD_DIR = Path(__file__).resolve().parents[2] / "wakeword" / "output"
+
+#: livekit-wakeword exports to `<output_dir>/<model_name>/<model_name>.onnx`
+#: — note the doubled name. The flatter path is checked too so a hand-placed
+#: or hand-renamed model still works.
+_WAKE_MODEL_CANDIDATES = (
+    _WAKEWORD_DIR / "kavach" / "kavach.onnx",
+    _WAKEWORD_DIR / "kavach.onnx",
 )
+
+
+def find_wake_model() -> Path:
+    """First candidate that exists, else the canonical export path.
+
+    Returning the canonical path when nothing exists keeps the "not trained
+    yet" error message pointing somewhere useful.
+    """
+    for candidate in _WAKE_MODEL_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return _WAKE_MODEL_CANDIDATES[0]
+
+
+DEFAULT_WAKE_MODEL = find_wake_model()
 
 
 @dataclass
