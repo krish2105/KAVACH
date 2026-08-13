@@ -917,3 +917,33 @@ body {
   border: 1px solid rgba(255, 170, 48, 0.45);
   cursor: default;
 }
+
+/* Full screen: the HUD returns to its natural size.
+   The 0.42 zoom exists because the floating panel is a few hundred points
+   wide. Filling the display, the HUD has all the room it was designed for, so
+   scaling it down would just make it small for no reason. Keyed on viewport
+   width rather than a mode flag, so an intermediate panel size lands sensibly
+   too. */
+@media (min-width: 1100px) {
+  .kv-overlay .hud-stack,
+  .kv-overlay .hud-hint,
+  .kv-overlay .hud-controls,
+  .kv-overlay .hud-title {
+    zoom: 1;
+  }
+
+  .kv-overlay .talk-btn {
+    font-size: 1rem;
+    padding: 0.75rem 2.4rem;
+    bottom: 2.4rem;
+  }
+}
+
+@media (min-width: 700px) and (max-width: 1099px) {
+  .kv-overlay .hud-stack,
+  .kv-overlay .hud-hint,
+  .kv-overlay .hud-controls,
+  .kv-overlay .hud-title {
+    zoom: 0.7;
+  }
+}

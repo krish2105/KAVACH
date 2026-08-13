@@ -9,6 +9,7 @@ Three ways to control it, because they suit different moments:
 
     🛡 menu bar        sizes, minimise, move/resize, quit
     ⌃⌥⌘Space          talk to KAVACH
+    ⌃⌥⌘F              full screen
     ⌃⌥⌘M              toggle resize
     ⌃⌥⌘H              minimise / restore
     ⌃⌥⌘= / ⌃⌥⌘-       step size up / down
@@ -44,6 +45,7 @@ RULE = "─" * 62
 
 #: Virtual key codes, which do not shift with layout or modifiers.
 KEY_SPACE = 49
+KEY_F = 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="agent-state bridge")
     parser.add_argument("--size", type=float, default=None,
                         help="override the remembered size, in points")
+    parser.add_argument("--no-gestures", action="store_true",
+                        help="skip hand tracking and the camera prompt")
     parser.add_argument("--always", action="store_true",
                         help="stay visible even when idle (for demos)")
     args = parser.parse_args(argv)
@@ -76,12 +80,40 @@ def main(argv: list[str] | None = None) -> int:
     if args.always:
         overlay.show()
 
+    tracker = None
+
+    def on_quit() -> None:
+        if tracker is not None:
+            tracker.stop()
+        listener.stop()
+        app.terminate_(None)
+
     listener = BridgeListener(overlay, args.bridge)
     listener.start()
 
-    def on_quit() -> None:
-        listener.stop()
-        app.terminate_(None)
+    # ——— hand tracking ———
+    #
+    # Here rather than in the voice loop, because the camera prompt is UI and
+    # only an NSApplication can raise it. A plain CLI process asks and nothing
+    # appears — the request returns "not yet asked" forever, which reads as a
+    # broken camera. Gestures go to the brain over the same bridge.
+    if not args.no_gestures:
+        from ..gestures.permission import camera_status, request_camera
+        from ..gestures.tracker import HandTracker
+
+        if request_camera(timeout=45):
+            def on_gesture(event) -> None:
+                if event.fired:
+                    listener.send({
+                        "cmd": "gesture",
+                        "gesture": event.gesture.value,
+                    })
+                overlay.pending_gesture = (event.gesture.value, event.progress)
+
+            tracker = HandTracker(on_event=on_gesture)
+            tracker.start()
+        else:
+            log.warning("gestures off — no camera access")
 
     controller = MenuBarController.alloc().initWithOverlay_onQuit_(overlay, on_quit)
     # Keep the menu tick honest when move/resize times out on its own.
@@ -106,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
             # before it arrives. Key codes are layout- and modifier-independent.
             code = event.keyCode()
             log.debug("chord: keyCode=%s chars=%r", code, event.characters())
+            if code == KEY_F:
+                overlay.toggle_fullscreen()
+                controller.refresh()
+                return
             if code == KEY_SPACE:
                 # Talk. The panel never takes focus, so the page cannot hear a
                 # key — this is the only way to start a turn while looking at

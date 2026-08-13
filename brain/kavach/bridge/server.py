@@ -102,6 +102,17 @@ class Bridge:
             self.ks.rearm(source="orb")
         elif cmd == "interrupt":
             self.voice.interrupt()
+        elif cmd == "gesture":
+            # From the presence process, which owns the camera. Confirm/deny
+            # answer a pending destructive-action prompt; the rest map to
+            # ordinary controls.
+            name = str(payload.get("gesture", ""))
+            if name in ("confirm", "deny"):
+                self.voice.answer_confirmation(name == "confirm")
+            elif name == "stop":
+                self.voice.interrupt()
+            elif name == "peace":
+                self.voice.start_turn()
         elif cmd == "talk":
             # One-shot: begins a turn that ends on silence. The
             # floating panel never takes focus, so a held key is

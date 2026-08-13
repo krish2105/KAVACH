@@ -189,6 +189,12 @@ class MenuBarController(AppKit.NSObject):
         # Minimise persists across restarts, so its state has to be visible.
         # Without a tick it silently swallows every appearance and looks like
         # the panel is broken rather than switched off.
+        fs = self._add("  Full screen  ⌃⌥⌘F", b"toggleFullscreen:")
+        fs.setState_(
+            AppKit.NSControlStateValueOn if self._overlay.is_fullscreen
+            else AppKit.NSControlStateValueOff
+        )
+
         self._always_item = self._add(
             "  Always show", b"toggleAlways:"
         )
@@ -222,6 +228,10 @@ class MenuBarController(AppKit.NSObject):
 
     def toggleInteractive_(self, _sender):
         self._overlay.set_interactive(not self._overlay.interactive)
+        self.refresh()
+
+    def toggleFullscreen_(self, _sender):
+        self._overlay.toggle_fullscreen()
         self.refresh()
 
     def toggleAlways_(self, _sender):

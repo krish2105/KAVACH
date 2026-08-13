@@ -118,6 +118,36 @@ class OverlayWindow:
             self.show()
         log.info("always-show %s", "on" if always else "off")
 
+    def toggle_fullscreen(self) -> None:
+        """Fill the display, or go back to the floating panel.
+
+        Not NSWindow's native full-screen: that moves the window to its own
+        Space, which would take the orb *away* from your work — the opposite of
+        a presence. This simply resizes to the screen and remembers where it
+        came from, so it still floats above everything you were doing.
+        """
+        if self._fullscreen_restore is not None:
+            self.panel.setFrame_display_animate_(self._fullscreen_restore, True, True)
+            self._fullscreen_restore = None
+            self.web.setFrame_(
+                Foundation.NSMakeRect(0, 0, self.geometry.size, self.geometry.size)
+            )
+            log.info("full screen off")
+            return
+
+        self._fullscreen_restore = self.panel.frame()
+        frame = AppKit.NSScreen.mainScreen().frame()
+        self.panel.setFrame_display_animate_(frame, True, True)
+        self.web.setFrame_(
+            Foundation.NSMakeRect(0, 0, frame.size.width, frame.size.height)
+        )
+        self.show()
+        log.info("full screen on (%.0fx%.0f)", frame.size.width, frame.size.height)
+
+    @property
+    def is_fullscreen(self) -> bool:
+        return self._fullscreen_restore is not None
+
     def set_pinned_hidden(self, hidden: bool) -> None:
         """Minimise: stay out of the way even when KAVACH is listening."""
         self.geometry.hidden = hidden
@@ -166,8 +196,12 @@ class OverlayWindow:
         self._hide_at: float | None = None
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
+        #: (gesture, progress) from the tracker thread.
+        self.pending_gesture = None
         self._drag_view = None
         self._interactive_since = 0.0
+        #: The frame to return to; also the full-screen flag.
+        self._fullscreen_restore = None
         #: Set by the CLI so the menu tick can follow an auto-exit.
         self._on_interactive_change = None
 
@@ -324,7 +358,7 @@ class OverlayWindow:
         """Show for active states; linger briefly before hiding on idle."""
         # Minimised means minimised — a turn should not override an explicit
         # request to stay out of the way.
-        if self.geometry.hidden:
+        if self.geometry.hidden or self.is_fullscreen:
             return
         # Move/resize keeps the panel on screen so there is something to grab,
         # but it must not pin it there forever: left on, it held the panel

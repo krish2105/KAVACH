@@ -45,6 +45,19 @@ dependencies = [
     # resemblyzer imports; the original has
     # no py3.12 wheel and dies on pkg_resources   # floor is resemblyzer's; audiomentations caps it below 1.0
     "sqlite-vec>=0.1.9",
+    # ——— Hand tracking, in Python rather than the browser ———
+    # WKWebView grants getUserMedia only when the *host app* holds camera
+    # permission, and a launchd python3 process is not a bundled .app — macOS
+    # will never even prompt. Running MediaPipe here means the camera prompt
+    # can actually appear, and gestures reach the floating panel instead of
+    # only a browser tab.
+    "mediapipe>=1.0.0",
+    "opencv-python>=4.10",
+    # Camera permission. OpenCV tries to request it itself and fails —
+    # "can not spin main run loop from other thread" — because the request has
+    # to happen on the main thread. This asks properly, before the tracker
+    # starts, so macOS actually shows the prompt.
+    "pyobjc-framework-AVFoundation>=12.2.2",
 ]
 
 [tool.uv]
