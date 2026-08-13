@@ -90,14 +90,25 @@ class TextToSpeech:
         assert self._kokoro is not None
         return sorted(self._kokoro.get_voices())
 
-    def synthesize(self, text: str, voice: str | None = None) -> Speech:
+    def synthesize(self, text: str, voice: str | None = None,
+                   language: str | None = None) -> Speech:
+        """Speak `text`, in `language` if Kokoro has a voice for it.
+
+        An explicit `voice` always wins; otherwise the language decides. Both
+        the voice and the espeak code have to change together — the phonemiser
+        needs the right language or a Hindi sentence comes out as English
+        phonemes read aloud.
+        """
         if self._kokoro is None:
             self.load()
         assert self._kokoro is not None
 
-        chosen = voice or self.voice
+        from .languages import voice_for
+
+        mapped = voice_for(language)
+        chosen = voice or (mapped.voice if language else self.voice)
         audio, sample_rate = self._kokoro.create(
-            text, voice=chosen, speed=self.speed, lang="en-us"
+            text, voice=chosen, speed=self.speed, lang=mapped.espeak
         )
         return Speech(
             audio=np.asarray(audio, dtype=np.float32),

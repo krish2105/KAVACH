@@ -27,6 +27,8 @@ class Transcript:
     # how fragmented the decode was, which is worth logging while tuning.
     segments: int
     model: str
+    #: ISO-639-1 code Whisper detected, or None. Drives the reply voice.
+    language: str | None = None
 
 
 class SpeechToText:
@@ -77,7 +79,18 @@ class SpeechToText:
             log.info("discarding known silence hallucination: %r", text)
             text = ""
 
-        return Transcript(text=text, segments=len(segments), model=self.model_name)
+        language = None
+        try:
+            # whisper.cpp exposes the language it settled on; used to pick
+            # a matching Kokoro voice for the reply.
+            language = self._model.get_params().get("language") or None
+            if language in ("auto", ""):
+                language = None
+        except Exception:
+            pass
+
+        return Transcript(text=text, segments=len(segments),
+                          model=self.model_name, language=language)
 
 
 # Whisper does not return nothing for silence — it confabulates, and always

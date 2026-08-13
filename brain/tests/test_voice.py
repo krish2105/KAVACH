@@ -237,3 +237,49 @@ def test_threshold_falls_back_when_metrics_are_missing(tmp_path):
     from kavach.voice.wake import DEFAULT_THRESHOLD, trained_threshold
 
     assert trained_threshold(tmp_path / "nope.onnx") == DEFAULT_THRESHOLD
+
+
+# ——— multilingual replies ———
+
+def test_a_voice_is_chosen_for_each_supported_language():
+    from kavach.voice.languages import VOICES, voice_for
+
+    for code, expected in VOICES.items():
+        assert voice_for(code) is expected
+
+
+def test_locale_tags_resolve_to_their_base_language():
+    """Whisper sometimes reports 'en-GB' or 'pt_BR'."""
+    from kavach.voice.languages import voice_for
+
+    assert voice_for("en-GB").espeak == "en-us"
+    assert voice_for("pt_BR").name == "Portuguese"
+
+
+def test_an_unsupported_language_falls_back_to_english():
+    """A reply spoken in the WRONG language is worse than one in the default,
+    so unmapped codes fall back rather than picking something adjacent."""
+    from kavach.voice.languages import voice_for
+
+    for code in ["sw", "is", "xx", "", None]:
+        assert voice_for(code).name == "English", code
+
+
+def test_voice_and_espeak_code_always_change_together():
+    """The phonemiser needs the right language: a Hindi sentence with an
+    English espeak code comes out as English phonemes read aloud."""
+    from kavach.voice.languages import VOICES
+
+    for code, lv in VOICES.items():
+        assert lv.voice and lv.espeak, code
+        if code != "en":
+            assert lv.espeak != "en-us", f"{code} would be phonemised as English"
+
+
+def test_transcript_carries_the_detected_language():
+    from kavach.voice.stt import Transcript
+
+    t = Transcript(text="bonjour", segments=1, model="large-v3-turbo", language="fr")
+    assert t.language == "fr"
+    # Defaults to None so existing callers are unaffected.
+    assert Transcript(text="hi", segments=1, model="m").language is None

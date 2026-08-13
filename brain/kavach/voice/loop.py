@@ -362,7 +362,9 @@ class VoiceLoop:
 
         # ——— speak ———
         timer.start("tts")
-        speech = self.tts.synthesize(reply)
+        # Reply in whatever language was spoken, when Kokoro has a voice
+        # for it. Falls back to English rather than guessing.
+        speech = self.tts.synthesize(reply, language=result.language)
         tts_ms = timer.stop("tts")
 
         self.set_state("speaking", transcript=reply)
@@ -379,6 +381,7 @@ class VoiceLoop:
             "tts_ms": round(tts_ms),
             # What the user actually experiences: silence → first audio out.
             "perceived_ms": round(stt_ms + respond_ms + tts_ms),
+            "language": result.language,
         }
         self.turns.append(record)
         self.ks.log.append("voice.turn", **record)
