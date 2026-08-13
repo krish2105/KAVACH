@@ -214,3 +214,26 @@ def test_missing_wake_model_still_reports_a_useful_path():
     from kavach.voice.loop import find_wake_model
 
     assert str(find_wake_model()).endswith(".onnx")
+
+
+def test_wake_threshold_comes_from_training_not_a_guess():
+    """Training measured an optimal threshold of 0.18. Defaulting to 0.5
+    would make the detector ~3x less sensitive than the model was tuned for,
+    which presents as "the wake word doesn't work"."""
+    from kavach.voice.loop import find_wake_model
+    from kavach.voice.wake import WakeWordDetector, trained_threshold
+
+    model = find_wake_model()
+    if not model.exists():
+        import pytest
+        pytest.skip("wake word not trained on this machine")
+
+    measured = trained_threshold(model)
+    assert 0.0 < measured < 1.0
+    assert WakeWordDetector(model).threshold == measured
+
+
+def test_threshold_falls_back_when_metrics_are_missing(tmp_path):
+    from kavach.voice.wake import DEFAULT_THRESHOLD, trained_threshold
+
+    assert trained_threshold(tmp_path / "nope.onnx") == DEFAULT_THRESHOLD

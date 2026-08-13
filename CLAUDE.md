@@ -105,7 +105,7 @@ user's global nvm default stays on 20 — do not change it.
 |---|---|
 | 0 — Setup, orb forked, MCP installed, kill switch tested | **complete** (tag `phase-0`) |
 | 1 — Presence polish (HUD, state-reactive orb, boot sequence, packets) | **complete** (tag `phase-1`) |
-| 2 — Local voice loop (push-to-talk → Whisper → Kokoro → orb) | **complete**; custom wake-word model still training |
+| 2 — Local voice loop (wake word → Whisper → Kokoro → orb) | **complete**; "KAVACH" wake word trained: recall 0.9915, FPPH 0.0 |
 | 3 — Brain + router | **complete** (tag `phase-3`) |
 | 4 — Hands + guardrail enforcement (gate, allowlist, spoken confirm) | **complete** (tag `phase-4`) |
 | 5 — Integration + demo | **complete** (tag `phase-5`); demo video is yours to record |

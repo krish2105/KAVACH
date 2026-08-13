@@ -17,6 +17,7 @@ is not acted on leaves no trace beyond a counter.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +26,33 @@ import numpy as np
 
 log = logging.getLogger("kavach.voice.wake")
 
+#: Fallback only. The real threshold is whatever training measured — see
+#: :func:`trained_threshold`. Hardcoding 0.5 against a model tuned to 0.18
+#: would make the wake word roughly three times less sensitive than it was
+#: trained to be, which reads as "the wake word doesn't work".
 DEFAULT_THRESHOLD = 0.5
+
 # Frames the model expects, at 16 kHz.
 CHUNK_SAMPLES = 1280  # 80 ms
+
+
+def trained_threshold(model_path: Path | str, fallback: float = DEFAULT_THRESHOLD) -> float:
+    """Read the optimal threshold the training run measured.
+
+    livekit-wakeword writes `<model_name>_metrics.json` next to the model: a
+    list of validation snapshots whose last entry is tagged
+    `optimal_threshold`. Using it means the sensitivity in production is the
+    one the metrics were reported at.
+    """
+    metrics = Path(model_path).with_name(f"{Path(model_path).stem}_metrics.json")
+    try:
+        entries = json.loads(metrics.read_text())
+        for entry in reversed(entries if isinstance(entries, list) else [entries]):
+            if "threshold" in entry:
+                return float(entry["threshold"])
+    except Exception:
+        log.debug("no trained threshold at %s; using %.2f", metrics, fallback)
+    return fallback
 
 
 @dataclass
@@ -46,11 +71,16 @@ class WakeWordDetector:
     def __init__(
         self,
         model_path: Path | str | None = None,
-        threshold: float = DEFAULT_THRESHOLD,
+        threshold: float | None = None,
         refractory_frames: int = 12,
     ):
         self.model_path = Path(model_path) if model_path else None
-        self.threshold = threshold
+        # None means "use whatever training measured" rather than a guess.
+        self.threshold = (
+            threshold if threshold is not None
+            else (trained_threshold(self.model_path) if self.model_path
+                  else DEFAULT_THRESHOLD)
+        )
         # After firing, ignore detections for a moment — one spoken wake word
         # spans several frames and would otherwise trigger repeatedly.
         self.refractory_frames = refractory_frames

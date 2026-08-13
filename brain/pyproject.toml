@@ -61,6 +61,9 @@ wakeword-training = [
     "torchaudio>=2.11.0",   # Piper VITS synthesis
     "nltk>=3.9",            # phrase normalisation
     "pronouncing>=0.2.0",   # CMUdict phonemes for the target phrase
+    "onnxscript>=0.6.2",    # ONNX export — declared only in their "export"
+                            # extra, so `run` fails at step 5/6 without it
+                            # AFTER an hour of training has completed
     "webrtcvad-wheels>=2.0.14",  # silence trimming; the original webrtcvad
                                  # has no py3.12 wheel and needs a compiler
 ]
