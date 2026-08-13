@@ -828,3 +828,13 @@ body {
 }
 .kv-overlay .overlay-tool.status-denied { color: #ff8080; }
 .kv-overlay .overlay-tool.status-ok { opacity: 0.65; }
+
+/* Paused with the render loop. CSS animations run independently of
+   requestAnimationFrame, so stopping the WebGL loop alone left the compositor
+   busy on a hidden panel. */
+.kv-paused *,
+.kv-paused *::before,
+.kv-paused *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}

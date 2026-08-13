@@ -125,9 +125,16 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   //
   // Affordable only because the panel is small and now pauses entirely while
   // hidden; the window keeps the ordinary 2x ceiling.
+  // Budget total pixels rather than fixing a ratio. A flat 3x looks identical
+  // on a small panel and costs 5.2 Mpx on a large one — measured as ~83% of a
+  // core in WebKit, for an orb most of whose detail the eye cannot resolve
+  // anyway. Targeting a constant ~2.5 Mpx supersamples hard where it helps
+  // (small panels, where thin wireframe aliases) and backs off where it does
+  // not.
+  const PANEL_PIXEL_BUDGET = 2_500_000;
   renderer.setPixelRatio(
     inPanel
-      ? Math.min(window.devicePixelRatio * 1.5, 3)
+      ? Math.max(1, Math.min(3, Math.sqrt(PANEL_PIXEL_BUDGET / (width * height))))
       : Math.min(window.devicePixelRatio, 2),
   );
   renderer.toneMapping = THREE.ACESFilmicToneMapping;

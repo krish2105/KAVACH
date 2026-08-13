@@ -45,6 +45,9 @@ ACTIVE_STATES = {"listening", "thinking", "acting", "speaking", "halted"}
 #: mid-sentence the instant a turn ends.
 LINGER_SECONDS = 2.5
 
+#: Move/resize returns to click-through after this long untouched.
+INTERACTIVE_TIMEOUT = 120.0
+
 PANEL_SIZE = 400.0
 MARGIN = 28.0
 
@@ -76,6 +79,7 @@ class OverlayWindow:
         necessarily means it also intercepts clicks that land on it.
         """
         self.interactive = interactive
+        self._interactive_since = time.monotonic()
         self.geometry.interactive = interactive
         self.geometry.save()
         self.panel.setIgnoresMouseEvents_(not interactive)
@@ -164,6 +168,9 @@ class OverlayWindow:
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
         self._drag_view = None
+        self._interactive_since = 0.0
+        #: Set by the CLI so the menu tick can follow an auto-exit.
+        self._on_interactive_change = None
 
         size = self.geometry.size
         visible = AppKit.NSScreen.mainScreen().visibleFrame()
@@ -286,18 +293,38 @@ class OverlayWindow:
             return
         self._visible = False
         self._fade(0.0, 0.5)
-        # Let the fade finish before the last frame stops.
-        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
-            0.6, False, lambda _t: self._set_page_rendering(False)
-        )
+
+        def finish(_timer) -> None:
+            self._set_page_rendering(False)
+            # A window at alpha 0 is still on screen and still composited —
+            # measured at ~78% of a core in WebKit with rendering already
+            # paused. Ordering it out is what actually stops the work.
+            if not self._visible:
+                self.panel.orderOut_(None)
+
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.6, False, finish)
         log.debug("overlay hidden")
 
     def apply_state(self, state: str) -> None:
         """Show for active states; linger briefly before hiding on idle."""
         # Minimised means minimised — a turn should not override an explicit
         # request to stay out of the way.
-        if self.geometry.hidden or self.interactive:
+        if self.geometry.hidden:
             return
+        # Move/resize keeps the panel on screen so there is something to grab,
+        # but it must not pin it there forever: left on, it held the panel
+        # visible and rendering indefinitely (~83% of a core in WebKit) long
+        # after the user had finished positioning it. Auto-exit after a spell
+        # of no interaction hands it back to the state machine.
+        if self.interactive:
+            if time.monotonic() - self._interactive_since > INTERACTIVE_TIMEOUT:
+                log.info("move/resize idle for %.0fs — returning to click-through",
+                         INTERACTIVE_TIMEOUT)
+                self.set_interactive(False)
+                if self._on_interactive_change:
+                    self._on_interactive_change()
+            else:
+                return
         if state in ACTIVE_STATES:
             self.show()
         elif self._visible and self._hide_at is None:

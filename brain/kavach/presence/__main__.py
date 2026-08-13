@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         app.terminate_(None)
 
     controller = MenuBarController.alloc().initWithOverlay_onQuit_(overlay, on_quit)
+    # Keep the menu tick honest when move/resize times out on its own.
+    overlay._on_interactive_change = controller.refresh
 
     # ——— global hotkeys ———
     # Same mechanism as the kill switch: a global monitor only ever sees keys

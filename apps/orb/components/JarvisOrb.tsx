@@ -136,7 +136,12 @@ export default function JarvisOrb() {
   useEffect(() => {
     if (!overlayMode) return;
     const w = window as unknown as { __kavachSetRendering?: (on: boolean) => void };
-    w.__kavachSetRendering = (on: boolean) => sceneRef.current?.setRendering(on);
+    w.__kavachSetRendering = (on: boolean) => {
+      sceneRef.current?.setRendering(on);
+      // CSS animations are not driven by requestAnimationFrame, so they keep
+      // the compositor busy even with the WebGL loop stopped.
+      document.documentElement.classList.toggle("kv-paused", !on);
+    };
     return () => { delete w.__kavachSetRendering; };
   }, [overlayMode]);
 
