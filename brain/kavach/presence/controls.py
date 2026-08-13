@@ -181,7 +181,14 @@ class MenuBarController(AppKit.NSObject):
 
         bar = AppKit.NSStatusBar.systemStatusBar()
         self._item = bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
-        self._item.button().setTitle_("🛡")
+        button = self._item.button()
+        if button is None:
+            # Worth shouting about: with no button there is no menu bar icon,
+            # and the only way to quit or reach ghost mode is to kill the pid.
+            log.error("menu bar item has no button — the 🛡 will not appear")
+        else:
+            button.setTitle_("🛡")
+            log.info("menu bar item created")
 
         self._ghost_active = False
         self._menu = AppKit.NSMenu.alloc().init()

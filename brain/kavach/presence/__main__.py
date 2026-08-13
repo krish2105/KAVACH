@@ -146,6 +146,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if request_camera(timeout=45):
             def on_gesture(event) -> None:
+                # Logged so gestures can be verified without guessing: hold one
+                # at the camera and watch ~/.kavach/logs/overlay.out. Progress
+                # is reported as it builds, so a hold that never completes is
+                # visibly different from one the camera never saw.
+                if event.gesture.value != "none":
+                    log.info("gesture %s %.0f%%%s", event.gesture.value,
+                             event.progress * 100,
+                             "  ← FIRED" if event.fired else "")
                 if event.fired:
                     listener.send({
                         "cmd": "gesture",
