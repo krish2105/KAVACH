@@ -27,6 +27,7 @@ import numpy as np
 
 from ..killswitch.core import KillSwitch, KillSwitchDisarmed
 from ..reasoning import handlers as handlers_mod
+from ..reasoning import search as search_mod
 from ..reasoning.router import Route, Router
 from . import tts as tts_mod
 from .latency import TurnTimer
@@ -529,6 +530,16 @@ class VoiceLoop:
         if music_reply is not None:
             self.state.confidence = 0.99
             return music_reply
+
+        # Questions about the world, before the model. The local model can
+        # only say it does not know — which is exactly what it did for "what
+        # is the weather today" before this existed.
+        if search_mod.needs_search(text):
+            answer = search_mod.search(text, log_to=self.ks.log)
+            if answer:
+                self.state.confidence = 0.9
+                self.state.route = "search"
+                return answer
 
         # Cheapest tier first: a deterministic handler is sub-millisecond
         # and, for things like the clock, the only tier that can actually
