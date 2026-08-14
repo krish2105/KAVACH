@@ -236,7 +236,23 @@ so in `kavach-doctor` rather than refusing to listen.
 uv run kavach-daemons install     # renders the templates, then loads them
 uv run kavach-daemons status      # what is installed, loaded, or stale
 uv run kavach-daemons uninstall
+brew services start ollama        # the router's local model, also at login
 ```
+
+Two agents are installed: `com.krishna.kavach.overlay` (the orb) and
+`com.krishna.kavach` (the voice loop). The orb restarts whenever it exits; the
+voice loop restarts only after a *crash*, so a deliberate stop stays stopped —
+which is what you want from something holding the microphone. To silence it:
+
+```bash
+launchctl bootout gui/$UID/com.krishna.kavach
+```
+
+**Neither agent may go through `uv run`.** TCC attributes permission to the
+process launchd starts, so with uv in front every grant is checked against uv
+instead of python — Input Monitoring, and the microphone with it. The symptom
+is a permission that is switched on in System Settings and ignored at runtime.
+A test asserts this for every plist in `daemon/`.
 
 **Do not `cp` the files in `daemon/` yourself.** They are templates: the paths
 in them are placeholders like `__UV__` and `__BRAIN__`, and a plist whose

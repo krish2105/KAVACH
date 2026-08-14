@@ -30,11 +30,26 @@
     <string>com.krishna.kavach</string>
 
     <!-- uv resolves the project's own venv, so no interpreter path is hardcoded. -->
+    <!--
+      The venv interpreter directly — no `uv run` in front of it.
+
+      TCC attributes to the *responsible* process, so with `uv run` every grant
+      this loop depends on is checked against uv rather than against python.
+      That silently cost the hotkeys on the overlay agent, and here it would put
+      the **microphone** behind the same mistake.
+
+      Measured from inside a launchd job before installing this:
+
+          mic TCC status: AUTHORIZED
+          mic opened: OK
+
+      Worth stating because a bare process cannot get the *camera* at all — the
+      whole of presence/appbundle.py exists for that. The microphone behaves
+      differently, and it was tested rather than assumed.
+    -->
     <key>ProgramArguments</key>
     <array>
-        <string>__UV__</string>
-        <string>run</string>
-        <string>python</string>
+        <string>__VENVBIN__/python3</string>
         <string>-m</string>
         <string>kavach.voice</string>
     </array>
@@ -56,9 +71,9 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>__LOGS__/daemon.out.log</string>
+    <string>__LOGS__/voice.log</string>
     <key>StandardErrorPath</key>
-    <string>__LOGS__/daemon.err.log</string>
+    <string>__LOGS__/voice.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

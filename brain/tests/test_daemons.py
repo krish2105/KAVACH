@@ -150,7 +150,7 @@ def test_only_one_thing_launches_the_overlay():
         f"{[p.name for p in launchers]}"
 
 
-def test_the_agent_does_not_launch_through_uv():
+def test_no_agent_launches_through_uv():
     """`uv run` costs the hotkeys, and the loss is silent.
 
     TCC attributes to the *responsible* process. With `uv run kavach-overlay`
@@ -168,9 +168,12 @@ def test_the_agent_does_not_launch_through_uv():
     own, so nothing is traded away for it — the earlier `open -a KAVACH.app`
     attempt failed on exactly that and this does not.
     """
-    args = argv(load(OVERLAY_PLIST))
+    for plist in DAEMONS.glob("*.plist"):
+        args = argv(load(plist))
+        assert not any(a.endswith("/uv") for a in args), (
+            f"{plist.name} runs through uv, so every TCC grant is checked "
+            f"against uv instead of python — the microphone included"
+        )
 
-    assert not any(a.endswith("/uv") for a in args), \
-        "the agent runs through uv, so Input Monitoring will not apply"
-    assert any("kavach-overlay" in a for a in args), \
+    assert any("kavach-overlay" in a for a in argv(load(OVERLAY_PLIST))), \
         "the agent no longer launches the overlay at all"

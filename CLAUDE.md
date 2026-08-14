@@ -187,6 +187,44 @@ Also: launchd's `StandardOutPath` must not be `overlay.log` — the process
 already puts a `FileHandler` there, and pointing both at one file logged every
 line twice.
 
+### `uv run` in a launch agent costs you every TCC grant
+
+TCC attributes permission to the **responsible process**, and for a launchd job
+that is the binary launchd starts. With `uv run kavach-overlay` that binary is
+`uv`, so a grant given to `python3.12` is never consulted. Measured from inside
+a launchd job, the only place the difference is visible:
+
+```
+uv run python      → CGPreflightListenEventAccess() False
+venv python direct → CGPreflightListenEventAccess() True
+```
+
+The symptom was `hotkeys BLOCKED` in the log while System Settings showed Input
+Monitoring switched **on** — the grant was real and simply not being asked.
+Both agents run `.venv/bin/…` directly now, and a test walks every plist in
+`daemon/` asserting none of them goes through uv. This matters more for the
+voice loop than the overlay: the same mistake would put the **microphone**
+behind it.
+
+Measured before installing the voice agent, rather than assumed from the camera
+result:
+
+```
+mic TCC status: AUTHORIZED
+mic opened: OK
+```
+
+So the microphone and the camera do **not** behave alike for a bare process —
+the camera needs the app bundle (`presence/appbundle.py`), the mic does not.
+
+**The voice agent is `KeepAlive={SuccessfulExit: False}`** — it comes back from
+a crash, but a clean stop stays stopped. That is deliberate for a process
+holding the microphone: `launchctl bootout gui/$UID/com.krishna.kavach` turns it
+off and it stays off until you load it again.
+
+Ollama is started at login by `brew services start ollama`, not by KAVACH. The
+router silently falls back without it.
+
 ### One instance, enforced by a file (§18 extended)
 
 `InstanceLock(name)` in `kavach/single.py`; `WakeWordLock` is a thin alias.
