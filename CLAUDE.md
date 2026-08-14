@@ -110,6 +110,23 @@ user's global nvm default stays on 20 — do not change it.
 | 4 — Hands + guardrail enforcement (gate, allowlist, spoken confirm) | **complete** (tag `phase-4`) |
 | 5 — Integration + demo | **complete** (tag `phase-5`); demo video is yours to record |
 
+**Verified live on 2026-08-14**, push-to-talk, both agents started by launchd:
+
+```
+heard  "What is the time right now?"
+said   "It's 8:35 p.m."          (correct — it was 8:37 when checked)
+route  local · conf 0.92 · intent clock · "simple intent (clock)"
+stt 1699ms · respond 7ms · tts 4941ms · perceived 6648ms
+```
+
+`respond_ms = 7` is the point: the clock answer comes from the system clock,
+never a language model. **TTS is 74% of the wait** — if latency is ever worth
+attacking, Kokoro is where it lives, not STT.
+
+The turn before it was discarded: `no speech in the clip (4/61 voiced frames,
+rms 0.0045, 1.2s)`. The turn ends on silence, so clicking TALK and *then*
+gathering your thoughts closes it before you speak.
+
 **Wake word v2** (2026-08-13): AUT 0.0040, FPPH 0.00, recall 83.8%, measured
 optimum **0.20**. **Calibration on the user's voice failed on 2026-08-14** —
 `kavach-waketune` refused to save, correctly: no separation between the wake
