@@ -177,3 +177,66 @@ def test_unrelated_files_do_not_shift_the_count(tmp_path):
     (tmp_path / "take_003.wav").touch()
 
     assert next_index(tmp_path) == 4
+
+
+# ═══ one utterance, not everything between the first and last sound ═══
+#
+# Measured through the real microphone, 4s of an ordinary room:
+#
+#     frame rms p20 0.00521 → threshold 0.02085, 45/201 frames above
+#     speech_bounds: (0.36, 3.5)
+#     check_take -> ok=False  reason='too long (3.1s)'
+#
+# Nothing was wrong with the take. `speech_bounds` returned the first and last
+# voiced frame, so a chair creak at 0.4s and a word at 3.0s read as one
+# 3.1-second utterance. In a real room that is the common case, and it refused
+# every take on the first session — zero of a hundred landed.
+
+def take_with_stray(word_at: float, stray_at: float) -> np.ndarray:
+    """A tape with the wake word, plus one unrelated sound elsewhere."""
+    audio = take(speech_at=word_at, speech_len=0.7)
+    start = int(stray_at * SAMPLE_RATE)
+    click = int(0.06 * SAMPLE_RATE)
+    rng = np.random.default_rng(3)
+    audio[start : start + click] += rng.normal(0, 0.12, click).astype(np.float32)
+    return audio
+
+
+def test_a_sound_before_the_word_is_not_part_of_it():
+    bounds = speech_bounds(take_with_stray(word_at=2.0, stray_at=0.4))
+
+    assert bounds is not None
+    start_s = bounds[0] / SAMPLE_RATE
+    assert start_s > 1.5, (
+        f"bounds start at {start_s:.2f}s — the stray sound at 0.4s was swallowed "
+        f"into the utterance"
+    )
+
+
+def test_a_sound_after_the_word_is_not_part_of_it():
+    bounds = speech_bounds(take_with_stray(word_at=0.8, stray_at=3.2))
+
+    assert bounds is not None
+    end_s = bounds[1] / SAMPLE_RATE
+    assert end_s < 2.5, f"bounds end at {end_s:.2f}s — the stray sound was included"
+
+
+def test_a_take_with_room_noise_is_still_accepted():
+    """The whole failure, as one assertion: this is what a real room does."""
+    result = check_take(take_with_stray(word_at=1.6, stray_at=0.3))
+
+    assert result.ok is True, result.reason
+
+
+def test_a_short_pause_inside_the_word_does_not_split_it():
+    """'kav-ACH' has a stop in the middle. Splitting on it would keep only
+    half the word."""
+    audio = take(speech_at=1.0, speech_len=0.4)
+    second = take(speech_at=1.5, speech_len=0.4)
+    audio = audio + second
+
+    bounds = speech_bounds(audio)
+
+    assert bounds is not None
+    span = (bounds[1] - bounds[0]) / SAMPLE_RATE
+    assert span > 0.7, f"span {span:.2f}s — the two halves were treated separately"
