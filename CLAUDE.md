@@ -196,8 +196,39 @@ sufficient on its own.
 Caveat on that table: playing TTS through a laptop speaker puts the audio
 through **two** channels (speaker colouring, then mic), where a human voice
 goes through one. It is a harsher test than reality, so treat it as a lower
-bound. **The decisive measurement is `uv run kavach-waketune` against v3 on the
-user's actual voice** — two minutes, and it has not been run yet.
+bound.
+
+**The decisive measurement, run 2026-08-14 21:50 — v3 does not help the user's
+voice.** `kavach-waketune` against v3, recorded in
+`~/.kavach/wake-calibration-history.jsonl`:
+
+```
+wake takes  0.0071  0.1152  0.0416  0.0462  0.0054
+others      0.0224  0.0066  0.0272  0.0145
+margin      -0.022   overlaps, not saved
+```
+
+Against v2's 0.041–0.089 that is flat: best take up a little (0.089 → 0.115),
+worst take down (0.041 → 0.005), median unchanged. **Everything scores near
+zero — the negatives too.** The model is not confusing the wake word with
+ordinary speech; it is blind to this microphone's audio in general, and the
+best real take is still 7× below the 0.858 it gives a clean synthetic file.
+
+So channel augmentation was a genuine bug and a genuine improvement — bf_emma
+0.301 → 0.590, false alarms halved, real-mic margin −0.234 → −0.135 — and it is
+**not what stands between this user and a working wake word.**
+
+What remains is that **every training clip is synthesised.** The model has
+never heard a human being. Closing that needs real recorded speech in the
+training set, and 100 takes against 3000 synthetic clips is 3% — likely too
+diluted to matter without oversampling or a fine-tune of the final layer. That
+is a bigger piece of work than either retrain so far, and **push-to-talk works
+today**, so it is the user's call rather than an obvious next step.
+
+One observation for whoever picks this up: the five takes spanned 0.005 to
+0.115, a 20× spread. `TAKE_SECONDS = 2.6` with a sliding 2s window means a take
+that starts late is scored on a clipped word, so some of that spread may be
+timing rather than voice.
 
 Two hypotheses were tested and **refuted** on the way, both worth not
 repeating:
