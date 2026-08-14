@@ -245,6 +245,64 @@ content hash of the model it measured — a threshold from a different model is
 refused, not applied. **Still uncalibrated**: `uv run kavach-waketune` needs the
 user's voice.
 
+### v4 (2026-08-15) — it learned the voice and did not learn to hear
+
+The first model trained on real human speech. 42 takes recorded with
+`kavach-wakerecord`, injected as clean round-0 clips by `kavach/voice/
+wakeinject.py` and oversampled 25× to 26% of the positive set. Trained by
+`kavach-waketrain`, which clones v3's generated corpus rather than re-running
+VoxCPM.
+
+**It fit the voice, and it did not generalise:**
+
+| v4 scoring | median |
+|---|---|
+| the 42 takes it trained on | **0.830** |
+| fresh utterances it had never heard | **0.034** |
+
+Calibration on new speech: wake `0.0229 0.0187 0.1895 0.4643 0.0340`, others
+`0.0351 0.0278 0.1165 0.0169`, **margin −0.0978, not saved** — worse than v3's
+−0.0221, because a negative reached 0.117.
+
+That 24× train/fresh gap is overfitting, and it is *informative*. v3 could not
+fit this voice even on training-adjacent audio (median 0.041); v4 fits it at
+0.830. **So the architecture, the channel augmentation and the injection
+pipeline all work — the missing ingredient is purely the number of UNIQUE
+utterances.** 42 is not enough and oversampling cannot fix it: more copies of
+the same 42 deepens the memorisation. A few hundred distinct takes, across
+days and positions, is what this would need.
+
+**Do not re-run v4 with more copies. That is the one change guaranteed not to
+help.**
+
+### The Whisper wake word — built, and not yet working either
+
+`kavach/voice/wakewhisper.py`. VAD gates the mic; a burst of speech is
+transcribed by a small local Whisper and the text fuzzy-matched. Motivated by
+the one measurement that has always held: whisper reads this microphone
+(`"Kavec, Kavec, testing 1, 2, 3."`) where every ONNX model scores 0.019.
+
+The match threshold is measured, not chosen — `kavec` 0.727 (the real
+transcript, must match) against `catch` 0.667 (must not). 0.70 is the only gap.
+
+Measured against the 42 recorded takes:
+
+| | recognised | median |
+|---|---|---|
+| swift (whisper-base), 1 word | 8/42 = 19% | 151ms |
+| swift, 3 words of context | 13/42 = 31% | 127ms |
+| large-v3-turbo, 1 word | 10/42 = 24% | **1725ms** |
+
+large-v3-turbo is too slow to gate a microphone regardless of accuracy, and it
+returned **empty strings** for most clips.
+
+**That evaluation is not conclusive, and the reason matters.** Those clips are
+tight ~1s *single words*, trimmed that way because the ONNX trainer needs it —
+and an isolated single word is whisper's worst case. Real use is "hey kavach,
+what time is it", a sentence with context, which is the shape of the transcript
+that did work. **The live path has not been tested.** Judge it with the real
+microphone and natural speech before concluding anything.
+
 ### Reach phases (the user's second numbering — restarts at 6)
 
 Tags are `reach-N`, because `phase-6/7/8` were already taken by the earlier
