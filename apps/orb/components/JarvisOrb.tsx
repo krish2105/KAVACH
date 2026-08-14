@@ -47,6 +47,9 @@ export default function JarvisOrb() {
   const [snapshot, setSnapshot] = useState<KavachSnapshot>(INITIAL_SNAPSHOT);
   const [brainOnline, setBrainOnline] = useState(false);
   const [usingMock, setUsingMock] = useState(false);
+  //: Camera state in the *presence process*, not this page. Starts true
+  //: because the tracker starts with the overlay; corrected by the first push.
+  const [gesturesLive, setGesturesLive] = useState(true);
   /** True while a pinch is actively driving the camera. */
   const [handControl, setHandControl] = useState(false);
   /** Clears the banner shortly after the last pinch frame — a ref, because
@@ -223,7 +226,12 @@ export default function JarvisOrb() {
 
     const wt = window as unknown as {
       __kavachTarget?: (info: { target: string; refusal: string | null }) => void;
+      // Whether the camera is running, pushed by the presence process.
+      // The page cannot know this on its own: in the panel the tracker lives
+      // in Python, so a locally-guessed toggle label would be a guess.
+      __kavachGestures?: (on: boolean) => void;
     };
+    wt.__kavachGestures = (on) => setGesturesLive(on);
     wt.__kavachTarget = (info) => {
       setHandTarget(info.target);
       setHandRefusal(info.refusal);
@@ -246,6 +254,7 @@ export default function JarvisOrb() {
       delete wc.__kavachControl;
       delete ws.__kavachScroll;
       delete wt.__kavachTarget;
+      delete wt.__kavachGestures;
     };
   }, [overlayMode]);
 
@@ -392,9 +401,16 @@ export default function JarvisOrb() {
           type="button"
           className={`talk-btn state-${snapshot.state}`}
           onClick={() => sourceRef.current?.startTurn?.()}
-          disabled={snapshot.state !== "idle" || snapshot.killSwitch === "disarmed"}
+          // Also disabled with no brain. `startTurn?.()` on the mock source is
+          // optional-chained into a no-op, so the button looked alive, clicked
+          // like a button, and did nothing at all — which is how "TALK doesn't
+          // work" got reported when the real fault was a dead voice loop.
+          disabled={!brainOnline || snapshot.state !== "idle"
+                    || snapshot.killSwitch === "disarmed"}
+          title={brainOnline ? "Start a turn" : "The voice loop is not running"}
         >
-          {snapshot.state === "idle" ? "TALK" : STATE_LABEL[snapshot.state]}
+          {!brainOnline ? "NO BRAIN"
+            : snapshot.state === "idle" ? "TALK" : STATE_LABEL[snapshot.state]}
         </button>
       )}
 
@@ -429,6 +445,17 @@ export default function JarvisOrb() {
                 <span className="transcript-partial">{snapshot.partial}</span>
               )}
             </p>
+          )}
+          {/* An orb with no brain behind it must not look like a working one.
+              The DEMO (MOCK) badge existed only in the window branch, so the
+              panel showed the scripted demo — states cycling, a transcript
+              about a 9am standup — with nothing to distinguish it from live
+              audio. The voice loop died once for ten minutes and the panel
+              never let on. */}
+          {!brainOnline && (
+            <span className={`overlay-brain${usingMock ? " is-mock" : ""}`}>
+              {usingMock ? "DEMO — brain not running" : "connecting to the brain…"}
+            </span>
           )}
           {/* Newest tool call only. The full log belongs in the window; here
               it would crowd out the orb, which is the point of the panel. */}
@@ -498,6 +525,7 @@ export default function JarvisOrb() {
         />
         <ControlPanel
           ghost={snapshot.ghost}
+          gestures={gesturesLive}
           killSwitch={snapshot.killSwitch}
           appControl={appControl}
           onAppControl={(on) => {
@@ -538,6 +566,17 @@ export default function JarvisOrb() {
           <div>
             <span className="key">PINCH + MOVE</span> spin&nbsp;&nbsp;
             <span className="key">PINCH BOTH HANDS ± SPREAD</span> zoom
+          </div>
+) : overlayMode ? (
+          /* Not the keyboard hints.
+             A non-activating panel never becomes key, so no keydown ever
+             reaches this page — G, R, K and ESC cannot fire here however
+             correctly they are wired, and G is explicitly a no-op in overlay
+             mode besides. Printing them taught you four shortcuts that do
+             nothing and hid the two that work. */
+          <div>
+            <span className="key">⌃⌥⌘SPACE</span> talk&nbsp;&nbsp;
+            <span className="key">🛡</span> everything else
           </div>
         ) : (
           <div>

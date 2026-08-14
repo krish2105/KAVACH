@@ -203,3 +203,45 @@ def test_a_hand_near_the_camera_does_not_un_minimise():
 
     assert "if not self._visible:\n" not in source[start:], \
         "a tick path shows the panel without checking Minimise"
+
+
+# ═══ controls that exist must do something ═══
+
+def test_the_panel_offers_a_gestures_toggle():
+    """G is a deliberate no-op in the panel and cannot fire there anyway.
+
+    The key toggles gestures in a browser tab, is explicitly skipped in overlay
+    mode (`if (!overlayMode)`), and no keydown reaches a non-activating panel
+    regardless. So the hint row advertised a control that could not work, and
+    the only way to stop the camera was Ghost mode — which also stops the
+    microphone.
+    """
+    overlay = (Path(__file__).resolve().parents[1] / "kavach" / "presence"
+               / "overlay.py").read_text()
+
+    assert 'command == "gestures"' in overlay, \
+        "no way to toggle the camera from the panel"
+    assert "camera_gate" in overlay
+
+
+def test_the_panel_does_not_advertise_keys_that_cannot_fire():
+    """A non-activating panel never becomes key, so G/R/K/ESC are dead there
+    however correctly they are wired in the page."""
+    orb = (Path(__file__).resolve().parents[2] / "apps" / "orb"
+           / "components" / "JarvisOrb.tsx").read_text()
+    hint = orb[orb.index('className="hud hud-hint"'):]
+    hint = hint[:hint.index("hud-controls")]
+
+    assert "overlayMode ?" in hint, \
+        "the panel prints the browser's keyboard hints"
+    assert "⌃⌥⌘SPACE" in hint, "the one shortcut that does work is not shown"
+
+
+def test_gesture_state_is_pushed_not_guessed():
+    """The tracker lives in the presence process, so a label the page worked
+    out for itself would be a guess — and a menu that misreports the camera is
+    worse than no menu."""
+    overlay = (Path(__file__).resolve().parents[1] / "kavach" / "presence"
+               / "overlay.py").read_text()
+
+    assert "__kavachGestures" in overlay

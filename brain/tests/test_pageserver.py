@@ -174,3 +174,55 @@ def test_the_port_probe_does_not_hang(server):
         assert pageserver.port_open(port) is True
 
     assert pageserver.port_open(port) is False
+
+
+# ═══ adopting a server that is serving a build that no longer exists ═══
+
+def test_a_stale_adopted_server_is_detected(tmp_path, monkeypatch):
+    """200 on every request, and a page that cannot load.
+
+    `next build` while `next start` is running replaces the build under it.
+    The running server keeps its old build id in memory and serves HTML
+    referencing chunks that are gone — so curl says 200, the WebView says
+    "This page couldn't load", and the overlay's own diagnosis was "is
+    `next start` running on 3100?" while it plainly was.
+    """
+    orb = tmp_path / "orb"
+    (orb / ".next").mkdir(parents=True)
+    (orb / ".next" / "BUILD_ID").write_text("new-build-id")
+    monkeypatch.setattr(pageserver, "port_open", lambda *a, **k: True)
+    monkeypatch.setattr(pageserver, "served_build_id", lambda *a, **k: "old-build-id")
+
+    server = PageServer(orb, port=39110, log_path=tmp_path / "log")
+    server.start()
+
+    assert server.stale is True, \
+        "adopted a server serving a build that no longer exists on disk"
+
+
+def test_a_current_adopted_server_is_not_flagged(tmp_path, monkeypatch):
+    orb = tmp_path / "orb"
+    (orb / ".next").mkdir(parents=True)
+    (orb / ".next" / "BUILD_ID").write_text("same")
+    monkeypatch.setattr(pageserver, "port_open", lambda *a, **k: True)
+    monkeypatch.setattr(pageserver, "served_build_id", lambda *a, **k: "same")
+
+    server = PageServer(orb, port=39111, log_path=tmp_path / "log")
+    server.start()
+
+    assert server.stale is False
+
+
+def test_an_unknown_build_id_is_not_called_stale(tmp_path, monkeypatch):
+    """Never guess. A dev server or a future Next may not expose one, and
+    crying stale at a working panel is its own bug."""
+    orb = tmp_path / "orb"
+    (orb / ".next").mkdir(parents=True)
+    (orb / ".next" / "BUILD_ID").write_text("whatever")
+    monkeypatch.setattr(pageserver, "port_open", lambda *a, **k: True)
+    monkeypatch.setattr(pageserver, "served_build_id", lambda *a, **k: None)
+
+    server = PageServer(orb, port=39112, log_path=tmp_path / "log")
+    server.start()
+
+    assert server.stale is False

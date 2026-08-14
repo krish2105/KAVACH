@@ -177,3 +177,26 @@ def test_no_agent_launches_through_uv():
 
     assert any("kavach-overlay" in a for a in argv(load(OVERLAY_PLIST))), \
         "the agent no longer launches the overlay at all"
+
+
+def test_the_voice_agent_restarts_however_it_exits():
+    """It exited cleanly and stayed dead, and nothing said so.
+
+    KeepAlive was {SuccessfulExit: false} — restart on a crash, leave a clean
+    exit alone — on the reasoning that a process holding the microphone should
+    stay stopped when you stop it. Measured consequence: the loop exited at
+    16:37:50 with no error, no traceback and no crash report, launchd left it
+    down, and the orb went on showing scripted demo data as though nothing had
+    happened.
+
+    The reasoning was wrong because it named the wrong stop mechanism. A
+    deliberate stop is `launchctl bootout`, which unloads the job whatever
+    KeepAlive says. Leaving a clean exit unhandled only covers the case nobody
+    asked for.
+    """
+    keep_alive = load(DAEMONS / "com.krishna.kavach.plist").get("KeepAlive")
+
+    assert keep_alive is True, (
+        "the voice loop does not restart after a clean exit — it exited once "
+        "with no error and stayed dead, while the orb kept showing mock data"
+    )

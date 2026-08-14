@@ -43,6 +43,7 @@ import { createPortal } from "react-dom";
 
 interface Props {
   ghost: boolean;
+  gestures: boolean;
   appControl: boolean;
   onAppControl: (on: boolean) => void;
   killSwitch: "armed" | "disarmed";
@@ -69,6 +70,7 @@ const SIZES = [
 
 export function ControlPanel({
   ghost,
+  gestures,
   killSwitch,
   appControl,
   onAppControl,
@@ -123,6 +125,17 @@ export function ControlPanel({
           <button className="shield-item" role="menuitem"
                   onClick={() => { onBrainCommand({ cmd: "ghost", on: !ghost, source: "panel" }); close(); }}>
             {ghost ? "👻 Resume listening" : "👻 Ghost mode"}
+          </button>
+
+          {/* The G key's replacement.
+              G toggles gestures in a browser tab and is a deliberate no-op in
+              the panel — the camera lives in the presence process there, not
+              in this page — and no keydown reaches a non-activating panel
+              anyway. So the only way to turn the camera off was Ghost mode,
+              which also stops the microphone. */}
+          <button className={`shield-item${gestures ? " is-armed" : ""}`} role="menuitem"
+                  onClick={() => { toOverlay({ cmd: "gestures", value: !gestures }); close(); }}>
+            {gestures ? "👁 Gestures — on" : "👁 Gestures — off"}
           </button>
 
           <button className={`shield-item${appControl ? " is-armed" : ""}`} role="menuitem"

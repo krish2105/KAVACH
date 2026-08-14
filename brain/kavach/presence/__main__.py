@@ -315,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
 
             camera_gate.make_tracker = make_tracker
             camera_gate.start()
+            # So the 🛡 menu can turn the camera off without ghost mode, and
+            # shows what is actually running rather than what it assumes.
+            overlay.camera_gate = camera_gate
+            overlay.set_gestures(camera_gate.running)
         else:
             log.warning("gestures off — no camera access")
 

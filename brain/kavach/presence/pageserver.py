@@ -80,6 +80,26 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
         return probe.connect_ex((host, port)) == 0
 
 
+def served_build_id(port: int, host: str = "127.0.0.1") -> str | None:
+    """The build id the running server is actually serving, or None.
+
+    Returns None rather than guessing when it cannot be read — a dev server
+    does not expose one, and calling a working panel stale is its own bug.
+    """
+    import re
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/", timeout=3) as r:
+            html = r.read(200_000).decode("utf-8", "replace")
+    except Exception:
+        return None
+
+    found = re.search(r"/_next/static/([^/\"']+)/_buildManifest", html) \
+        or re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
+    return found.group(1) if found else None
+
+
 def find_node() -> Path | None:
     """Node >= 24, by absolute path.
 
@@ -116,6 +136,9 @@ class PageServer:
                                      / "orb-server.log")
         self.process: subprocess.Popen | None = None
         self.adopted = False       # someone else's server; not ours to manage
+        #: An adopted server serving a build that no longer exists on disk.
+        #: It answers 200 to everything and the page still cannot load.
+        self.stale = False
         self._stop = threading.Event()
         self._restarts = 0
 
@@ -125,7 +148,24 @@ class PageServer:
         """Returns True once something is serving the page."""
         if port_open(self.port):
             self.adopted = True
-            log.info(":%d already served — leaving it alone", self.port)
+            self.stale = self._is_stale()
+            if self.stale:
+                # The failure this catches answers 200 to every request, so
+                # every check short of loading the page says it is healthy.
+                # `next build` while `next start` is running replaces the build
+                # underneath it: the server keeps its old build id in memory
+                # and serves HTML pointing at chunks that no longer exist. The
+                # WebView shows "This page couldn't load" and the overlay's own
+                # diagnosis was "is `next start` running on 3100?" — while it
+                # plainly was.
+                log.error(
+                    "the server on :%d is serving a build that no longer "
+                    "exists on disk (the app was rebuilt under it). The panel "
+                    "will not load. Stop it and let the overlay start its own: "
+                    "pkill -f next-server", self.port,
+                )
+            else:
+                log.info(":%d already served — leaving it alone", self.port)
             return True
 
         node = find_node()
@@ -174,6 +214,15 @@ class PageServer:
         log.error("the page server did not answer in %.0fs — see %s",
                   START_TIMEOUT, self.log_path)
         return False
+
+    def _is_stale(self) -> bool:
+        on_disk = self.orb_dir / ".next" / "BUILD_ID"
+        try:
+            want = on_disk.read_text().strip()
+        except Exception:
+            return False
+        got = served_build_id(self.port)
+        return bool(got and want and got != want)
 
     # ——— keeping it alive ———
 

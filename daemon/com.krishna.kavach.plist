@@ -62,11 +62,23 @@
 
     <!-- Restart if it dies, but not in a tight loop: a crash-looping process
          that holds the microphone is worse than one that stays down. -->
+    <!--
+      Restart however it exits, not only on a crash.
+
+      This was {SuccessfulExit: false} — "come back from a crash, respect a
+      clean stop" — on the reasoning that a process holding the microphone
+      should stay stopped when you stop it. It exited cleanly at 16:37:50 with
+      no error, no traceback and no crash report; launchd left it down, and the
+      orb went on showing scripted demo data for ten minutes as though the
+      brain were alive.
+
+      The reasoning named the wrong stop mechanism. A deliberate stop is
+      `launchctl bootout gui/$UID/com.krishna.kavach`, which unloads the job
+      whatever this says. Leaving a clean exit unhandled only covered a case
+      nobody asked for, at the cost of the one that happened.
+    -->
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
     <key>ThrottleInterval</key>
     <integer>30</integer>
 

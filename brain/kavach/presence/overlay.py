@@ -245,6 +245,8 @@ class OverlayWindow:
         #: Set by BridgeListener. False means no voice loop has
         #: ever answered, so nothing can make this orb active.
         self.bridge_connected = False
+        #: Set by __main__ so the panel can toggle the camera.
+        self.camera_gate = None
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
         #: §17. The full snapshot, for the menubar. Same hand-off rule as
@@ -597,11 +599,39 @@ class OverlayWindow:
                 controller.enable()
             else:
                 controller.disable()
+        elif command == "gestures":
+            # The G key's replacement. G is a no-op in the panel by design —
+            # the camera lives in this process, not in the page — and no
+            # keydown reaches a non-activating panel regardless, so without
+            # this the only way to stop the camera was Ghost mode, which also
+            # stops the microphone.
+            gate = self.camera_gate
+            if gate is None:
+                log.warning("no camera gate — gestures cannot be toggled")
+            elif value:
+                gate.start()
+                self.set_gestures(gate.running)
+            else:
+                gate.apply(True)      # same path ghost mode uses to close it
+                self.set_gestures(False)
         elif command == "quit":
             if self.on_quit is not None:
                 self.on_quit()
         else:
             log.warning("unknown panel command %r", command)
+
+    def set_gestures(self, on: bool) -> None:
+        """Tell the page whether the camera is actually running.
+
+        Pushed rather than guessed: in the panel the tracker lives in this
+        process, so a label the page worked out for itself would be a guess —
+        and a menu that misreports the camera is worse than no menu.
+        """
+        log.info("gestures %s", "on" if on else "off")
+        self.web.evaluateJavaScript_completionHandler_(
+            f"window.__kavachGestures && window.__kavachGestures({str(bool(on)).lower()})",
+            lambda *_: None,
+        )
 
     def reload(self) -> None:
         """Re-fetch the page, bypassing every cache.

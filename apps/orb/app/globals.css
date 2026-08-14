@@ -1346,3 +1346,22 @@ html.kv-overlay.kv-fullscreen .talk-btn {
   }
   .kv-overlay .shield-sep { margin: 2px 6px; }
 }
+
+/* The panel's honesty badge.
+   The DEMO (MOCK) label existed only in the window branch, so a panel with a
+   dead brain showed scripted states and a transcript about a 9am standup with
+   nothing to say it was fiction. */
+.overlay-brain {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--kv-dim, #8a8f98) 45%, transparent);
+  font-size: 0.55rem;
+  letter-spacing: 0.16em;
+  color: var(--kv-dim, #8a8f98);
+}
+.overlay-brain.is-mock {
+  border-color: color-mix(in srgb, #ff9c4d 60%, transparent);
+  color: #ffb84d;
+}
