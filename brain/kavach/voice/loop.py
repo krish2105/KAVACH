@@ -514,7 +514,9 @@ class VoiceLoop:
         #
         # The cost is deliberate: KAVACH answers to one person. An assistant
         # that acts on whatever the room says is the failure §7 exists to stop.
-        if self.voiceprint is not None and self.voiceprint.is_enrolled:
+        # `gating`, not `is_enrolled`: the two used to be the same thing, so
+        # the only way to stop checking was to delete the voiceprint.
+        if self.voiceprint is not None and self.voiceprint.gating:
             result = self.voiceprint.verify(audio, sample_rate=16_000)
             if not result.accepted:
                 log.info("voice did not match the enrolled speaker "

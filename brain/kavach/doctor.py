@@ -185,6 +185,10 @@ def check_voice_gates() -> list[Check]:
                          "run `uv run kavach-enrol --spoken`"))
         return out
 
+    if not vp.enabled:
+        out.append(Check("voice", "speaker verification", WARN,
+                         "enrolled but switched OFF — any voice can command "
+                         "KAVACH. `uv run kavach-speaker on`"))
     out.append(Check("voice", "voiceprint enrolled", PASS,
                      f"threshold {vp.threshold:.3f}"))
     try:

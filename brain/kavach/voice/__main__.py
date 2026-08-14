@@ -220,7 +220,16 @@ def main(argv: list[str] | None = None) -> int:
         # Louder than a wrong list: not knowing what is allowed is a reason to
         # look, and a confident wrong answer is not.
         print(f"  allowlist  UNREADABLE — {exc}")
-    print(f"  identity   {'voiceprint enrolled' if Voiceprint().is_enrolled else 'NOT enrolled — anyone can confirm'}")
+    # `gating`, not `is_enrolled`. Reporting "enrolled" while the gate is
+    # switched off would be the same lie the allowlist line used to tell.
+    _vp = Voiceprint()
+    if _vp.gating:
+        _identity = "voiceprint enrolled"
+    elif _vp.is_enrolled:
+        _identity = "enrolled but OFF — any voice is acted on (kavach-speaker on)"
+    else:
+        _identity = "NOT enrolled — anyone can confirm"
+    print(f"  identity   {_identity}")
     print(f"  kill       ⌃⌥⌘K, menu bar, or `kavach kill`")
     print("─" * 62)
     sys.stdout.flush()

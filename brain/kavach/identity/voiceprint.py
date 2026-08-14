@@ -75,6 +75,8 @@ class VerificationResult:
 
 class Voiceprint:
     def __init__(self, path: Path | str = DEFAULT_PATH, device: str = "cpu"):
+        #: Enrolled means gated. See `gating`.
+        self.enabled = True
         self.path = Path(path)
         self.device = device
         self._encoder = None
@@ -95,6 +97,10 @@ class Voiceprint:
             self.threshold = float(data["threshold"])
             self.enrolled_seconds = float(data.get("seconds", 0.0))
             self.calibrated = bool(data.get("calibrated", False))
+            # Enrolled means on. A profile written before this existed has no
+            # `enabled` key, and defaulting it to False would silently drop
+            # the §7 speaker gate for anyone who upgrades.
+            self.enabled = bool(data.get("enabled", True))
             log.info("voiceprint loaded (threshold %.3f)", self.threshold)
         except Exception:
             # A corrupt profile must not be treated as a valid one.
@@ -110,6 +116,7 @@ class Voiceprint:
             threshold=self.threshold,
             seconds=self.enrolled_seconds,
             calibrated=self.calibrated,
+            enabled=self.enabled,
         )
         self.path.chmod(0o600)  # biometric data
 
@@ -117,10 +124,47 @@ class Voiceprint:
     def is_enrolled(self) -> bool:
         return self._mean is not None
 
+    @property
+    def gating(self) -> bool:
+        """Whether a turn will actually be checked against this voice.
+
+        The one question the voice loop should ask. It used to ask
+        `is_enrolled`, which conflated "we know your voice" with "we are
+        checking it" — and left `forget()` as the only way to stop checking,
+        so turning the gate off for five minutes meant re-recording your
+        voiceprint afterwards.
+        """
+        return self.is_enrolled and self.enabled
+
+    def enable(self, log=None) -> None:
+        """Resume gating on the enrolled voice."""
+        self._set_enabled(True, log)
+
+    def disable(self, log=None) -> None:
+        """Stop gating, keeping the enrolment.
+
+        Logged, because this is the moment KAVACH stops caring who is
+        speaking — a security state change, not a preference.
+        """
+        self._set_enabled(False, log)
+
+    def _set_enabled(self, enabled: bool, action_log=None) -> None:
+        self.enabled = enabled
+        if self.is_enrolled:
+            self._save()
+        log_msg = "voiceprint.enabled" if enabled else "voiceprint.disabled"
+        logger_line = ("speaker verification ON" if enabled
+                       else "speaker verification OFF — any voice will be acted on")
+        log.warning(logger_line)
+        if action_log is not None:
+            action_log.append(log_msg, enabled=enabled,
+                              enrolled=self.is_enrolled)
+
     def forget(self) -> None:
         """Delete the profile. Biometric data should be easy to revoke."""
         self._mean = None
         self.calibrated = False
+        self.enabled = True     # so a fresh enrolment starts gated
         self.path.unlink(missing_ok=True)
 
     # ——— embedding ———

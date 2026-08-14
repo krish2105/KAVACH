@@ -258,7 +258,7 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 9 — Remote access | in progress — mostly delivered by Phase 7's transport; needs the tailnet leg proven |
 | 10 — Tiered memory | mostly built (`kavach/memory/store.py`, sqlite-vec). **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
-| 12 — Speaker ID | built (Resemblyzer, threshold 0.613, margin 0.196). The **config toggle** is the missing piece. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
+| 12 — Speaker ID | **complete** — `kavach-speaker on/off`. `Voiceprint.gating` (enrolled AND enabled) is what the loop asks; `is_enrolled` conflated "we know your voice" with "we are checking it", leaving `forget()` as the only way to stop checking. Enrolled defaults to ON so an upgrade cannot silently drop the gate, the setting persists, and both directions are logged. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
 | 13 — Explainability | **complete** — `reason`/`intent` in the snapshot and the STATUS panel. `respond()` now publishes its decision; before, an API turn computed and logged a route the HUD never saw |
 | 21 — Hinglish speech | **complete** — `kavach-stt` registry + GGML conversion. Stock stays default |
 | 14 — Ghost mode | **complete** — `kavach/privacy/ghost.py`. Stops mic **and** camera, suppresses *perception* logging only |
