@@ -125,6 +125,22 @@ def play(speech: Speech, blocking: bool = True) -> None:
         sd.wait()
 
 
+def last_playback_status():
+    """PortAudio's callback flags from the last finished playback, or None.
+
+    An underflow here is the difference between "the audio we generated was
+    wrong" and "the audio we generated never reached the speakers in time".
+    Nothing else in the stack can tell those apart, and they have opposite
+    fixes.
+    """
+    import sounddevice as sd
+
+    try:
+        return sd.get_status()
+    except Exception:
+        return None
+
+
 def stop_playback() -> None:
     """Cut audio immediately.
 

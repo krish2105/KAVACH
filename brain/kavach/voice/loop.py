@@ -900,3 +900,19 @@ class VoiceLoop:
 
         self.state.amplitude = 0.0
         self.publish()
+
+        # Diagnostic (2026-08-14, spoken replies reported as "fuzzy"). The
+        # samples themselves are clean — written to a WAV and played by afplay
+        # they are fine — and the same sd.play() call is clean in a standalone
+        # process with the mic open and every core loaded. So the question is
+        # whether the audio reaches the device intact, which only PortAudio can
+        # answer.
+        status = tts_mod.last_playback_status()
+        elapsed = time.monotonic() - started
+        log.info("playback: %.2fs audio at %d Hz, peak %.3f, took %.2fs, status=%s",
+                 duration, speech.sample_rate,
+                 float(np.max(np.abs(speech.audio))) if len(speech.audio) else 0.0,
+                 elapsed, status if status else "clean")
+        if status:
+            log.warning("PORTAUDIO REPORTED %s during playback — the audio did "
+                        "not reach the device intact", status)
