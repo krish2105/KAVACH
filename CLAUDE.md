@@ -539,6 +539,74 @@ And on the destructive path: `router → claude (needs tools to act)`, then the
 agent spoke the action back and waited a second time before calling anything.
 Two independent gates, both holding.
 
+### …and code with hands beats a model with hands
+
+`reasoning/actions.py`. Escalating `open Notes` to the Claude route fixed the
+lie, at the price of a model call, an MCP server and a subprocess for something
+`osascript` does directly. `MacActions` runs it locally through the same four
+gates, in this order — **kill switch → allowlist → script → log**:
+
+```
+'open Notes'              → ok=True  confirm=False  140.9ms  "Opened Notes."
+'set the volume to 69'    → ok=True  confirm=False  198.2ms  "Volume 69."
+'open Mail'               → ok=False confirm=True     0.2ms  "Mail isn't on your allowlist…"
+'what did I do yesterday' → declined (escalates)       0.0ms
+kill switch latched       → "The kill switch is latched, so I'm not doing anything."
+```
+
+Notes actually opened, and the log carries `action.app_open`, `action.volume`,
+`action.refused` and `killswitch.blocked` with their arguments. **140ms, not
+the ~50ms predicted** — `osascript` process spawn is the floor, and it is still
+a different order of magnitude from a model round trip, and offline.
+
+Two properties are load-bearing:
+
+* **A recognised action is always answered, even to say it failed.** Anything
+  `handle()` returns None for falls through to the local 3B model — the
+  tool-less narrator this whole path exists to keep away from action requests.
+  A timeout counts as failure: "did it work?" is not answered by "we stopped
+  waiting".
+* **The transcript never reaches AppleScript.** The name in the script is
+  `Allowlist.canonical_name()`'s spelling, so `open notes` runs
+  `tell application "Notes"`. Injection is ruled out by construction, not by
+  escaping — and the name charset excludes `"`, `\` and `;`, so those make a
+  string *not an app name* rather than something to escape and run.
+
+**Deviation from the plan, deliberate.** The plan said `_ACTIONABLE_INTENTS`
+would shrink to only what has no local handler. It cannot:
+`test_router_actionable.py` asserts `open Notes` reaches the tool route, and
+shrinking the set turns that test red. §B says never modify a test to make code
+pass. So the router is **unchanged**, and the action path runs inside
+`respond()` beside `_handle_music` — which is the established shape for
+"deterministic action, no model". Anything `MacActions` declines still escalates
+to the agent, so the tested guarantee is kept *and* the fast path exists.
+
+**Media control was already local** (`music.py`), so it is not duplicated here —
+two paths for one intent is how one of them goes stale. One fix was needed
+though: with no player running, `_handle_music` fell back to an
+installed-but-not-running app, so **"volume up" launched Apple Music in order to
+turn its volume up**. Volume commands now decline when nothing is playing and
+reach the system volume instead.
+
+#### Widening the allowlist by voice — and the decision it leaves you
+
+The user chose "ask to add it" over a flat refusal for an unlisted app. It reuses
+the existing pending-confirmation machinery (no second consent path), the
+bundle-id lookup doubles as an existence check so a mis-transcription cannot
+leave a permanent grant, and the entry records `added by voice, <date>`.
+
+**Speaker verification is load-bearing here in a way it is not elsewhere.**
+Without it the allowlist is widenable by anything that can produce speech in the
+room. `Voiceprint.gating` must be on or the add is refused and logged — a
+missing voiceprint is a refusal, not a bypass.
+
+**Unresolved, and yours to decide:** `test_allowlist.py::test_nothing_is_allowed_that_was_not_approved`
+reads the real file and fails on any app not listed in its `APPROVED` dict. So
+the first app you add by voice turns the suite red until you add a line there.
+That is arguably the test doing its job — an addition that arrives unnoticed is
+exactly what it guards against — but a red suite as a notification mechanism is
+a choice, not an accident. **The test was not touched.**
+
 ### The clock must never reach a language model
 
 A model with no clock does not decline — it guesses. KAVACH answered "twenty

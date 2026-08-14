@@ -97,6 +97,88 @@ def test_does_not_match_on_substrings(allowlist):
     assert not allowlist.is_allowed("com.apple.SafariTechnologyPreview")
 
 
+def test_canonical_name_returns_the_file_spelling(allowlist):
+    """What goes into an AppleScript is the approved spelling, never the
+    transcript. "open notes" is matched case-insensitively and executed as
+    `tell application "Notes"` — so a name that is not already on the list
+    cannot reach a script at all."""
+    assert allowlist.canonical_name("notes") == "Notes"
+    assert allowlist.canonical_name("com.apple.Safari") == "Safari"
+    assert allowlist.canonical_name("Mail") is None
+
+
+# ═══ growing the list ═══
+#
+# §C says the allowlist grows only by asking. `add` is what "yes" does — it is
+# reached from one place, behind a spoken confirmation *and* speaker
+# verification (see test_actions.py). These tests are about the write itself:
+# that it records why, that it cannot be done silently, and that it cannot
+# damage the rest of the file.
+
+import json  # noqa: E402  — used only by the write tests below
+
+
+@pytest.fixture
+def writable(tmp_path):
+    """A copy of the real file, so these tests never edit the repo's."""
+    path = tmp_path / "allowlist.json"
+    path.write_text(Allowlist().path.read_text())
+    return Allowlist(path)
+
+
+def test_add_persists_the_app(writable):
+    writable.add("Mail", "com.apple.mail", reason="added by voice, 2026-08-14")
+
+    assert writable.is_allowed("Mail")
+    assert Allowlist(writable.path).is_allowed("com.apple.mail"), \
+        "the addition did not survive a reload — it was never written"
+
+
+def test_add_records_why(writable):
+    writable.add("Mail", "com.apple.mail", reason="added by voice, 2026-08-14")
+
+    entry = next(e for e in Allowlist(writable.path).entries
+                 if e["name"] == "Mail")
+    assert entry["reason"] == "added by voice, 2026-08-14"
+
+
+def test_add_refuses_an_entry_with_no_reason(writable):
+    """An app arriving with no recorded reason is exactly the failure
+    `test_nothing_is_allowed_that_was_not_approved` exists to catch."""
+    for reason in ("", "   ", None):
+        with pytest.raises(ValueError):
+            writable.add("Mail", "com.apple.mail", reason=reason)
+    assert not writable.is_allowed("Mail")
+
+
+def test_add_refuses_an_incomplete_entry(writable):
+    for name, bundle_id in (("", "com.apple.mail"), ("Mail", ""),
+                            (None, None)):
+        with pytest.raises(ValueError):
+            writable.add(name, bundle_id, reason="because")
+
+
+def test_adding_twice_does_not_duplicate(writable):
+    writable.add("Mail", "com.apple.mail", reason="first")
+    writable.add("Mail", "com.apple.mail", reason="second")
+
+    names = [e["name"] for e in Allowlist(writable.path).entries]
+    assert names.count("Mail") == 1
+
+
+def test_add_leaves_the_rest_of_the_file_intact(writable):
+    """The iPhone is governed by tool, not by app, and its section has nothing
+    to do with adding a Mac app. A rewrite that dropped it would silently widen
+    the phone's grants."""
+    before = json.loads(writable.path.read_text())
+    writable.add("Mail", "com.apple.mail", reason="added by voice")
+    after = json.loads(writable.path.read_text())
+
+    assert after["devices"]["iphone"] == before["devices"]["iphone"]
+    assert after["confirm_always"] == before["confirm_always"]
+    assert after["version"] == before["version"]
+
+
 def test_flags_destructive_actions_for_confirmation(allowlist):
     for action in ("send email to team", "delete the file",
                    "purchase the item", "submit form", "change system_setting"):

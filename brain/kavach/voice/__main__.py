@@ -25,6 +25,8 @@ from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import DEFAULT_MODEL as LOCAL_DEFAULT_MODEL
 from ..reasoning.local import LocalModel
+from ..reasoning.actions import MacActions
+from ..hands.allowlist import Allowlist
 from ..hands.confirm import VoiceConfirmer
 from ..api.confirm import ApiConfirmer, EitherConfirmer, PendingRegistry
 from ..privacy.meetings import MeetingWatcher
@@ -135,17 +137,27 @@ def main(argv: list[str] | None = None) -> int:
         # agent constructed without one gets no tools at all (§7).
         agent = ClaudeAgent(gate=None)  # replaced below once the loop exists
 
+    # ONE allowlist object, shared by the local action path and the MCP gate.
+    # It is already one *list* gating both paths; two loaded copies would make
+    # it two lists again the moment voice adds an app — the tools would keep
+    # denying it until the next restart, for no reason anyone could see.
+    allowlist = Allowlist()
+    voiceprint = Voiceprint()
+    actions = MacActions(allowlist=allowlist, kill_switch=ks,
+                         voiceprint=voiceprint)
+
     voice = VoiceLoop(
         kill_switch=ks,
         router=router,
         local=local,
         agent=agent,
+        actions=actions,
         models_dir=Path(args.models_dir),
         wake_model=Path(args.wake_model) if args.wake_model else find_wake_model(),
         stt_model=args.stt_model,
         use_wake_word=not args.no_wake_word,
         # Gates every turn, not just confirmations.
-        voiceprint=Voiceprint(),
+        voiceprint=voiceprint,
     )
 
     # The confirmer needs the loop (for its mic and voice), and the gate
@@ -167,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         # itself does not need to know which happened.
         gate = ToolGate(
             kill_switch=ks,
+            allowlist=allowlist,
             confirmer=EitherConfirmer(
                 VoiceConfirmer(voice, voiceprint=voiceprint),
                 ApiConfirmer(pending_registry),
@@ -212,10 +225,10 @@ def main(argv: list[str] | None = None) -> int:
     # Read, never recited. This line was a string literal that had drifted
     # four apps behind the file it was describing.
     try:
-        from ..hands.allowlist import Allowlist
-
-        _allowed = Allowlist().app_names()
-        print(f"  allowlist  {', '.join(_allowed)}")
+        # The shared object, not a fresh read: this is the same list the
+        # actions and the gate are holding, so the banner cannot describe a
+        # file while they are enforcing something else.
+        print(f"  allowlist  {', '.join(allowlist.app_names())}")
     except Exception as exc:
         # Louder than a wrong list: not knowing what is allowed is a reason to
         # look, and a confident wrong answer is not.

@@ -84,6 +84,23 @@ class Allowlist:
             return False
         return token in self._names or token in self._bundle_ids
 
+    def canonical_name(self, app: str) -> str | None:
+        """The approved spelling of an app, or None if it isn't on the list.
+
+        Load-bearing for anything that builds an AppleScript: the string that
+        reaches ``tell application "…"`` is this file's spelling, never the
+        transcript. Escaping a transcribed name would also work, and this is
+        stronger — a name that is not already approved never reaches a script
+        at all, so there is nothing to escape.
+        """
+        token = (app or "").strip().casefold()
+        if not token:
+            return None
+        for entry in self.entries:
+            if token in (entry["name"].casefold(), entry["bundle_id"].casefold()):
+                return entry["name"]
+        return None
+
     def check(self, app: str) -> None:
         """Raise :class:`AppNotAllowed` unless the app is on the list."""
         if not self.is_allowed(app):
@@ -92,6 +109,56 @@ class Allowlist:
                 f"{app!r} is not on the KAVACH allowlist. Allowed: {allowed}. "
                 f"Expanding the list is a deliberate decision — edit {self.path}."
             )
+
+    # ——— growing the list ———
+
+    def add(self, name: str, bundle_id: str, reason: str) -> dict:
+        """Add one app, recording why. Returns the entry.
+
+        §C says the list grows only by asking, and until now "asking" meant a
+        human editing this file. Voice can now do it too, which is why the
+        reason is a **required argument** rather than a comment: an entry that
+        cannot say who wanted it is exactly what
+        ``test_nothing_is_allowed_that_was_not_approved`` exists to catch.
+
+        The write is whole-file and atomic (temp file, then rename), and only
+        this device's ``allowed`` array is touched — the iPhone is governed by
+        tool rather than by app, and a rewrite that reshaped its section would
+        silently change grants nobody asked about.
+        """
+        name = (name or "").strip()
+        bundle_id = (bundle_id or "").strip()
+        reason = (reason or "").strip()
+        if not name or not bundle_id:
+            raise ValueError("an allowlist entry needs both a name and a bundle id")
+        if not reason:
+            raise ValueError(
+                "an allowlist entry needs a recorded reason — an app that "
+                "cannot say who approved it must not be added"
+            )
+
+        if self.is_allowed(name) or self.is_allowed(bundle_id):
+            return next(e for e in self.entries
+                        if name.casefold() in (e["name"].casefold(),
+                                               e["bundle_id"].casefold())
+                        or bundle_id.casefold() == e["bundle_id"].casefold())
+
+        entry = {"name": name, "bundle_id": bundle_id, "reason": reason}
+
+        data = json.loads(self.path.read_text())
+        if "allowed" in data:                       # v1, flat
+            data["allowed"].append(entry)
+        else:
+            data["devices"]["mac"]["allowed"].append(entry)
+
+        temp = self.path.with_suffix(".json.tmp")
+        temp.write_text(json.dumps(data, indent=2) + "\n")
+        temp.replace(self.path)                     # atomic: never a half file
+
+        self.entries.append(entry)
+        self._names.add(entry["name"].casefold())
+        self._bundle_ids.add(entry["bundle_id"].casefold())
+        return entry
 
     def needs_confirmation(self, action: str) -> bool:
         """True if the action is destructive or externally visible, and so

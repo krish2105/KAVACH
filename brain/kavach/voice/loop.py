@@ -149,6 +149,7 @@ class VoiceLoop:
         agent=None,
         memory=None,
         voiceprint=None,
+        actions=None,
     ):
         self.ks = kill_switch
         self.publish_fn = publish or (lambda _: None)
@@ -164,6 +165,10 @@ class VoiceLoop:
         self.router = router
         self.local = local
         self.agent = agent
+        # Local macOS actions (app control, system sound). Optional: without
+        # one, those requests escalate to the agent and its MCP tools exactly
+        # as they did before — slower, and still gated.
+        self.actions = actions
         # Optional: with no store the loop simply has no memory, rather
         # than failing. Turns are recorded only when one is wired.
         self.memory = memory
@@ -687,6 +692,29 @@ class VoiceLoop:
             self.state.confidence = 0.99
             return music_reply
 
+        # Local actions — open or quit an app, system volume, mute. The router
+        # sends these to the tool route because a model with no hands would
+        # narrate having done them; code with hands is better still, and passes
+        # the same gates (kill switch → allowlist → script → log) in ~50ms with
+        # no network. Anything it does not recognise returns None and carries
+        # on to the agent, which is the fallback that route already provides.
+        if self.actions is not None:
+            result = self.actions.handle(text, confirmed=confirmed)
+            if result is not None:
+                if result.needs_confirmation and self.pending is not None:
+                    # An unlisted app. Registered so a spoken "confirm" has
+                    # something to answer — the same machinery §7 destructive
+                    # confirmations use, deliberately not a second consent path.
+                    self.pending.register(result.reply, payload=text)
+                self.state.confidence = 0.99
+                # §13: the route the HUD shows must be the one that acted, not
+                # the one the router guessed at before this handler claimed it.
+                self.state.route = "action"
+                self.state.reason = "acted locally — no model involved"
+                self.state.intent = decision.intent or "action"
+                self.publish()
+                return result.reply
+
         # Questions about the world, before the model. The local model can
         # only say it does not know — which is exactly what it did for "what
         # is the weather today" before this existed.
@@ -744,6 +772,16 @@ class VoiceLoop:
 
         player = music_mod.running_player()
         if player is None:
+            if command.action in (music_mod.MusicAction.VOLUME,
+                                  music_mod.MusicAction.VOLUME_UP,
+                                  music_mod.MusicAction.VOLUME_DOWN):
+                # Nothing is playing, so "volume up" means the system volume.
+                # Falling back to an installed-but-not-running player here made
+                # "volume up" *launch Apple Music* in order to turn its volume
+                # up — a request to make a sound louder starting an app that
+                # was making no sound. Declining sends it to MacActions, which
+                # owns the system volume.
+                return None
             for candidate in (music_mod.Player.SPOTIFY, music_mod.Player.MUSIC):
                 if music_mod.installed(candidate):
                     player = candidate

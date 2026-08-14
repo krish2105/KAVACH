@@ -292,6 +292,10 @@ def make_loop(registry, kill_switch, router=None, local=None):
     loop.agent = None
     loop.memory = None
     loop.voiceprint = None
+    # None means app and volume commands escalate rather than running locally,
+    # which is what these tests want — they are about the confirmation flow.
+    # `test_actions.py` wires a real one in and drives `respond()` with it.
+    loop.actions = None
     loop.pending = registry
     from kavach.privacy.ghost import GhostMode
     loop.ghost = GhostMode(log=kill_switch.log)
