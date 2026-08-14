@@ -15,6 +15,7 @@ from .wake import WakeWordDetector
 from .waketune import (
     CALIBRATION_PATH,
     diagnose,
+    record_attempt,
     NEGATIVE_PHRASES,
     NEGATIVE_SECONDS,
     POSITIVE_TAKES,
@@ -141,11 +142,16 @@ def main(argv: list[str] | None = None) -> int:
         # Stamped with the model it was measured on, so it cannot be
         # silently applied to a differently-trained one later.
         save_calibration(cal, model=model)
+        record_attempt(cal, model_name=model.stem, saved=True)
         print(f"  ✓ threshold {cal.threshold:.3f}  (saved)")
         print(f"    {CALIBRATION_PATH}")
         say(f"Calibrated. Threshold {cal.threshold:.2f}.")
     else:
         # Refuse to write a number that only looks calibrated.
+        # Recorded even though nothing is saved: the refusal is correct, and
+        # the numbers behind it are the only evidence of whether a retrain
+        # moved anything.
+        record_attempt(cal, model_name=model.stem, saved=False)
         print(f"  ✗ no separation — your wake word and ordinary speech overlap.")
         print(f"    worst wake take {min(positives):.3f} ≤ best other {max(negatives):.3f}")
         print("    NOT saved. Any threshold here either misses you or fires wrongly.")

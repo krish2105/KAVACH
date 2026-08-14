@@ -213,3 +213,43 @@ def diagnose(cal: Calibration) -> str:
         f"    Try: more takes, spoken as you normally would. Push-to-talk works "
         f"meanwhile."
     )
+
+
+#: Every attempt, including the refusals. Scores only — never audio (§7).
+HISTORY_PATH = CALIBRATION_PATH.parent / "wake-calibration-history.jsonl"
+
+
+def record_attempt(cal: Calibration, model_name: str, saved: bool) -> None:
+    """Append what this run measured, whether or not it was good enough.
+
+    A refused calibration used to write nothing at all. That is right about the
+    threshold — a number that only looks calibrated is worse than none — and
+    wrong about the measurement, which is the only evidence of whether a
+    retrain moved anything. Three separate times the only copy of these numbers
+    was a terminal that scrolled away, and comparing two models on the user's
+    real voice then meant recording it all again.
+
+    Never raises: this is a convenience, and it must not be able to fail the
+    run it is describing.
+    """
+    import datetime
+    import json
+
+    row = {
+        "ts": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "model": model_name,
+        "positives": [round(p, 4) for p in cal.positives],
+        "negatives": [round(n, 4) for n in cal.negatives],
+        "worst_positive": round(min(cal.positives), 4) if cal.positives else None,
+        "best_negative": round(max(cal.negatives), 4) if cal.negatives else None,
+        "margin": round(cal.margin, 4),
+        "separated": cal.separated,
+        "threshold": round(cal.threshold, 4),
+        "saved": saved,
+    }
+    try:
+        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with HISTORY_PATH.open("a") as handle:
+            handle.write(json.dumps(row) + "\n")
+    except Exception:
+        log.debug("could not record the calibration attempt", exc_info=True)
