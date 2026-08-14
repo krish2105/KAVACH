@@ -106,3 +106,36 @@ def test_every_config_names_a_distinct_model(config_path):
 
     assert names.count(load(config_path)["model_name"]) == 1, \
         f"{config_path.name} shares model_name with another config"
+
+
+# ═══ training must run in the environment that has the deps ═══
+#
+# `livekit-wakeword` does not declare seven of its third-party imports. The
+# first v4 run died at the augment step on `torchaudio` — after cloning 1.3GB
+# and injecting 1050 clips — because the steps were launched with the plain
+# venv interpreter, which deliberately does not carry the training group.
+#
+# The worse version of the same failure is documented in pyproject.toml:
+# `onnxscript` is missing at the EXPORT step, which is reached after the
+# training hour has already been spent.
+
+def test_training_steps_run_with_the_training_group():
+    """A grep, like the daemon plists and the local-model name: the mistake is
+    invisible until a long-running step dies partway through."""
+    source = (BRAIN / "kavach" / "voice" / "waketrain_cli.py").read_text()
+
+    assert "--group" in source and "wakeword-training" in source, (
+        "training steps must run through uv with the wakeword-training group, "
+        "or they die on livekit-wakeword's undeclared dependencies"
+    )
+
+
+def test_the_undeclared_dependencies_are_checked_before_the_expensive_work():
+    """Fail in seconds, not after an hour of training."""
+    source = (BRAIN / "kavach" / "voice" / "waketrain_cli.py").read_text()
+
+    preflight = source.index("_preflight()")
+    clone = source.index("_clone(DONOR, TARGET)")
+    assert preflight < clone, "the dependency check runs after the clone"
+    for module in ("torchaudio", "onnxscript"):
+        assert module in source, f"{module} is not checked up front"

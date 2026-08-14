@@ -81,11 +81,36 @@ def _strip_augmented(corpus: Path) -> int:
     return removed
 
 
+#: Training needs a dependency group the runtime deliberately does not carry —
+#: torch alone dwarfs the rest of this project. `sys.executable` is the plain
+#: venv and does not have it, so every step goes through uv with the group.
+_STEP_CMD = ["uv", "run", "--group", "wakeword-training", "python",
+             "-m", "livekit.wakeword"]
+
+#: Third-party imports `livekit-wakeword` never declares. An AST scan found
+#: seven; these are the ones this pipeline reaches. Checked up front because
+#: the failures are spread across the run — torchaudio dies at augment, and
+#: onnxscript dies at export, which is AFTER the training hour is spent.
+_REQUIRED = ("torchaudio", "audiomentations", "onnx", "onnxscript", "nltk")
+
+
+def _preflight() -> list[str]:
+    """Which required modules are missing from the step environment."""
+    missing: list[str] = []
+    for name in _REQUIRED:
+        result = subprocess.run(
+            [*_STEP_CMD[:-2], "-c", f"import {name}"],
+            cwd=BRAIN, capture_output=True,
+        )
+        if result.returncode != 0:
+            missing.append(name)
+    return missing
+
+
 def _run_step(name: str, *args: str) -> int:
     print(f"\n{RULE}\n  {name}\n{RULE}", flush=True)
     started = time.time()
-    result = subprocess.run([sys.executable, "-m", "livekit.wakeword", *args],
-                            cwd=BRAIN)
+    result = subprocess.run([*_STEP_CMD, *args], cwd=BRAIN)
     took = time.time() - started
     if result.returncode != 0:
         print(f"\n  ✗ {name} failed after {took / 60:.1f} min", file=sys.stderr)
@@ -102,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="show what would happen and stop")
     parser.add_argument("--skip-clone", action="store_true",
                         help="the v4 corpus is already prepared")
+    parser.add_argument("--resume", action="store_true",
+                        help="corpus already cloned AND injected — go straight "
+                             "to augment. Injecting twice would duplicate every "
+                             "recording in the corpus, silently.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -119,13 +148,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # The plan first, always. The share is the number that decides whether the
     # run is worth the hours, and it must be visible before they are spent.
-    if not args.skip_clone and TARGET.exists():
+    if not (args.skip_clone or args.resume) and TARGET.exists():
         print(f"  ✗ {TARGET} already exists.", file=sys.stderr)
         print("    Remove it to start clean, or pass --skip-clone to reuse it.",
               file=sys.stderr)
         return 1
 
-    probe = TARGET if args.skip_clone else DONOR
+    probe = TARGET if (args.skip_clone or args.resume) else DONOR
     try:
         preview = plan_injection(takes, into=probe / "positive_train",
                                  copies=args.copies)
@@ -134,8 +163,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"  recordings   {len(preview.sources)}")
-    print(f"  copies each  {args.copies}")
-    print(f"  {preview.describe()}")
+    if args.resume:
+        # NOT preview.describe(). On a resume the corpus already contains the
+        # injected clips, so describing a fresh injection reports the share a
+        # SECOND pass would produce — a plausible, wrong number, which is the
+        # exact failure mode this project keeps finding.
+        total = next_clip_number(TARGET / "positive_train")
+        donor = next_clip_number(DONOR / "positive_train")
+        real = max(0, total - donor)
+        print(f"  corpus       {total} clips, {real} of them real "
+              f"→ real audio is {real / total * 100:.0f}%")
+    else:
+        print(f"  copies each  {args.copies}")
+        print(f"  {preview.describe()}")
     print(f"  config       {CONFIG.name}")
     print(RULE)
 
@@ -143,10 +183,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ⚠  real audio would be {preview.share * 100:.0f}% of the positive")
         print("     set. Below about 10% a retrain is unlikely to move anything.")
 
+    # Before the clone and the injection, not after. The first run of this
+    # died on `torchaudio` at the augment step, having already copied 1.3GB
+    # and written 1050 clips — and the same class of failure waits at export,
+    # where `onnxscript` is missing and the training hour is already spent.
+    missing = _preflight()
+    if missing:
+        print(f"\n  ✗ the training environment is missing: {', '.join(missing)}")
+        print("    These are livekit-wakeword's undeclared dependencies.")
+        print("    Fix: uv sync --group wakeword-training")
+        return 1
+    print("  deps         ok (torchaudio, audiomentations, onnx, onnxscript, nltk)")
+
     if args.plan:
         return 0
 
-    if not args.skip_clone:
+    if not (args.skip_clone or args.resume):
         print(f"\n  cloning {DONOR.name} → {TARGET.name} "
               f"(reusing generated clips rather than re-running VoxCPM)")
         started = time.time()
@@ -156,11 +208,17 @@ def main(argv: list[str] | None = None) -> int:
               f"removed {removed} stale augmented clips")
 
     into = TARGET / "positive_train"
-    before = next_clip_number(into)
-    plan = plan_injection(takes, into=into, copies=args.copies)
-    written = inject(plan)
-    print(f"  injected {len(written)} real clips "
-          f"({before} → {next_clip_number(into)})")
+    if args.resume:
+        # Deliberately not re-injected. A second pass would add another copy of
+        # every recording under fresh indices — the corpus would look larger and
+        # be more lopsided, and nothing would say so.
+        print(f"  resuming with {next_clip_number(into)} clips already in place")
+    else:
+        before = next_clip_number(into)
+        plan = plan_injection(takes, into=into, copies=args.copies)
+        written = inject(plan)
+        print(f"  injected {len(written)} real clips "
+              f"({before} → {next_clip_number(into)})")
 
     config = str(CONFIG.relative_to(BRAIN))
     for name, step in (("augment + extract features", "augment"),
