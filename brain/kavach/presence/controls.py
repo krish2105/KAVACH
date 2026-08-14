@@ -213,6 +213,27 @@ class Geometry:
         self.clamp()
         self.save()
 
+    def starts_hidden(self) -> bool:
+        """Whether the panel should come up minimised.
+
+        Not simply `self.hidden`. Both flags persist, they contradict each
+        other, and the invisible one used to win: with `always` and `hidden`
+        both saved, the orb appeared for a turn and vanished a second later,
+        for ever, because `hidden` is honoured at startup and never expires.
+
+            01:08:41  page rendering on
+            01:08:42  page rendering PAUSED
+            01:08:43  page rendering on
+            01:08:44  page rendering PAUSED
+
+        `always` wins because it is the more deliberate of the two — it comes
+        from the menu, while `hidden` is one key away from push-to-talk
+        (⌃⌥⌘H against ⌃⌥⌘Space) and was set by accident twice in one night.
+        Minimising still works in the moment; this is only about what the panel
+        does on launch.
+        """
+        return bool(self.hidden) and not self.always
+
     def set_hidden(self, hidden: bool) -> None:
         self.hidden = hidden
         self.save()

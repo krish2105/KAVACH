@@ -189,7 +189,11 @@ def test_a_minimised_panel_does_not_reappear_at_launch():
     start = source.index("self.panel.setContentView_(self.web)")
     body = source[start:start + 900]
 
-    assert "if self.geometry.hidden:" in body, \
+    # `starts_hidden()` rather than the raw flag since 2026-08-15: it is the
+    # same check at the same place, and it additionally lets "always visible"
+    # override a saved minimise. The guarantee this test exists for — that
+    # startup honours Minimise at all — is unchanged.
+    assert "if self.geometry.starts_hidden():" in body, \
         "the window is ordered front at startup regardless of Minimise"
 
 
@@ -371,3 +375,56 @@ def test_the_thresholds_bracket_what_was_measured():
     human double-press and deliberate presses start vanishing."""
     assert _REPEAT_S < CHORD_REPEAT_GAP_S < 0.5
     assert HOLD_GAP_S > _INITIAL_DELAY_S
+
+
+# ═══ "always visible" must beat "minimised" ═══
+#
+# Both are persisted, they contradict each other, and the invisible one won.
+# Live, with `always: true` and `hidden: true` on disk, the orb showed for a
+# turn and then vanished about a second later — every time:
+#
+#     01:08:41  page rendering on
+#     01:08:42  page rendering PAUSED
+#     01:08:43  page rendering on
+#     01:08:44  page rendering PAUSED
+#
+# `hidden` persists across launches, so once it is set the panel starts
+# minimised for ever and `always` is dead the moment it is saved. The user hit
+# it twice in one night, because ⌃⌥⌘H is one key from ⌃⌥⌘Space.
+#
+# `always` is the more recent, more deliberate instruction — you cannot set it
+# by accident — so it wins.
+
+def test_always_visible_defeats_a_saved_minimise():
+    from kavach.presence.controls import Geometry
+
+    geometry = Geometry(hidden=True, always=True)
+
+    assert geometry.starts_hidden() is False, (
+        "the panel would start minimised despite 'always visible' — the "
+        "setting you cannot see beating the one you chose"
+    )
+
+
+def test_a_saved_minimise_is_honoured_on_its_own():
+    from kavach.presence.controls import Geometry
+
+    assert Geometry(hidden=True, always=False).starts_hidden() is True
+
+
+def test_an_unminimised_panel_starts_visible():
+    from kavach.presence.controls import Geometry
+
+    for always in (False, True):
+        assert Geometry(hidden=False, always=always).starts_hidden() is False
+
+
+def test_minimising_still_works_while_always_is_on():
+    """The rule is about STARTUP, not about the toggle. ⌃⌥⌘H must still hide
+    the panel in the moment, or the key stops doing anything."""
+    from kavach.presence.controls import Geometry
+
+    geometry = Geometry(always=True)
+    geometry.set_hidden(True)
+
+    assert geometry.hidden is True

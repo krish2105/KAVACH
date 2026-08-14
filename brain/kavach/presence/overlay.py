@@ -387,7 +387,7 @@ class OverlayWindow:
         # every launch without a brain, and vanished on the first snapshot once
         # one arrived. Same flag, two different behaviours, depending on
         # something the user cannot see.
-        if self.geometry.hidden:
+        if self.geometry.starts_hidden():
             log.info("panel starts minimised — any size, full screen or "
                      "reset position from the 🛡 menu brings it back")
         else:
