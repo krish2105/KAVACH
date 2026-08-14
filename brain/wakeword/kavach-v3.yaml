@@ -1,0 +1,124 @@
+# Custom "KAVACH" wake word, take 3 — the acoustic channel.
+#
+# WHY THIS EXISTS
+#
+# v2 fixed the accent problem and still could not hear the user. Measured
+# through the same detector, one utterance, two ways:
+#
+#     the file, straight in                        0.858
+#     the same audio played and re-recorded         0.019
+#     whisper on that recording        "Kavec, Kavec, testing 1, 2, 3."
+#
+# Whisper reads it perfectly, so the audio is present and intelligible. The
+# model scores it at noise. The user's own takes were 0.041-0.089 — the same
+# number, not a quirk of their voice.
+#
+# The cause was not the voices. **v2 trained with no room reverb and no
+# background noise at all.** The trainer downloads MIT RIRs and MUSAN noise
+# into `data_dir`, but reads them from `augmentation.rir_paths`, which defaults
+# to ./data/rirs — a path derived independently of data_dir. v2 never set it,
+# so the defaults pointed at directories that do not exist. Its own training
+# log says so:
+#
+#     INFO  Downloading MIT room impulse responses
+#     INFO  RIRs downloaded.
+#     INFO  No background noise files found, skipping background_train
+#
+# 270 impulse responses and 465 noise files sat unused, and `apply_rir()`
+# returns the audio unchanged when the list is empty — silently. The model
+# therefore only ever saw clean studio synthesis, which is exactly what stops
+# working the moment a speaker, a room and a microphone are involved.
+#
+# So v3 is v2 with the channel put back. The voices, phrases and negatives are
+# deliberately unchanged, so that if this works it is clear WHY it worked.
+#
+# Train:  uv run livekit-wakeword run wakeword/kavach-v3.yaml
+# Verify: the real-mic evaluation, not the training metrics. v2 reported
+#         recall 0.835 / FPPH 0.00 on synthetic held-out clips from the same
+#         generator as its training data, and scored 0.019 on real audio.
+model_name: kavach_v3
+
+target_phrases:
+  - "kavach"
+  - "hey kavach"
+  - "kuvach"
+  - "kavatch"
+
+custom_negative_phrases:
+  - "cover"
+  - "kayak"
+  - "catch"
+  - "the coverage"
+  - "have a"
+  - "car wash"
+  - "cabbage"
+  - "package"
+  # Phrases the real user actually says to it. "what time is it" scored 0.789
+  # against v1 — higher than any true positive — so it is now an explicit
+  # negative rather than something we hope the model figures out.
+  - "what time is it"
+  - "open my calendar for tomorrow"
+  - "delete the draft in notes"
+  - "what is on my screen"
+  - "search my files for"
+
+tts_backend: voxcpm
+
+voxcpm_tts:
+  # Weighted toward South Asian English, because that is the voice that has to
+  # work. The rest are kept so the model does not simply swap one narrow
+  # accent for another — it should recognise the word, not a demographic.
+  voice_design_prompts:
+    # — South Asian English —
+    - "A young adult Indian man speaking English with a North Indian accent, clear mid-pitch, moderate pace"
+    - "A young adult Indian man, Hindi-influenced English, warm baritone, natural conversational pace"
+    - "A young adult Indian woman speaking English with an Indian accent, clear voice, moderate pace"
+    - "A middle-aged Indian man, Indian English accent, deep voice, measured pace"
+    - "A young Indian man speaking English quickly and casually, slightly clipped consonants"
+    - "An Indian man speaking English with a South Indian accent, mid pitch, articulate"
+    - "A young adult Pakistani man speaking English, clear diction, moderate pace"
+    - "An Indian woman speaking English with a Mumbai accent, bright voice, quick pace"
+    - "A young Indian man speaking softly and close to the microphone, relaxed tone"
+    - "An Indian man speaking English with emphasis on the first syllable, firm delivery"
+    # — Sanskrit / Hindi phonetics, since the word is Sanskrit —
+    - "A Hindi speaker pronouncing a Sanskrit word, precise retroflex consonants, even pace"
+    - "An Indian man pronouncing a Sanskrit term with traditional pronunciation, deliberate"
+    # — Other accents, so the model generalises rather than narrowing —
+    - "A young adult woman, clear mid-pitch voice, moderate pace, calm and professional"
+    - "A young adult man, warm baritone, steady pace, friendly and articulate"
+    - "A middle-aged man, British English accent, deep resonant voice"
+    - "A young adult woman, Australian English accent, bright tone, quick pace"
+    - "An older adult man, American English, gravelly tenor, matter-of-fact"
+    - "A young man speaking English with a slight East Asian accent, even pace"
+    # — Realistic delivery conditions, not just realistic voices —
+    - "A person speaking from across a room, slightly distant and quiet"
+    - "A person speaking quickly and a little slurred, casual and unhurried"
+    - "A person half-whispering, low energy, close to the microphone"
+    - "A person calling out slightly louder than normal, raised voice"
+
+data_dir: ./wakeword/data
+output_dir: ./wakeword/output
+
+# VoxCPM is far slower per clip than piper — piper managed ~9 clips/s, and a
+# neural TTS will not come close. n_samples is therefore set from a measured
+# rate rather than copied from v1's 10000. See `bench_voxcpm.py`.
+n_samples: 3000
+n_samples_val: 600
+n_background_samples: 200
+n_background_samples_val: 40
+
+steps: 50000
+target_fp_per_hour: 0.2
+
+# ─────────────────────────────────────────────────────────────────────────
+# The fix. Absolute-from-project-root paths, matching where `setup` actually
+# downloads them, rather than the defaults that silently resolved to nothing.
+# `kavach-wakecheck` refuses to train if either of these is empty.
+augmentation:
+  rir_paths:
+    - ./wakeword/data/rirs
+  background_paths:
+    - ./wakeword/data/backgrounds
+  # Two augmented variants per clip instead of one. The channel is now the
+  # thing being varied, and one sample of it per utterance is thin.
+  rounds: 2

@@ -163,6 +163,42 @@ anything that has been through a speaker, a room and a microphone.
 **Retraining needs real recorded audio or convincing augmentation (room
 impulse responses, mic colouring, noise) — not more synthetic voices.**
 
+**v3 (2026-08-14) — the augmentation was never switched on.** The trainer
+downloads MIT RIRs and MUSAN noise into `data_dir`, then reads them from
+`augmentation.rir_paths`, which defaults to `./data/rirs` — derived
+independently of `data_dir`. v2 never set it, so **270 impulse responses and
+465 noise files sat unused** and `apply_rir()` returned every clip unchanged,
+silently. v2's own log says `No background noise files found, skipping`.
+
+`wakeword/kavach-v3.yaml` sets both paths and doubles the rounds.
+`tests/test_wakeword_config.py` fails the build if either resolves to zero
+files, which is the only symptom that bug ever had.
+
+Measured, 30 wake clips and 30 others played through the speakers and recorded
+back (`wakeword/realmic_eval.py`, which scores every model on the *same*
+recordings so the room is held constant):
+
+| model | wake worst→best (median) | best other | margin |
+|---|---|---|---|
+| kavach (v1) | 0.257 → 0.978 (0.690) | 0.638 | −0.381 |
+| kavach_v2 | 0.010 → 0.648 (0.162) | 0.244 | −0.234 |
+| kavach_v3 | 0.014 → 0.901 (0.173) | **0.148** | **−0.135** |
+
+And on clean files, v3 gave nothing up — the weakest voice nearly doubled:
+`af_heart` 0.857, `am_michael` 0.844, `bf_emma` **0.590** (v2: 0.301), worst
+negative 0.006 (v2: 0.013).
+
+**So v3 is strictly better and still not usable.** All three overlap through a
+microphone; the median wake clip scores 0.173, well under the 0.30 floor.
+Channel augmentation was a real bug and a real improvement, and it was not
+sufficient on its own.
+
+Caveat on that table: playing TTS through a laptop speaker puts the audio
+through **two** channels (speaker colouring, then mic), where a human voice
+goes through one. It is a harsher test than reality, so treat it as a lower
+bound. **The decisive measurement is `uv run kavach-waketune` against v3 on the
+user's actual voice** — two minutes, and it has not been run yet.
+
 Two hypotheses were tested and **refuted** on the way, both worth not
 repeating:
 
