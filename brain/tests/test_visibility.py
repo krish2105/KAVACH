@@ -245,3 +245,129 @@ def test_gesture_state_is_pushed_not_guessed():
                / "overlay.py").read_text()
 
     assert "__kavachGestures" in overlay
+
+
+# ═══ a held chord is one press, not ninety-six ═══
+#
+# Measured 2026-08-14 from ~/.kavach/logs/overlay.log — 200 lines of it:
+#
+#     96  kavach.presence: talk requested        81ms apart
+#     33  page rendering on
+#     33  page rendering PAUSED
+#
+# macOS auto-repeat on ⌃⌥⌘Space. Each repeat opened its own websocket to the
+# bridge (`BridgeFollower.send` gives every command a fresh connection, on the
+# documented assumption that commands arrive "once every few minutes") and
+# queued another turn — `record_ms: 15009` on a turn nobody spoke for fifteen
+# seconds.
+#
+# Two fixes were tried before this one, and instrumenting the handler is what
+# killed each of them.
+#
+# **"Ignore events with isARepeat set"** — dead hotkey. ⌃Space is macOS's own
+# input-source switcher, so the chord's first keyDown is often eaten before a
+# global monitor sees it, and the whole hold arrives flagged as repeats:
+#
+#     23:16:38,671  chord: keyCode=49 repeat=True     13 in a row,
+#     23:16:38,752  chord: keyCode=49 repeat=True     no repeat=False at all
+#     ...
+#     23:16:41,155  chord: keyCode=49 repeat=False    the next press, 1.7s later
+#
+# **"Debounce on time alone"** — two turns per hold. macOS waits ~500ms before
+# it starts repeating, so the first repeat is further from the press than any
+# debounce that still feels responsive:
+#
+#     23:20:53,005  chord accepted  (inf since the last)    the press
+#     23:20:53,503  chord accepted  (0.50s since the last)  the first repeat
+#
+# So both signals are used, each for what it can prove: the gap kills the 83ms
+# stream and rescues an eaten first press, the flag kills the first repeat.
+
+from kavach.presence.controls import (  # noqa: E402
+    CHORD_REPEAT_GAP_S,
+    HOLD_GAP_S,
+    should_act_on_hotkey,
+)
+
+#: The measured auto-repeat interval on this machine.
+_REPEAT_S = 0.083
+
+#: The measured "Delay Until Repeat" before the stream starts.
+_INITIAL_DELAY_S = 0.50
+
+#: No previous chord event — the gap is effectively unbounded.
+_FIRST = 1e9
+
+
+def _count(events) -> int:
+    """Replay (gap, is_repeat) pairs the way the handler does: every chord
+    event updates the clock, whether or not it is acted on."""
+    return sum(
+        should_act_on_hotkey(modifiers_held=True, seconds_since_previous=gap,
+                             is_repeat=repeat)
+        for gap, repeat in events
+    )
+
+
+def test_a_fresh_press_acts():
+    assert should_act_on_hotkey(modifiers_held=True,
+                                seconds_since_previous=_FIRST, is_repeat=False)
+
+
+def test_the_wrong_modifiers_never_act():
+    for gap in (_FIRST, _REPEAT_S):
+        for repeat in (False, True):
+            assert not should_act_on_hotkey(modifiers_held=False,
+                                            seconds_since_previous=gap,
+                                            is_repeat=repeat)
+
+
+def test_an_auto_repeat_does_not_act_again():
+    assert not should_act_on_hotkey(modifiers_held=True,
+                                    seconds_since_previous=_REPEAT_S,
+                                    is_repeat=True)
+
+
+def test_the_first_repeat_after_the_delay_does_not_act_again():
+    """The second firing, measured. Time alone cannot tell this from someone
+    pressing again 500ms later; the flag can."""
+    assert not should_act_on_hotkey(modifiers_held=True,
+                                    seconds_since_previous=_INITIAL_DELAY_S,
+                                    is_repeat=True)
+
+
+def test_a_hold_with_the_press_delivered_is_one_action():
+    """The 23:20 sequence: press, 500ms, then the 83ms stream."""
+    events = ([(_FIRST, False), (_INITIAL_DELAY_S, True)]
+              + [(_REPEAT_S, True)] * 20)
+
+    assert _count(events) == 1, f"one hold fired {_count(events)} times"
+
+
+def test_a_hold_whose_first_press_was_eaten_still_acts_once():
+    """The 23:16 burst: thirteen repeats and not one fresh press among them.
+    Filtering on the flag gives zero here — a hotkey that does nothing."""
+    events = [(_FIRST, True)] + [(_REPEAT_S, True)] * 12
+
+    assert _count(events) == 1, f"an eaten first press fired {_count(events)} times"
+
+
+def test_holding_for_two_seconds_is_still_one_action():
+    events = ([(_FIRST, False), (_INITIAL_DELAY_S, True)]
+              + [(_REPEAT_S, True)] * int(2.0 / _REPEAT_S))
+
+    assert _count(events) == 1, f"a two-second hold fired {_count(events)} times"
+
+
+def test_letting_go_and_pressing_again_acts_again():
+    """Measured: the next press came 1.7s after the last repeat. Debouncing
+    must not turn a deliberate second press into nothing."""
+    assert should_act_on_hotkey(modifiers_held=True, seconds_since_previous=1.7,
+                                is_repeat=False)
+
+
+def test_the_thresholds_bracket_what_was_measured():
+    """Under the repeat interval and the repeats get through again; over a
+    human double-press and deliberate presses start vanishing."""
+    assert _REPEAT_S < CHORD_REPEAT_GAP_S < 0.5
+    assert HOLD_GAP_S > _INITIAL_DELAY_S

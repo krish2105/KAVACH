@@ -34,13 +34,14 @@ import argparse
 import logging
 import signal
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import AppKit
 import Foundation
 
-from .controls import MenuBarController
+from .controls import MenuBarController, should_act_on_hotkey
 from .overlay import LINGER_SECONDS, BridgeListener, OverlayWindow
 
 RULE = "─" * 62
@@ -372,10 +373,35 @@ def main(argv: list[str] | None = None) -> int:
         | AppKit.NSEventModifierFlagCommand
     )
 
+    #: When the last chord event arrived, for the debounce. A one-element list
+    #: rather than a nonlocal: the handler is a closure AppKit calls, and a
+    #: mutable cell keeps the state where the reader expects it.
+    _last_chord = [float("-inf")]
+
     def on_key(event) -> None:
         try:
+            # Modifiers first, and alone: this monitor sees every keystroke on
+            # the machine, and nothing about an ordinary one should be read,
+            # logged or acted on. Everything below runs only for the chord.
             if (event.modifierFlags() & MODIFIERS) != MODIFIERS:
                 return
+
+            # Debounced on time, not on `isARepeat` — the chord's first
+            # keyDown is often eaten by macOS's own ⌃Space handler, so the
+            # flag cannot be trusted to mark the start of a hold. See
+            # `should_act_on_hotkey` for the measurement.
+            now = time.monotonic()
+            gap = now - _last_chord[0]
+            _last_chord[0] = now
+            repeat = bool(event.isARepeat())
+            log.debug("chord: keyCode=%s gap=%.3fs repeat=%s",
+                      event.keyCode(), gap, repeat)
+            if not should_act_on_hotkey(modifiers_held=True,
+                                        seconds_since_previous=gap,
+                                        is_repeat=repeat):
+                return
+            log.info("chord accepted: keyCode=%s repeat=%s (%.2fs since the last)",
+                     event.keyCode(), repeat, gap)
             # keyCode, not characters. With Control held,
             # charactersIgnoringModifiers is unreliable, and ⌃Space is macOS's
             # own input-source switcher — so the chord may be reshaped or eaten

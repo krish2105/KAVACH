@@ -68,6 +68,72 @@ def should_hide_when_idle(bridge_connected: bool, always: bool) -> bool:
     return bool(bridge_connected)
 
 
+#: Auto-repeat arrives every ~83ms. Anything closer together than this is the
+#: keyboard repeating, not a person pressing twice — nobody taps a chord seven
+#: times a second, and a deliberate second press is always slower than this.
+CHORD_REPEAT_GAP_S = 0.15
+
+
+#: macOS waits before it starts repeating a held key — "Delay Until Repeat",
+#: about 500ms by default. That gap is longer than any debounce that still
+#: feels responsive, so the *first* repeat of a hold looks exactly like a fresh
+#: press if you only measure time. `isARepeat` is what separates them, and it
+#: is trustworthy in this direction: an event flagged as a repeat always is
+#: one. It is only the absence of the flag that cannot be relied on, because
+#: the first keyDown may never arrive at all.
+HOLD_GAP_S = 1.5
+
+
+def should_act_on_hotkey(modifiers_held: bool,
+                         seconds_since_previous: float,
+                         is_repeat: bool = False) -> bool:
+    """Whether a global-hotkey event is a press worth acting on.
+
+    macOS repeats a held key about every 83ms, each one an ordinary keyDown.
+    The handler filtered on modifiers and key code only, so holding ⌃⌥⌘Space
+    asked for a turn a dozen times a second — 96 "talk requested" lines in 200
+    of `~/.kavach/logs/overlay.log`, 81ms apart. Every one opened its own
+    websocket to the bridge and queued another turn, which is how a turn ends
+    up with `record_ms: 15009`.
+
+    **The obvious fix — ignore events with `isARepeat` set — does not work
+    here**, and the log says why:
+
+        23:16:38,671  repeat=True      13 consecutive repeats,
+        23:16:38,752  repeat=True      with no repeat=False before them
+        ...
+        23:16:41,155  repeat=False     the next press, 1.7s later
+
+    ⌃Space is macOS's own input-source switcher, so the *first* keyDown of the
+    chord is often consumed before a global monitor sees it and only the
+    repeats arrive. Dropping repeats therefore drops the entire hold: the
+    hotkey silently does nothing, which is worse than firing too often.
+
+    So both signals are used, each for what it can actually prove:
+
+    * **the gap** rejects the 83ms repeat stream, and rescues a hold whose
+      first press was eaten — there the earliest event we see is the press, as
+      far as anything here can tell.
+    * **`isARepeat`** rejects the *first* repeat, which arrives ~500ms after
+      the press and is otherwise indistinguishable from someone pressing
+      again. Measured, before this: one hold, two turns.
+
+          23:20:53,005  chord accepted  (inf since the last)    the press
+          23:20:53,503  chord accepted  (0.50s since the last)  the first repeat
+
+    A flagged repeat is therefore only honoured when nothing has arrived for
+    `HOLD_GAP_S` — long enough that it cannot belong to a hold already in
+    progress.
+    """
+    if not modifiers_held:
+        return False
+    if seconds_since_previous < CHORD_REPEAT_GAP_S:
+        return False
+    if is_repeat and seconds_since_previous < HOLD_GAP_S:
+        return False
+    return True
+
+
 @dataclass
 class Geometry:
     """Where the panel sits and how big it is."""
