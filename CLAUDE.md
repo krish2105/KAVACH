@@ -498,6 +498,47 @@ using the model that **narrates its reasoning as prose**, and KAVACH spoke 581
 characters of "Hmm, the user is asking..." out loud. A test greps
 `voice/__main__.py` for a model name so the two cannot diverge again.
 
+### A model with no hands must never answer a request that needs them
+
+The Hands layer had **never executed a single tool** — the action log's
+complete event list was router/voice/killswitch/ghost/api/web only. Not because
+the gate was broken, but because requests never reached it.
+
+`_SIMPLE_PATTERNS` treated *simple to understand* as *simple to answer*, so
+`open|launch|quit|close X`, volume, mute and media control were routed LOCAL —
+to a 3B chat model with no tools. Measured through the running system:
+
+```
+POST /command  "open Notes"
+→ route=local · "simple intent (app control)"
+→ reply: "Notes are now open."
+→ Notes was not open.
+```
+
+A confident claim to have done something it never did — the worst failure this
+project can produce. `_ACTIONABLE_INTENTS` now sends those to the tool route.
+
+**The same fault sat behind the §7 confirmation, which is worse.** "delete the
+note called X" matched no regex, so the local classifier called it simple and
+its verdict was returned unchanged. The confirmation fired correctly and
+blocked it; once approved, the resumed turn routed local *again* and answered
+"There is no note called KAVACH" with no tool call. Nothing was deleted — and
+the same path could as easily have said "Deleted." The classifier branch now
+overrides a LOCAL verdict whenever `confirm` is set, which the short-utterance
+branch below it had always done.
+
+Proven live afterwards, first tool calls this project has ever made:
+
+```
+Bash                                  DENY   'Bash' is not a recognised MCP tool
+ToolSearch                            allow  loads tool schemas only
+mcp__macos-automator__execute_script  allow  → Notes actually opened
+```
+
+And on the destructive path: `router → claude (needs tools to act)`, then the
+agent spoke the action back and waited a second time before calling anything.
+Two independent gates, both holding.
+
 ### The clock must never reach a language model
 
 A model with no clock does not decline — it guesses. KAVACH answered "twenty

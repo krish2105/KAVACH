@@ -28,15 +28,19 @@ def router():
 
 
 # ——— simple intents stay local (fast, free, offline) ———
+#
+# This list used to include "open Safari", "open Notes", "launch Calendar",
+# "volume up" and "mute", and it was wrong — see test_router_actionable.py.
+# Measured through the running system: `open Notes` routed local, KAVACH
+# replied "Notes are now open.", and Notes was not open. A model with no tools
+# cannot open anything, so it described doing it instead.
+#
+# What is left here is what code can genuinely answer: the clock and the date,
+# read from the system in a few milliseconds without a model.
 
 @pytest.mark.parametrize("utterance", [
     "what time is it",
     "what's the date today",
-    "open Safari",
-    "open Notes",
-    "launch Calendar",
-    "volume up",
-    "mute",
     "what's the battery level",
 ])
 def test_simple_intents_route_local(router, utterance):
@@ -139,9 +143,16 @@ def test_decisions_are_recorded_for_tuning(router):
 
 
 def test_decision_serialises_for_the_action_log(router):
-    payload = router.route("open Safari").as_dict()
+    payload = router.route("what time is it").as_dict()
     assert {"route", "confidence", "reason", "needs_confirmation"} <= set(payload)
     assert payload["route"] == "local"
+
+    # And the other route serialises too — `open Safari` moved to claude when
+    # it turned out the local model was describing actions rather than taking
+    # them (see test_router_actionable.py).
+    acted = router.route("open Safari").as_dict()
+    assert acted["route"] == "claude"
+    assert acted["intent"] == "app control"
 
 
 # ——— the past-tense carve-out must not open a hole ———
@@ -237,9 +248,17 @@ def test_screen_questions_are_not_treated_as_destructive(router):
 
 
 def test_screen_wording_does_not_hijack_unrelated_requests(router):
-    """'open Safari' must stay a simple local intent even though a screen is
-    involved in the abstract."""
-    assert router.route("open Safari").route is Route.LOCAL
+    """'open Safari' must stay recognised as app control, not be swept up by
+    the screen-reading patterns.
+
+    It routes to claude now — it needs tools to actually open anything — but
+    the point of this test is unchanged: the *intent* must still be read as app
+    control rather than as a request to look at the screen.
+    """
+    decision = router.route("open Safari")
+
+    assert decision.intent == "app control"
+    assert "screen" not in decision.reason.lower()
 
 
 # ═══ the clock must never reach a language model ═══

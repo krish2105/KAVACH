@@ -134,6 +134,30 @@ _SIMPLE_PATTERNS = [
 ]
 _SIMPLE_RE = [(re.compile(p, re.I), label) for p, label in _SIMPLE_PATTERNS]
 
+#: Intents that require *acting on the machine*, not merely understanding it.
+#:
+#: The distinction this table exists to make: "simple to understand" is not
+#: "simple to answer". `clock` is answerable here — code reads the system clock
+#: in 7ms and no model is involved. `app control` is not answerable by anything
+#: without hands.
+#:
+#: Measured before this existed, through the running system:
+#:
+#:     POST /command  "open Notes"
+#:     → route=local · "simple intent (app control)"
+#:     → reply: "Notes are now open."
+#:     → Notes was not open.
+#:
+#: The local model has no tools, so it did the only thing it could and
+#: described a plausible outcome. Sending these to the tool route means they
+#: pass the §7 gate, the allowlist and the confirmation flow — and either
+#: happen or are refused, never narrated.
+_ACTIONABLE_INTENTS = frozenset({
+    "app control",
+    "system control",
+    "media control",
+})
+
 # ——— signals that a request needs judgement ———
 _COMPLEX_PATTERNS = [
     (r"\band then\b", "multi-step"),
@@ -221,6 +245,14 @@ class Router:
 
         for pattern, label in _SIMPLE_RE:
             if pattern.search(text):
+                if label in _ACTIONABLE_INTENTS:
+                    # Understood perfectly, and unanswerable without tools.
+                    return RoutingDecision(
+                        Route.CLAUDE, 0.9,
+                        f"needs tools to act ({label})",
+                        needs_confirmation=confirm, utterance=text,
+                        intent=label,
+                    )
                 return RoutingDecision(
                     Route.LOCAL, 0.92, f"simple intent ({label})",
                     needs_confirmation=confirm, utterance=text, intent=label,
@@ -232,6 +264,23 @@ class Router:
             classified = self._classify_with_local(text)
             if classified is not None:
                 classified.needs_confirmation = confirm
+                if confirm and classified.route is Route.LOCAL:
+                    # A destructive request is an action, whatever the
+                    # classifier thinks. Measured: "delete the note called
+                    # KAVACH scratch" was classified simple and routed local;
+                    # §7 blocked it and asked, and once approved the resumed
+                    # turn came back here, routed local again, and answered
+                    # "There is no note called KAVACH" with no tool call and
+                    # nothing deleted. It could as easily have said "Deleted."
+                    #
+                    # The short-utterance branch below already guards on
+                    # `not confirm`; this one did not.
+                    return RoutingDecision(
+                        Route.CLAUDE, 0.6,
+                        "needs tools to act (destructive, classifier said simple)",
+                        needs_confirmation=True, utterance=text,
+                        intent=classified.intent,
+                    )
                 return classified
 
         # Still unsettled. Short utterances are almost always simple commands;
