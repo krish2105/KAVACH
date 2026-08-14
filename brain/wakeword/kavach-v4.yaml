@@ -1,0 +1,124 @@
+# Custom "KAVACH" wake word, take 4 — a human voice, at last.
+#
+# WHY THIS EXISTS
+#
+# v3 put the acoustic channel back into training (room impulse responses and
+# background noise, which v2 had silently skipped) and it worked, on its own
+# terms: bf_emma 0.301 → 0.590, false alarms halved, real-mic margin −0.234 →
+# −0.135. And it did not help this user at all. Measured 2026-08-14, and again
+# on 2026-08-15 with the calibration ruler corrected:
+#
+#     wake takes   0.0262  0.0428  0.0614  0.1522  0.0770
+#     others       0.0101  0.0059  0.0483  0.0103
+#     margin       -0.0221   overlaps, not saved
+#
+# The best real take scores 0.152 against a 0.30 floor while ordinary speech
+# reaches 0.048. Everything is near zero — the negatives too. The model is not
+# confusing the wake word with speech; it is deaf to this microphone.
+#
+# What every previous version has in common: **every training clip was
+# synthesised.** v1 heard one American TTS voice, v2 heard accent-diverse
+# VoxCPM, v3 heard the same voices through simulated rooms. None of them has
+# ever heard a human being.
+#
+# So v4 is v3 with the user's own recordings in the positive set. The synthetic
+# corpus, voices, phrases, negatives and channel augmentation are deliberately
+# unchanged, so that if this works it is clear WHY it worked — the same
+# discipline v3 followed.
+#
+# HOW THE REAL AUDIO GETS IN
+#
+# `WakeWordConfig` has no field for it: positives can only come from
+# `target_phrases` through TTS. That absence is the whole reason for three
+# synthetic-only models. The injection therefore happens below the config, at
+# the corpus on disk, as clean round-0 clips numbered after the generated ones
+# — so the library augments, positions, names and extracts them exactly as it
+# does its own. See `kavach/voice/wakeinject.py`.
+#
+#     uv run kavach-waketrain
+#
+# 42 recordings against 3000 synthetic clips is 1%, which would not move
+# anything, so each take is copied and every copy draws its own impulse
+# response, background noise and alignment jitter.
+#
+# HONEST CAVEAT
+#
+# 42 takes from one speaker, one room, one sitting. This can overfit to that
+# room, and three retrains have already failed. Judge it on `realmic_eval.py`
+# against v3 on the SAME recordings — never on the training metrics, which
+# reported recall 0.835 / FPPH 0.00 for a model that scored 0.019 on real
+# audio.
+model_name: kavach_v4
+
+target_phrases:
+  - "kavach"
+  - "hey kavach"
+  - "kuvach"
+  - "kavatch"
+
+custom_negative_phrases:
+  - "cover"
+  - "kayak"
+  - "catch"
+  - "the coverage"
+  - "have a"
+  - "car wash"
+  - "cabbage"
+  - "package"
+  - "what time is it"
+  - "open my calendar for tomorrow"
+  - "delete the draft in notes"
+  - "what is on my screen"
+  - "search my files for"
+
+tts_backend: voxcpm
+
+voxcpm_tts:
+  voice_design_prompts:
+    # — South Asian English —
+    - "A young adult Indian man speaking English with a North Indian accent, clear mid-pitch, moderate pace"
+    - "A young adult Indian man, Hindi-influenced English, warm baritone, natural conversational pace"
+    - "A young adult Indian woman speaking English with an Indian accent, clear voice, moderate pace"
+    - "A middle-aged Indian man, Indian English accent, deep voice, measured pace"
+    - "A young Indian man speaking English quickly and casually, slightly clipped consonants"
+    - "An Indian man speaking English with a South Indian accent, mid pitch, articulate"
+    - "A young adult Pakistani man speaking English, clear diction, moderate pace"
+    - "An Indian woman speaking English with a Mumbai accent, bright voice, quick pace"
+    - "A young Indian man speaking softly and close to the microphone, relaxed tone"
+    - "An Indian man speaking English with emphasis on the first syllable, firm delivery"
+    # — Sanskrit / Hindi phonetics, since the word is Sanskrit —
+    - "A Hindi speaker pronouncing a Sanskrit word, precise retroflex consonants, even pace"
+    - "An Indian man pronouncing a Sanskrit term with traditional pronunciation, deliberate"
+    # — Other accents, so the model generalises rather than narrowing —
+    - "A young adult woman, clear mid-pitch voice, moderate pace, calm and professional"
+    - "A young adult man, warm baritone, steady pace, friendly and articulate"
+    - "A middle-aged man, British English accent, deep resonant voice"
+    - "A young adult woman, Australian English accent, bright tone, quick pace"
+    - "An older adult man, American English, gravelly tenor, matter-of-fact"
+    - "A young man speaking English with a slight East Asian accent, even pace"
+    # — Realistic delivery conditions, not just realistic voices —
+    - "A person speaking from across a room, slightly distant and quiet"
+    - "A person speaking quickly and a little slurred, casual and unhurried"
+    - "A person half-whispering, low energy, close to the microphone"
+    - "A person calling out slightly louder than normal, raised voice"
+
+data_dir: ./wakeword/data
+output_dir: ./wakeword/output
+
+n_samples: 3000
+n_samples_val: 600
+n_background_samples: 200
+n_background_samples_val: 40
+
+steps: 50000
+target_fp_per_hour: 0.2
+
+# Unchanged from v3, and load-bearing: these were the fix that v2 was missing,
+# and `tests/test_wakeword_config.py` fails the build if either resolves to
+# zero files — the only symptom that bug ever had.
+augmentation:
+  rir_paths:
+    - ./wakeword/data/rirs
+  background_paths:
+    - ./wakeword/data/backgrounds
+  rounds: 2

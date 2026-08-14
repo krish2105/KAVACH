@@ -27,7 +27,7 @@ CONFIGS = sorted((BRAIN / "wakeword").glob("kavach*.yaml"))
 
 #: The config that produces the model actually in use. Older ones are kept for
 #: provenance and are not held to this.
-CURRENT = BRAIN / "wakeword" / "kavach-v3.yaml"
+CURRENT = BRAIN / "wakeword" / "kavach-v4.yaml"
 
 
 def load(path: Path) -> dict:
