@@ -42,6 +42,32 @@ MIN_SIZE = 200.0
 MAX_SIZE = 1200.0
 
 
+def screen_frames() -> list[tuple[float, float, float, float]]:
+    """Every display's visible frame. Empty when there is no window server."""
+    try:
+        return [(f.origin.x, f.origin.y, f.size.width, f.size.height)
+                for f in (s.visibleFrame() for s in AppKit.NSScreen.screens())]
+    except Exception:
+        return []
+
+
+def should_hide_when_idle(bridge_connected: bool, always: bool) -> bool:
+    """Whether an idle orb should fade off screen.
+
+    "Hide when idle" needs something that can stop being idle. The overlay
+    fades in when KAVACH starts listening — but if the voice loop is not
+    running, no snapshot ever arrives, the state is idle forever, and the rule
+    means simply "hide". After a reboot that is an empty desktop and a menu bar
+    item, with nothing to say whether the orb is broken or merely quiet.
+
+    So an orb with no brain behind it stays on screen. It is the only way to
+    see that it is there at all, and the menu is reachable from it.
+    """
+    if always:
+        return False
+    return bool(bridge_connected)
+
+
 @dataclass
 class Geometry:
     """Where the panel sits and how big it is."""
@@ -76,6 +102,54 @@ class Geometry:
 
     def clamp(self) -> None:
         self.size = max(MIN_SIZE, min(MAX_SIZE, self.size))
+        self.clamp_position()
+
+    def clamp_position(self) -> None:
+        """Pull the panel back onto a display that still exists.
+
+        The position is remembered, so a panel last seen on an external monitor
+        keeps those coordinates after the monitor is unplugged — and a window
+        at x=-2400 is invisible in exactly the same way a minimised one is,
+        while insisting it is shown.
+
+        `None` is already the convention for "bottom-right of the current
+        screen, worked out when it is shown", so that is what it resets to.
+        """
+        if self.x is None or self.y is None:
+            return
+
+        frames = screen_frames()
+        if not frames:
+            # No window server (tests, headless). Nothing to check against, and
+            # guessing would move a panel that may be perfectly placed.
+            return
+
+        if not any(self.x < fx + fw and self.x + self.size > fx
+                   and self.y < fy + fh and self.y + self.size > fy
+                   for fx, fy, fw, fh in frames):
+            log.info("panel was off every display (%.0f, %.0f) — recentring",
+                     self.x, self.y)
+            self.x = self.y = None
+
+    def apply_size(self, size: float) -> None:
+        """Choose a size — which also means "and let me see it".
+
+        Resizing used to leave `hidden` alone, so every entry in the size menu
+        resized a window nobody could see. The click landed, the geometry
+        changed, the panel stayed gone; from outside it was a menu that did
+        nothing. Asking for Large while minimised can only mean one thing.
+
+        Minimise itself is untouched: `set_hidden(True)` still hides, because
+        deliberately staying out of the way is the point of it.
+        """
+        self.size = size
+        self.hidden = False
+        self.clamp()
+        self.save()
+
+    def set_hidden(self, hidden: bool) -> None:
+        self.hidden = hidden
+        self.save()
 
     def step_size(self, direction: int) -> None:
         """Move one named size up or down, then fall back to a ratio.

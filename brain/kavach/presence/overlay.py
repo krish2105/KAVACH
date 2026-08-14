@@ -35,7 +35,7 @@ import Foundation
 
 import WebKit
 
-from .controls import Geometry
+from .controls import Geometry, should_hide_when_idle
 
 log = logging.getLogger("kavach.presence.overlay")
 
@@ -61,9 +61,14 @@ class OverlayWindow:
 
     def set_size(self, size: float) -> None:
         """Resize about the panel's centre, so it does not walk across the
-        screen as you step through sizes."""
-        self.geometry.size = size
-        self.geometry.clamp()
+        screen as you step through sizes.
+
+        Also un-minimises. Resizing used to leave `hidden` alone, so while the
+        panel was minimised every entry in the size menu resized a window
+        nobody could see — the click landed, the geometry changed, and nothing
+        appeared. Asking for Large can only mean you want to look at it.
+        """
+        self.geometry.apply_size(size)
         frame = self.panel.frame()
         centre_x = frame.origin.x + frame.size.width / 2
         centre_y = frame.origin.y + frame.size.height / 2
@@ -74,6 +79,7 @@ class OverlayWindow:
         )
         self.web.setFrame_(Foundation.NSMakeRect(0, 0, new, new))
         self._remember()
+        self.show()
 
     def set_interactive(self, interactive: bool) -> None:
         """Trade click-through for direct manipulation, temporarily.
@@ -130,6 +136,10 @@ class OverlayWindow:
         a presence. This simply resizes to the screen and remembers where it
         came from, so it still floats above everything you were doing.
         """
+        # Filling the display is the least ambiguous "show me the orb" there
+        # is, so it cannot leave the panel minimised either.
+        self.geometry.hidden = False
+
         if self._fullscreen_restore is not None:
             self.panel.setFrame_display_animate_(self._fullscreen_restore, True, True)
             self._fullscreen_restore = None
@@ -192,6 +202,8 @@ class OverlayWindow:
             self.hide()
 
     def reset_position(self) -> None:
+        # Asking for it back in the corner means asking to see it.
+        self.geometry.hidden = False
         self.geometry.x = None
         self.geometry.y = None
         self.panel.setFrame_display_animate_(self._default_rect(), True, True)
@@ -230,6 +242,9 @@ class OverlayWindow:
         self.interactive = False
         self._visible = False
         self._hide_at: float | None = None
+        #: Set by BridgeListener. False means no voice loop has
+        #: ever answered, so nothing can make this orb active.
+        self.bridge_connected = False
         #: Written by the bridge thread, read by the main-thread timer.
         self.pending_state: str | None = None
         #: §17. The full snapshot, for the menubar. Same hand-off rule as
@@ -361,7 +376,20 @@ class OverlayWindow:
         )
         self.panel.setContentView_(self.web)
         self.web.addSubview_(self._drag_view)
-        self.panel.orderFrontRegardless()
+
+        # Minimised stays minimised across a restart, and that has to be
+        # honoured *here*.
+        #
+        # It used to be enforced only inside apply_state(), which nothing calls
+        # when no voice loop is running — so a minimised orb reappeared on
+        # every launch without a brain, and vanished on the first snapshot once
+        # one arrived. Same flag, two different behaviours, depending on
+        # something the user cannot see.
+        if self.geometry.hidden:
+            log.info("panel starts minimised — any size, full screen or "
+                     "reset position from the 🛡 menu brings it back")
+        else:
+            self.panel.orderFrontRegardless()
 
     # ——— visibility ———
 
@@ -432,7 +460,17 @@ class OverlayWindow:
         """Show for active states; linger briefly before hiding on idle."""
         # Minimised means minimised — a turn should not override an explicit
         # request to stay out of the way.
-        if self.geometry.hidden or self.is_fullscreen:
+        #
+        # Enforced rather than merely returned early. Returning left the flag
+        # unenforced whenever no voice loop was running (nothing calls this at
+        # all then), so Minimise worked with a brain and did nothing without
+        # one. Every route back out — any size, full screen, reset position —
+        # clears it, so this can no longer be a state you cannot leave.
+        if self.geometry.hidden:
+            if self._visible:
+                self.hide()
+            return
+        if self.is_fullscreen:
             return
         # Move/resize keeps the panel on screen so there is something to grab,
         # but it must not pin it there forever: left on, it held the panel
@@ -448,10 +486,16 @@ class OverlayWindow:
                     self._on_interactive_change()
             else:
                 return
-        if self.geometry.always or self.is_fullscreen:
+        if self.is_fullscreen or not should_hide_when_idle(
+                self.bridge_connected, self.geometry.always):
             # Full screen is a mode you entered deliberately. Letting the idle
             # linger timer dismiss it means the orb fills the display and then
             # silently disappears a few seconds later, which reads as a crash.
+            #
+            # The same applies with no voice loop running: nothing will ever
+            # set an active state, so "hide when idle" would mean "hide", and
+            # the orb would be invisible from login onwards with no way to
+            # tell a broken one from a quiet one.
             self.show()
             return
         if state in ACTIVE_STATES:
@@ -591,7 +635,11 @@ class OverlayWindow:
             # hidden window: the events fired, the JS ran, and nothing was ever
             # painted. Reaching for the orb with your hand is as much a reason
             # to be on screen as speaking to it.
-            if not self._visible:
+            if not self._visible and not self.geometry.hidden:
+                # Not while minimised. Hand tracking publishes a
+                # control target every tick, so a hand anywhere
+                # near the camera pulled the panel back on screen
+                # and Minimise looked broken.
                 self.show()
             self._hide_at = None
 
@@ -610,13 +658,21 @@ class OverlayWindow:
                 f"window.__kavachTarget && window.__kavachTarget({payload})",
                 lambda *_: None,
             )
-            if not self._visible:
+            if not self._visible and not self.geometry.hidden:
+                # Not while minimised. Hand tracking publishes a
+                # control target every tick, so a hand anywhere
+                # near the camera pulled the panel back on screen
+                # and Minimise looked broken.
                 self.show()
             self._hide_at = None
 
         scroll, self.pending_scroll = self.pending_scroll, None
         if scroll is not None and getattr(scroll, "engaged", False):
-            if not self._visible:
+            if not self._visible and not self.geometry.hidden:
+                # Not while minimised. Hand tracking publishes a
+                # control target every tick, so a hand anywhere
+                # near the camera pulled the panel back on screen
+                # and Minimise looked broken.
                 self.show()
             self._hide_at = None
             if scroll.dy or scroll.dx:
@@ -701,6 +757,9 @@ class BridgeListener(threading.Thread):
                 try:
                     with connect(self.url, open_timeout=5) as ws:
                         log.info("overlay connected to %s", self.url)
+                        # A brain exists, so "hide when idle" now has an idle
+                        # to come back from.
+                        self.overlay.bridge_connected = True
                         for message in ws:
                             if self._stop.is_set():
                                 return
@@ -724,6 +783,10 @@ class BridgeListener(threading.Thread):
                                 # from this thread.
                                 self.overlay.pending_state = state
                 except Exception as exc:
+                    # The brain is gone. Stop treating idle as a reason to
+                    # hide, or the orb vanishes when the voice loop restarts
+                    # and never comes back on its own.
+                    self.overlay.bridge_connected = False
                     log.debug("bridge unavailable (%s); retrying", exc)
                     self._stop.wait(2.0)
 
