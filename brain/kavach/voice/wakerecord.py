@@ -71,6 +71,8 @@ _MIN_TAKE_RMS = 0.006
 _CLIPPING_PEAK = 0.99
 #: Speech ending within this of the tape's end was probably still going.
 _EDGE_S = 0.15
+#: Shorter than this is a click, a tap or a breath — not a spoken word.
+_MIN_WORD_S = 0.25
 #: Kept either side of the utterance, so a slightly early or late voiced frame
 #: is not shaved off the word.
 _MARGIN_S = 0.12
@@ -170,13 +172,21 @@ def _longest_run(voiced: np.ndarray, bridge: int) -> tuple[int, int] | None:
     return max(runs, key=lambda r: r[1] - r[0])
 
 
-def check_take(audio: np.ndarray) -> TakeCheck:
+def check_take(audio: np.ndarray, expect_word: bool = True) -> TakeCheck:
     """Accept a take and return its trimmed clip, or refuse it and say why.
 
     Each refusal is separate because each teaches the model something
     different and wrong: a whisper that the wake word is quiet, a shout that it
     is distorted, silence that the label is a lie, half a word that half a word
     is the wake word.
+
+    `expect_word` is the class. A positive has to be short — a two-second wake
+    word is not the wake word — while a negative is a *phrase* and is expected
+    to run long. Applying the positive's length limit to both is why a
+    recording session produced 42 wake takes and zero negatives: every prompt
+    like "the quick brown fox jumps over the lazy dog" was refused for being
+    what it was asked to be. The trainer already distinguishes them, aligning
+    positives to the end of the window and centre-padding or cropping negatives.
     """
     if len(audio) == 0:
         return TakeCheck(False, "nothing was recorded")
@@ -194,7 +204,16 @@ def check_take(audio: np.ndarray) -> TakeCheck:
 
     start, end = bounds
     spoken_s = (end - start) / SAMPLE_RATE
-    if spoken_s > CLIP_SECONDS:
+
+    if spoken_s < _MIN_WORD_S:
+        # A 0.30s clip reached the corpus this way — 60ms of sound plus the
+        # margins. A click, a tap or a breath is not a wake word, and in a
+        # training set it teaches that one is.
+        return TakeCheck(
+            False, f"too short ({spoken_s:.2f}s) — that was a sound, not a word"
+        )
+
+    if expect_word and spoken_s > CLIP_SECONDS:
         return TakeCheck(
             False, f"too long ({spoken_s:.1f}s) — just the wake word, nothing else"
         )

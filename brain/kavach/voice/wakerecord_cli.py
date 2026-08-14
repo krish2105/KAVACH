@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections import Counter
 import sys
 import time
 
@@ -61,11 +62,26 @@ def _record(mic: MicStream, seconds: float) -> np.ndarray:
     return np.concatenate(blocks) if blocks else np.zeros(0, dtype=np.float32)
 
 
+#: Consecutive refusals before the session is abandoned. Deliberately high:
+#: the first version gave up after three, which cost a whole sitting to a run
+#: of bad luck and told the user only "something is wrong with the audio" —
+#: true, unactionable, and by then the reasons had scrolled away.
+GIVE_UP_AFTER = 12
+
+
 def _session(mic, directory, wanted: int, prompt_for, say, tone, label: str,
-             max_attempts_each: int = 3) -> int:
-    """Record `wanted` good takes into `directory`. Returns how many landed."""
+             expect_word: bool = True) -> tuple[int, Counter]:
+    """Record `wanted` good takes into `directory`.
+
+    Returns how many landed and a tally of why takes were refused. The tally is
+    the point: a refusal reason seen once is bad luck, the same one forty times
+    is a bug in the checker or a problem with the room, and the two are only
+    distinguishable in aggregate.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     kept = 0
+    refusals: Counter = Counter()
+    in_a_row = 0
 
     while kept < wanted:
         index = next_index(directory)
@@ -77,28 +93,34 @@ def _session(mic, directory, wanted: int, prompt_for, say, tone, label: str,
         if spoken:
             say(spoken)
 
-        for attempt in range(1, max_attempts_each + 1):
-            tone()
-            mic.forget()  # never record KAVACH's own prompt
-            audio = _record(mic, RECORD_SECONDS)
-            result = check_take(audio)
+        tone()
+        mic.forget()  # never record KAVACH's own prompt
+        audio = _record(mic, RECORD_SECONDS)
+        result = check_take(audio, expect_word=expect_word)
 
-            if result.ok:
-                path = save_clip(result.clip, directory, index)
-                kept += 1
-                print(f"  [{kept}/{wanted}] {label:8} {path.name}   ✓")
-                break
+        if result.ok:
+            path = save_clip(result.clip, directory, index)
+            kept += 1
+            in_a_row = 0
+            print(f"  [{kept}/{wanted}] {label:8} {path.name}   ✓")
+            continue
 
-            print(f"  [{kept + 1}/{wanted}] {label:8} refused — {result.reason}")
-            if attempt < max_attempts_each:
-                say("Again please.")
-        else:
-            # Three refusals in a row is a room problem, not a take problem.
-            print(f"\n  ✗ three refused in a row: {result.reason}")
-            say("Something is wrong with the audio. Stopping here.")
-            return kept
+        # Refused takes are retried, not abandoned — the same prompt comes
+        # round again on the next pass.
+        refusals[result.reason.split(" —")[0]] += 1
+        in_a_row += 1
+        print(f"  [{kept}/{wanted}] {label:8} refused — {result.reason}")
+        if in_a_row in (3, 6, 9):
+            say("Again please, right after the tone.")
+        if in_a_row >= GIVE_UP_AFTER:
+            print(f"\n  ✗ {in_a_row} refused in a row — stopping so the corpus "
+                  f"stays clean.")
+            for reason, count in refusals.most_common():
+                print(f"      {count:3}x  {reason}")
+            say("The audio is not coming through cleanly. Stopping here.")
+            break
 
-    return kept
+    return kept, refusals
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -161,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
 
     mic = MicStream().start()
     kept_p = kept_n = 0
+    refusals: Counter = Counter()
     try:
         #: Tone only, except for an occasional nudge. Variety in the corpus is
         #: what stops the model learning one fixed delivery, and it will not
@@ -173,23 +196,29 @@ def main(argv: list[str] | None = None) -> int:
             "Sit back a bit further.",
             "Normally again.",
         ]
-        kept_p = _session(
+        kept_p, refused_p = _session(
             mic, positive_dir, args.positives,
             prompt_for=lambda n: {
                 "spoken": nudges[(n // 10) % len(nudges)] if n and n % 10 == 0 else ""
             },
-            say=say, tone=tone, label="kavach",
+            say=say, tone=tone, label="kavach", expect_word=True,
         )
+        refusals.update(refused_p)
 
-        if kept_p >= args.positives and args.negatives > 0:
+        if args.negatives > 0:
+            # Reached even if the wake takes fell short. The negatives are a
+            # different recording with a different failure mode, and skipping
+            # them because the positives stopped early is how a session ends
+            # with 42 wake takes and zero of anything else.
             say("Now some ordinary phrases, so I can tell them apart.")
-            kept_n = _session(
+            kept_n, refused_n = _session(
                 mic, negative_dir, args.negatives,
                 prompt_for=lambda n: {
                     "spoken": f"Say: {NEGATIVE_PROMPTS[n % len(NEGATIVE_PROMPTS)]}"
                 },
-                say=say, tone=tone, label="other",
+                say=say, tone=tone, label="other", expect_word=False,
             )
+            refusals.update(refused_n)
     except KeyboardInterrupt:
         print("\n  stopped — everything recorded so far is kept")
     finally:
@@ -199,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     print(RULE)
     print(f"  wake takes  {next_index(positive_dir):4}  (+{kept_p} this session)")
     print(f"  other takes {next_index(negative_dir):4}  (+{kept_n} this session)")
+    if refusals:
+        print("  refused:")
+        for reason, count in refusals.most_common(5):
+            print(f"      {count:3}x  {reason}")
     print(RULE)
 
     if next_index(positive_dir) < 50:

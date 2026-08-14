@@ -256,3 +256,49 @@ def test_a_short_pause_inside_the_word_does_not_split_it():
     assert bounds is not None
     span = (bounds[1] - bounds[0]) / SAMPLE_RATE
     assert span > 0.7, f"span {span:.2f}s — the two halves were treated separately"
+
+
+# ═══ a phrase is not an over-long wake word ═══
+#
+# Found by recording: 42 wake takes landed and 0 negatives, because
+# `check_take` refused any utterance over CLIP_SECONDS — and the negative
+# prompts are phrases. "the quick brown fox jumps over the lazy dog" is about
+# three seconds. Every single one would have been refused.
+#
+# The limit was right for positives and wrong as a general rule. The trainer
+# treats the classes differently too:
+#
+#     if is_positive:  align_clip_to_end(audio, target_length)
+#     else:            ...centre-pad or CROP...
+#
+# so a long negative is expected and handled. Only a positive has to be short,
+# because a two-second "wake word" is not the wake word.
+
+def test_a_long_phrase_is_accepted_as_a_negative():
+    """The bug that produced a corpus of 42 wake takes and no negatives."""
+    result = check_take(take(speech_at=0.4, speech_len=2.6), expect_word=False)
+
+    assert result.ok is True, result.reason
+
+
+def test_a_long_phrase_is_still_refused_as_a_wake_word():
+    result = check_take(take(speech_at=0.4, speech_len=2.6), expect_word=True)
+
+    assert result.ok is False
+    assert "long" in result.reason.lower()
+
+
+def test_a_blip_is_not_a_word():
+    """A 0.30s clip reached the corpus — 60ms of sound plus the margins. A
+    click, a keyboard tap or a breath is not a wake word, and in a training set
+    it teaches that one is."""
+    result = check_take(take(speech_at=1.0, speech_len=0.06))
+
+    assert result.ok is False
+    assert "short" in result.reason.lower() or "brief" in result.reason.lower()
+
+
+def test_a_normal_word_is_still_long_enough():
+    """The guard must not start refusing real takes: the median recorded take
+    was 1.00s, the shortest sensible one well under that."""
+    assert check_take(take(speech_at=1.0, speech_len=0.35)).ok is True
