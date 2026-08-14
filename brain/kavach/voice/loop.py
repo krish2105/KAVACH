@@ -144,6 +144,7 @@ class VoiceLoop:
         wake_model: Path = DEFAULT_WAKE_MODEL,
         stt_model: str = "large-v3-turbo",
         use_wake_word: bool = True,
+        wake_backend: str = "whisper",
         router: Router | None = None,
         local=None,
         agent=None,
@@ -159,7 +160,18 @@ class VoiceLoop:
         self.recorder = Recorder(self.mic, EndpointConfig())
         self.stt = SpeechToText(stt_model)
         self.tts = TextToSpeech(models_dir)
-        self.wake = WakeWordDetector(wake_model) if use_wake_word else None
+        # Two backends, one interface. The ONNX one is four trained models
+        # deep and still deaf to this microphone; the whisper one transcribes
+        # a burst of speech and matches the text, which is the only approach
+        # measured to work here. See kavach/voice/wakewhisper.py.
+        if not use_wake_word:
+            self.wake = None
+        elif wake_backend == "whisper":
+            from .wakewhisper import WhisperWakeDetector
+
+            self.wake = WhisperWakeDetector()
+        else:
+            self.wake = WakeWordDetector(wake_model)
         # Phase 3 reasoning. All optional: with none of them the loop
         # degrades to the Phase 2 echo rather than failing.
         self.router = router
@@ -238,6 +250,11 @@ class VoiceLoop:
         file is exactly the evidence needed here.
         """
         from .waketune import load_calibration
+
+        if not getattr(self.wake, "needs_calibration", True):
+            # Nothing to calibrate: this backend has no score threshold, it
+            # matches transcribed text.
+            return True
 
         if load_calibration(model=self.wake.model_path) is not None:
             return True

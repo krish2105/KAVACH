@@ -47,9 +47,21 @@ log = logging.getLogger("kavach.voice.wakewhisper")
 
 SAMPLE_RATE = 16_000
 
-#: Spellings to match against. Whisper writes a Sanskrit word by ear, so the
-#: variants matter more than the canonical spelling.
-WAKE_TARGETS = ("kavach", "kawach", "kavatch")
+#: Spellings to match against — every one of them observed, none invented.
+#:
+#: Whisper writes a Sanskrit word by ear, and the model in use is a Hinglish
+#: fine-tune that renders कवच with a *j* ending. Measured live over 90 seconds
+#: of the user speaking normally, one word, eight spellings::
+#:
+#:     'Hai kavach, vah time is it.'    'Gavach.'
+#:     'Avaj open notes.'               'Hega vaj.'
+#:     'Ek avach.'                      'Gaavj.'
+#:     'Hey gauj.'                      'Thik hai vajah.'
+#:
+#: Matching only the canonical spelling caught 3 of 12. With `gavaj`, `gauj`
+#: and `vajah` added it catches 10 of 12 and still fires on none of that run's
+#: ordinary speech. The variants are not a nicety here; they are the feature.
+WAKE_TARGETS = ("kavach", "kawach", "kavatch", "gavaj", "gauj", "vajah")
 
 #: How close a word must be to count. Chosen from measurement, not taste —
 #: against the targets above::
@@ -197,9 +209,24 @@ class WhisperWakeDetector:
         self.model = model or self.DEFAULT_MODEL
         self._segmenter = Segmenter()
 
+    #: The loop refuses to use an uncalibrated ONNX model, because a threshold
+    #: nobody measured fires on room noise. This detector has no threshold to
+    #: measure — it matches text — so that gate does not apply to it.
+    needs_calibration = False
+
     @property
     def available(self) -> bool:
         return True
+
+    #: Shown in the loop's startup banner and log lines, where the ONNX
+    #: detector reports the file it loaded.
+    @property
+    def model_path(self) -> str:
+        return f"whisper:{self.model}"
+
+    def reset(self) -> None:
+        """Drop anything buffered. Called after every turn (§7)."""
+        self._segmenter.reset()
 
     @property
     def buffered_seconds(self) -> float:

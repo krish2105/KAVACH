@@ -239,3 +239,56 @@ def test_nothing_is_kept_after_a_burst_is_scored(caplog):
     logged = " ".join(record.getMessage() for record in caplog.records)
     assert "delete the draft" not in logged, logged
     assert detector.buffered_seconds == 0.0
+
+
+# ═══ what this microphone actually produces ═══
+#
+# Measured live, 90 seconds, the user speaking normally — 30 bursts. The wake
+# word was heard every time and spelled a different way almost every time:
+#
+#     'Hai kavach, vah time is it.'      'Gavach.'
+#     'Avaj open notes.'                 'Hega vaj.'
+#     'Ek avach.'                        'Gaavj.'
+#     'Hey gauj.'                        'ayka vaj, what time is it?'
+#
+# The STT in use is a Hinglish fine-tune, and it renders the Sanskrit कवच with
+# a j ending — avaj, gauj, vaj, gavaj. Matching only `kavach` caught 3 of 12.
+# These are not invented spellings: every one below is a transcript this
+# machine produced for this voice.
+
+LIVE_WAKE = [
+    "Hai kavach, vah time is it.",
+    "Avaj open notes.",
+    "Ek avach.",
+    "Hey gauj.",
+    "Gavach.",
+    "Gaavj.",
+    "ey gauj.",
+    "Thik hai vajah.",
+]
+
+#: From the same 90 seconds. Ordinary speech, and one YouTube advert the room
+#: happened to contain — all of which must stay silent.
+LIVE_NOT = [
+    "reason.",
+    "ambi",
+    "time is it cover",
+    "I'll call you back.",
+    "Hai.",
+    "Haan. Aapka",
+    "Available on Amazon. A YouTube channel.",
+    "Double 08:30.",
+    "e.",
+]
+
+
+@pytest.mark.parametrize("said", LIVE_WAKE)
+def test_the_spellings_this_microphone_produces_are_recognised(said):
+    assert matches_wake(said), said
+
+
+@pytest.mark.parametrize("said", LIVE_NOT)
+def test_the_live_negatives_stay_silent(said):
+    """Zero false wakes across the whole live run, and it has to stay that
+    way: a false wake starts a turn nobody asked for."""
+    assert not matches_wake(said), said
