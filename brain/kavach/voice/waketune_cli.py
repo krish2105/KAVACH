@@ -14,6 +14,7 @@ from .mic import MicStream
 from .wake import WakeWordDetector
 from .waketune import (
     CALIBRATION_PATH,
+    diagnose,
     NEGATIVE_PHRASES,
     NEGATIVE_SECONDS,
     POSITIVE_TAKES,
@@ -105,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        too quiet (rms {rms:.4f}) — skipped")
                 continue
             positives.append(score)
-            print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        score {score:.3f}")
+            print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        score {score:.3f}   level {rms:.3f}")
 
         for j, phrase in enumerate(NEGATIVE_PHRASES, 1):
             say(f"Now say: {phrase}")
@@ -118,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  [{j}/{len(NEGATIVE_PHRASES)}] other         too quiet — skipped")
                 continue
             negatives.append(score)
-            print(f"  [{j}/{len(NEGATIVE_PHRASES)}] other         score {score:.3f}  ({phrase[:28]})")
+            print(f"  [{j}/{len(NEGATIVE_PHRASES)}] other         score {score:.3f}   level {rms:.3f}  ({phrase[:24]})")
     finally:
         mic.stop()
 
@@ -148,7 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ✗ no separation — your wake word and ordinary speech overlap.")
         print(f"    worst wake take {min(positives):.3f} ≤ best other {max(negatives):.3f}")
         print("    NOT saved. Any threshold here either misses you or fires wrongly.")
-        print("    Retrain with more varied negatives, or use push-to-talk.")
+        # Which side failed, because the remedies are opposites and the old
+        # message always named the negatives.
+        print(f"    {diagnose(cal)}")
         say("The wake word and your normal speech overlap too much to separate. "
             "I have not changed anything.")
         return 2

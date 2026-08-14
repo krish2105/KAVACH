@@ -164,3 +164,52 @@ def save_calibration(cal: Calibration, model: Path | None = None) -> None:
     CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
     CALIBRATION_PATH.write_text(json.dumps(payload, indent=2))
     CALIBRATION_PATH.chmod(0o600)
+
+
+def diagnose(cal: Calibration) -> str:
+    """Why a calibration failed, and what would actually change it.
+
+    The original refusal said "retrain with more varied negatives" whatever the
+    numbers were. Measured against kavach_v2 with synthetic speech, ordinary
+    phrases score 0.002–0.013 — so for the real failure seen on this machine
+    that advice pointed at the one side that was already fine, and the wake
+    takes scoring low went unmentioned.
+
+    Returns "" when the run separated cleanly and there is nothing to say.
+    """
+    if cal.separated:
+        return ""
+
+    worst_positive = min(cal.positives) if cal.positives else 0.0
+    best_negative = max(cal.negatives) if cal.negatives else 0.0
+
+    if worst_positive < FLOOR:
+        # No arrangement of these numbers produces a usable threshold: a saved
+        # one is clamped up to FLOOR, and the wake word would never reach it.
+        return (
+            f"Your wake takes score {worst_positive:.3f}–{max(cal.positives):.3f}, "
+            f"below the {FLOOR:.2f} floor a saved threshold is clamped to — so "
+            f"calibrating again cannot fix this. The model is not recognising "
+            f"your voice saying the word.\n"
+            f"    Try: speak closer to the mic, and say it the way you actually "
+            f"would.\n"
+            f"    If it stays low, the model needs retraining on voices like "
+            f"yours — push-to-talk works meanwhile and is the safer default."
+        )
+
+    if best_negative >= worst_positive:
+        return (
+            f"Ordinary speech scores as high as {best_negative:.3f}, at or above "
+            f"your quietest wake take ({worst_positive:.3f}) — the model fires on "
+            f"speech generally, not on the word.\n"
+            f"    Try: retraining with more varied negatives. Push-to-talk works "
+            f"meanwhile."
+        )
+
+    return (
+        f"Wake takes {worst_positive:.3f}–{max(cal.positives):.3f} and ordinary "
+        f"speech up to {best_negative:.3f} are too close to call "
+        f"(margin {cal.margin:+.3f}, needs > 0.05).\n"
+        f"    Try: more takes, spoken as you normally would. Push-to-talk works "
+        f"meanwhile."
+    )

@@ -111,7 +111,21 @@ user's global nvm default stays on 20 — do not change it.
 | 5 — Integration + demo | **complete** (tag `phase-5`); demo video is yours to record |
 
 **Wake word v2** (2026-08-13): AUT 0.0040, FPPH 0.00, recall 83.8%, measured
-optimum **0.20**. v1's headline recall was higher (99.15%) and *meaningless* —
+optimum **0.20**. **Calibration on the user's voice failed on 2026-08-14** —
+`kavach-waketune` refused to save, correctly: no separation between the wake
+takes and ordinary speech.
+
+The model is not the broken part. Scored through the same detector on Kokoro
+speech: `KAVACH` 0.858 / 0.812 / 0.301 across three voices, the four negative
+phrases 0.002–0.013, margin **+0.288, separated**. So ordinary speech is near
+zero and the overlap came from the *wake takes scoring low* — the v1 failure
+shape again, on a model trained to avoid it. Note even a synthetic British
+voice managed only 0.301, so voice and accent move this a great deal.
+
+`FLOOR = 0.30` clamps any saved threshold, so takes scoring below 0.30 cannot
+be rescued by calibrating — re-running is not a remedy for that case, and
+`diagnose()` now says which side failed instead of always blaming the
+negatives. **Push-to-talk remains the default and the honest one.** v1's headline recall was higher (99.15%) and *meaningless* —
 trained on one American voice, it scored the user's real utterances 0.027–0.571
 against 0.789 for an unrelated phrase. v2 uses accent-diverse VoxCPM synthesis.
 `find_wake_model()` now takes the newest export, and a calibration carries a
