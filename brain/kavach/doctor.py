@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+OVERLAY_LOG = Path.home() / ".kavach" / "logs" / "overlay.log"
 BRAIN = Path(__file__).resolve().parent.parent
 
 PASS, FAIL, WARN, MANUAL = "PASS", "FAIL", "WARN", "MANUAL"
@@ -274,7 +275,14 @@ def check_services() -> list[Check]:
                                         "~/Library/LaunchAgents/com.krishna.kavach.overlay.plist"))
 
     if overlay:
-        log = BRAIN / "wakeword" / "logs" / "overlay.log"
+        # The path the overlay actually writes, not where it used to.
+        #
+        # This read `brain/wakeword/logs/overlay.log` after the overlay had
+        # moved to ~/.kavach/logs — so doctor parsed a stale file and reported
+        # "no canvas — React did not hydrate" about a panel that was rendering
+        # perfectly. A health check that fails on a healthy system is worse
+        # than no health check: it teaches you to skim past failures.
+        log = OVERLAY_LOG
         reports = [l for l in log.read_text(errors="ignore").splitlines()
                    if "page reports" in l] if log.exists() else []
         if reports:

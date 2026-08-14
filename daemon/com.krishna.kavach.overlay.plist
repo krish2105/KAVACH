@@ -50,11 +50,27 @@
       /usr/bin/open -W -a __APP__. Without that grant it hangs silently, which
       is a far worse failure than the one it was meant to fix.
     -->
+    <!--
+      The venv's console script directly — no `uv run` in front of it.
+
+      TCC attributes to the *responsible* process, and with `uv run` the job
+      launchd starts is uv, so a grant given to python3.12 never applies.
+      Measured from inside a launchd job, the only place the difference shows:
+
+          uv run python      → CGPreflightListenEventAccess() False
+          venv python direct → CGPreflightListenEventAccess() True
+
+      The symptom is `hotkeys BLOCKED` in the log while System Settings shows
+      Input Monitoring switched on for python3.12 — the grant is real and
+      simply not being consulted.
+
+      Nothing is traded for this: the same job also imported the project from
+      ~/Desktop without hesitating, so this does not repeat the `open -a
+      KAVACH.app` mistake, which hung on precisely that.
+    -->
     <key>ProgramArguments</key>
     <array>
-        <string>__UV__</string>
-        <string>run</string>
-        <string>kavach-overlay</string>
+        <string>__VENVBIN__/kavach-overlay</string>
     </array>
 
     <key>WorkingDirectory</key>

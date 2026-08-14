@@ -111,6 +111,7 @@ def substitutions() -> dict[str, str]:
         "__APP__": str(Path.home() / "Applications" / "KAVACH.app"),
         "__NODE__": str(node),
         "__NODEBIN__": str(node.parent),
+        "__VENVBIN__": str(REPO / "brain" / ".venv" / "bin"),
         "__LOGS__": str(LOGS),
     }
 

@@ -45,6 +45,17 @@ class Allowlist:
         self._names = {e["name"].casefold() for e in self.entries}
         self._bundle_ids = {e["bundle_id"].casefold() for e in self.entries}
 
+    def app_names(self, device: str = "mac") -> list[str]:
+        """Every app this device may drive, in file order.
+
+        Exists because the startup banner printed the list as a **string
+        literal** — "Safari, Notes, Calendar, Finder" — which stayed frozen
+        while the file grew to seven entries. §7 requires asking before the
+        allowlist expands, and that is worth little if the running system
+        misreports what it will drive.
+        """
+        return [e["name"] for e in self.device_entries(device)]
+
     # ——— device-scoped ———
 
     def device_entries(self, device: str) -> list[dict]:

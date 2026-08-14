@@ -204,12 +204,22 @@ def main(argv: list[str] | None = None) -> int:
     print("─" * 62)
     print(f"  trigger    {trigger}")
     print(f"  stt        {args.stt_model}")
-    print(f"  reasoning  {'echo (--no-reasoning)' if router is None else f'router → {args.local_model} | claude'}")
+    print(f"  reasoning  {'echo (--no-reasoning)' if router is None else f'router → {args.local_model or LOCAL_DEFAULT_MODEL} | claude'}")
     print(f"  bridge     ws://{args.host}:{args.port}  → the orb")
     tools = "none (--no-tools)" if voice.agent is None or voice.agent.gate is None \
         else "3 MCP servers, gated"
     print(f"  tools      {tools}")
-    print(f"  allowlist  Safari, Notes, Calendar, Finder")
+    # Read, never recited. This line was a string literal that had drifted
+    # four apps behind the file it was describing.
+    try:
+        from ..hands.allowlist import Allowlist
+
+        _allowed = Allowlist().app_names()
+        print(f"  allowlist  {', '.join(_allowed)}")
+    except Exception as exc:
+        # Louder than a wrong list: not knowing what is allowed is a reason to
+        # look, and a confident wrong answer is not.
+        print(f"  allowlist  UNREADABLE — {exc}")
     print(f"  identity   {'voiceprint enrolled' if Voiceprint().is_enrolled else 'NOT enrolled — anyone can confirm'}")
     print(f"  kill       ⌃⌥⌘K, menu bar, or `kavach kill`")
     print("─" * 62)

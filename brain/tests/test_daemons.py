@@ -148,3 +148,29 @@ def test_only_one_thing_launches_the_overlay():
     assert len(launchers) == 1, \
         f"{len(launchers)} agents launch the overlay: " \
         f"{[p.name for p in launchers]}"
+
+
+def test_the_agent_does_not_launch_through_uv():
+    """`uv run` costs the hotkeys, and the loss is silent.
+
+    TCC attributes to the *responsible* process. With `uv run kavach-overlay`
+    the job launchd starts is uv, so the Input Monitoring grant the user gave
+    python3.12 does not apply, and every global hotkey silently does nothing —
+    `hotkeys BLOCKED` in the log while System Settings shows the toggle on.
+
+    Measured from inside a launchd job, which is the only place the difference
+    shows:
+
+        uv run python      → CGPreflightListenEventAccess() False
+        venv python direct → CGPreflightListenEventAccess() True
+
+    And the venv interpreter reads the Desktop project perfectly well on its
+    own, so nothing is traded away for it — the earlier `open -a KAVACH.app`
+    attempt failed on exactly that and this does not.
+    """
+    args = argv(load(OVERLAY_PLIST))
+
+    assert not any(a.endswith("/uv") for a in args), \
+        "the agent runs through uv, so Input Monitoring will not apply"
+    assert any("kavach-overlay" in a for a in args), \
+        "the agent no longer launches the overlay at all"

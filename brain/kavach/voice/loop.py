@@ -265,10 +265,24 @@ class VoiceLoop:
                     self.wake = None
                     return
                 self.wake.load()
-            else:
+            elif not self.wake.available:
                 log.warning(
                     "no wake-word model at %s — push-to-talk only. Train with:\n"
                     "  uv run livekit-wakeword run wakeword/kavach.yaml",
+                    self.wake.model_path,
+                )
+                self.wake = None
+            else:
+                # Two different problems shared one message, and it named the
+                # wrong one: the model was present at the exact path this line
+                # called missing, and the real cause — no calibration — was
+                # already stated a line earlier. Reading both, the actionable
+                # fix was the one that contradicted the file on disk.
+                log.warning(
+                    "wake-word model at %s is present but uncalibrated — "
+                    "push-to-talk only. It cannot tell your voice from room "
+                    "noise until you record a few samples:\n"
+                    "  uv run kavach-waketune",
                     self.wake.model_path,
                 )
                 self.wake = None
