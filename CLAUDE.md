@@ -547,17 +547,45 @@ lie, at the price of a model call, an MCP server and a subprocess for something
 gates, in this order — **kill switch → allowlist → script → log**:
 
 ```
-'open Notes'              → ok=True  confirm=False  140.9ms  "Opened Notes."
-'set the volume to 69'    → ok=True  confirm=False  198.2ms  "Volume 69."
-'open Mail'               → ok=False confirm=True     0.2ms  "Mail isn't on your allowlist…"
-'what did I do yesterday' → declined (escalates)       0.0ms
-kill switch latched       → "The kill switch is latched, so I'm not doing anything."
+'open Notes'  (was closed)  → ok=True   950.9ms  "Opened Notes."
+'open Notes'  (already up)  → ok=True   249.5ms  "Opened Notes."
+'open Mail'   (unlisted)    → ok=False    0.2ms  "Mail isn't on your allowlist…"
+'what did I do yesterday'   → declined    0.0ms   (escalates)
+kill switch latched         → nothing ran, killswitch.blocked recorded
 ```
 
 Notes actually opened, and the log carries `action.app_open`, `action.volume`,
-`action.refused` and `killswitch.blocked` with their arguments. **140ms, not
-the ~50ms predicted** — `osascript` process spawn is the floor, and it is still
-a different order of magnitude from a model round trip, and offline.
+`action.refused` and `killswitch.blocked` with their arguments.
+
+**Not the ~50ms the plan predicted, and the first number measured here — 140ms —
+was wrong for the reason this project keeps finding.** It was taken against an
+app that was *already running*, so it measured `osascript` spawn and not the
+work. A cold launch is ~950ms because AppleScript's `activate` blocks until the
+app is ready; ~250ms is the honest floor for an app already up, and 0.2ms for a
+refusal, which never spawns anything. Still no model, no MCP server, no network.
+
+**Verified by voice on 2026-08-14 22:42**, push-to-talk, through the daemon:
+
+```
+heard  "Open notes."
+said   "Opened Notes."
+route  claude (router) → action (what actually ran)
+log    action.app_open  app="Notes"  requested="notes"  ok=true
+stt 2195ms · respond 1810ms · tts 4310ms · perceived 8315ms   (Notes was closed)
+```
+
+`requested="notes"` beside `app="Notes"` is the injection defence working in
+production: Whisper returned lowercase, the allowlist's spelling is what reached
+AppleScript. Nothing transcribed is ever interpolated into a script.
+
+Two notes from that run, neither a bug in this code:
+
+* **The speaker gate rejected the user's own voice twice** before the turn that
+  worked — similarity 0.528 and 0.361 against a 0.613 threshold — plus three
+  clips discarded as no-speech. Six attempts for one command. §12's threshold is
+  worth re-examining, and `kavach-enrol` is the lever.
+* **TTS is 52% of the wait again.** The action itself is not what makes a spoken
+  turn feel slow, which is the same conclusion the clock turn reached.
 
 Two properties are load-bearing:
 
