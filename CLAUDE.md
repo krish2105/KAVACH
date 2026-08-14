@@ -125,7 +125,35 @@ voice managed only 0.301, so voice and accent move this a great deal.
 `FLOOR = 0.30` clamps any saved threshold, so takes scoring below 0.30 cannot
 be rescued by calibrating — re-running is not a remedy for that case, and
 `diagnose()` now says which side failed instead of always blaming the
-negatives. **Push-to-talk remains the default and the honest one.** v1's headline recall was higher (99.15%) and *meaningless* —
+negatives. **Push-to-talk remains the default and the honest one.**
+
+**Root cause (2026-08-14): the model does not survive a real microphone.**
+Played KAVACH's own TTS through the speakers and recorded it back:
+
+| | |
+|---|---|
+| the file, straight into the detector | **0.858** |
+| the same utterance recorded through the mic | **0.019** |
+| whisper on that same recording | `"Kavec, Kavec, testing 1, 2, 3."` |
+
+Whisper reads it perfectly at rms 0.09, so the audio is present, intelligible
+and correctly captured. The wake model scores it at noise level. The user's own
+takes (0.041–0.089) are that same number, not a quirk of their voice.
+
+It is a domain gap: v2 was trained entirely on synthesised speech, and scores
+0.858 / 0.812 / 0.301 across three synthetic voices while scoring ~0.02 on
+anything that has been through a speaker, a room and a microphone.
+**Retraining needs real recorded audio or convincing augmentation (room
+impulse responses, mic colouring, noise) — not more synthetic voices.**
+
+Two hypotheses were tested and **refuted** on the way, both worth not
+repeating:
+
+* *the mic path aliases* — the naive `block[::3]` decimator scores **0.857**
+  against 0.857 for a proper filtered resampler on the same audio. It was
+  replaced anyway, on correctness grounds, but it fixed nothing.
+* *the user's accent* — the collapse reproduces with KAVACH's own American
+  TTS voice, which scores 0.858 as a file. v1's headline recall was higher (99.15%) and *meaningless* —
 trained on one American voice, it scored the user's real utterances 0.027–0.571
 against 0.789 for an unrelated phrase. v2 uses accent-diverse VoxCPM synthesis.
 `find_wake_model()` now takes the newest export, and a calibration carries a

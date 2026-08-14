@@ -5,6 +5,11 @@ description = "KAVACH Brain layer — kill switch, voice loop, reasoning router"
 # Floor is numpy 2.5 (>=3.12); ceiling is kokoro-onnx (<3.14).
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    # Anti-aliasing for the mic's 48k → 16k step. Declared rather than relied
+    # on transitively: it was already present via another package, and the
+    # capture path silently degrading if that package moved is exactly the
+    # class of failure the naive decimator caused in the first place.
+    "scipy>=1.11",
     # Global hotkey + menubar panic item. pyobjc over pynput/rumps:
     # rumps' last release was 2022-10, and pynput silently drops ctrl/alt
     # hotkeys on macOS (moses-palmer/pynput#297) — disqualifying for a
