@@ -40,8 +40,12 @@ NEGATIVE_PHRASES = [
     "the quick brown fox jumps over the lazy dog",
     "delete the draft in notes",
 ]
-TAKE_SECONDS = 2.6
-NEGATIVE_SECONDS = 3.4
+#: 2.0s of that is the scoring window, so this is really "how late may you
+#: start". At 2.6 it was 0.6s — less than a reaction time plus the word, so
+#: speaking a beat after the tone pushed the end of the word off the tape and
+#: the take scored as a bad voice. See `score_take`.
+TAKE_SECONDS = 4.0
+NEGATIVE_SECONDS = 4.0
 
 #: Never accept a calibrated threshold below this. A very low number here
 #: means the recording produced no real separation, not that the wake word is
@@ -65,6 +69,51 @@ class Calibration:
             "separated": self.separated,
             "margin": round(self.margin, 4),
         }
+
+
+#: The rate everything here assumes — the detector's window is defined in
+#: samples at this rate.
+SAMPLE_RATE = 16_000
+
+#: How far the sliding window advances between evaluations, in samples.
+_SLIDE_SAMPLES = 2560           # 160 ms
+
+
+@dataclass
+class TakeScore:
+    """One take, and enough context to know whether the number means anything."""
+
+    score: float
+    #: Where the best-scoring window started, in seconds.
+    offset_s: float
+    #: The best window was the last one on the tape, so the word may have run
+    #: off the end. A low score from a clipped take says nothing about the
+    #: voice or the model — it says the speaker was slow — and the two have
+    #: opposite remedies, so they must not look alike.
+    clipped: bool
+
+
+def score_take(detector: WakeWordDetector, audio: np.ndarray) -> TakeScore:
+    """Score a take, and report where the word was and whether it fitted.
+
+    `best_score` answers "how well did this score". It cannot answer "was this
+    a fair test", and five takes spanning 20x were read as evidence about a
+    voice when some of it may have been evidence about timing.
+    """
+    if len(audio) < WINDOW_SAMPLES:
+        # Shorter than one window: nothing slid, and the whole take is the
+        # last window by definition.
+        return TakeScore(detector.score_window(audio), 0.0, clipped=True)
+
+    starts = list(range(0, len(audio) - WINDOW_SAMPLES + 1, _SLIDE_SAMPLES))
+    scores = [detector.score_window(audio[i : i + WINDOW_SAMPLES]) for i in starts]
+    best = max(range(len(scores)), key=lambda i: scores[i])
+
+    return TakeScore(
+        score=scores[best],
+        offset_s=starts[best] / SAMPLE_RATE,
+        clipped=best == len(starts) - 1,
+    )
 
 
 def best_score(detector: WakeWordDetector, audio: np.ndarray) -> float:

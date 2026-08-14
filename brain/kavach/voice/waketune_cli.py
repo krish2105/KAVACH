@@ -21,6 +21,7 @@ from .waketune import (
     POSITIVE_TAKES,
     TAKE_SECONDS,
     best_score,
+    score_take,
     choose_threshold,
     load_calibration,
     save_calibration,
@@ -101,13 +102,23 @@ def main(argv: list[str] | None = None) -> int:
             tone()
             mic.forget()  # never let KAVACH's own voice into the measurement
             clip = _record(mic, TAKE_SECONDS)
-            score = best_score(detector, clip)
+            take = score_take(detector, clip)
             rms = float(np.sqrt(np.mean(clip**2))) if len(clip) else 0.0
             if rms < 0.006:
                 print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        too quiet (rms {rms:.4f}) — skipped")
                 continue
-            positives.append(score)
-            print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        score {score:.3f}   level {rms:.3f}")
+            if take.clipped:
+                # Not counted. A word that ran off the end of the tape is
+                # evidence about timing, and it would be averaged in here as
+                # evidence about a voice.
+                print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        started too late "
+                      f"(word at {take.offset_s:.1f}s, ran off the end) — say it "
+                      f"right after the tone")
+                say("A bit earlier, right after the tone.")
+                continue
+            positives.append(take.score)
+            print(f"  [{i}/{POSITIVE_TAKES}] KAVACH        score {take.score:.3f}   "
+                  f"level {rms:.3f}   word at {take.offset_s:.1f}s")
 
         for j, phrase in enumerate(NEGATIVE_PHRASES, 1):
             say(f"Now say: {phrase}")
