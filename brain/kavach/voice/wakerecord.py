@@ -13,12 +13,21 @@ takes**. A training set is the one place a quietly-wrong sample is never caught
 again: it does not fail, it does not raise, it just makes the model slightly
 worse in a way no downstream measurement can attribute to it.
 
-Clips are emitted at exactly :data:`CLIP_SECONDS`, matching the trainer's
-``AugmentationConfig.clip_duration``, with the speech centred. Both matter.
-A different length is silently padded or truncated rather than rejected, and a
-word already near the edge is slid out of frame entirely by augmentation — in
-either case the real audio contributes noise instead of signal, which is
-exactly the failure this whole exercise exists to escape.
+Clips are emitted **tight around the word**, not padded to a fixed length, and
+that was corrected after reading what the trainer does rather than assuming::
+
+    if round_idx == 0:
+        if is_positive:
+            audio = align_clip_to_end(audio, target_length)   # word at the END
+        else:
+            ...centre-pad or crop...
+
+The library places every clip itself, from a source of any length, and TTS
+positives are just the word. A clip pre-padded to the full window therefore
+lands wherever the padding put it while every synthetic positive lands at the
+end — so the model would see real and synthetic speech in systematically
+different positions and learn that instead of ignoring it. A bare utterance is
+indistinguishable from a TTS clip to this pipeline, which is the intent.
 
 The audio written here is deliberately kept on disk, unlike wake-word audio at
 runtime (§7). It is training data the user chose to record, it lives under
@@ -62,6 +71,9 @@ _MIN_TAKE_RMS = 0.006
 _CLIPPING_PEAK = 0.99
 #: Speech ending within this of the tape's end was probably still going.
 _EDGE_S = 0.15
+#: Kept either side of the utterance, so a slightly early or late voiced frame
+#: is not shaved off the word.
+_MARGIN_S = 0.12
 #: Pauses shorter than this are inside one utterance, not between two. A stop
 #: consonant is ~50-150ms; a gap between separate sounds is longer.
 _GAP_BRIDGE_S = 0.2
@@ -159,7 +171,7 @@ def _longest_run(voiced: np.ndarray, bridge: int) -> tuple[int, int] | None:
 
 
 def check_take(audio: np.ndarray) -> TakeCheck:
-    """Accept a take and return its centred clip, or refuse it and say why.
+    """Accept a take and return its trimmed clip, or refuse it and say why.
 
     Each refusal is separate because each teaches the model something
     different and wrong: a whisper that the wake word is quiet, a shout that it
@@ -193,26 +205,34 @@ def check_take(audio: np.ndarray) -> TakeCheck:
         # learned as the target.
         return TakeCheck(False, "started too late — it was cut off at the end")
 
-    return TakeCheck(True, "", _centre(audio, start, end))
+    return TakeCheck(True, "", _trim(audio, start, end))
 
 
-def _centre(audio: np.ndarray, start: int, end: int) -> np.ndarray:
-    """A CLIP_SECONDS clip with the speech in the middle.
+def _trim(audio: np.ndarray, start: int, end: int) -> np.ndarray:
+    """The utterance with a small margin — deliberately *not* padded to
+    :data:`CLIP_SECONDS`.
 
-    Padded with silence rather than with whatever the tape happened to hold
-    next: the point is that augmentation can shift the word without pushing it
-    out of frame, and that only holds if the margins are actually margins.
+    The trainer positions clips itself, and differently by class::
+
+        if is_positive:  audio = align_clip_to_end(audio, target_length)
+        else:            ...centre-pad or crop...
+
+    `align_clip_to_end` takes the **last** samples of whatever it is handed. A
+    clip already padded to the full window therefore stays wherever the padding
+    put it, while every TTS positive — which is just the word — is pushed to
+    the end of the window. The model would then see real speech in one place
+    and synthetic speech in another, and learn the difference instead of
+    ignoring it. A bare utterance is indistinguishable from a TTS clip to this
+    pipeline, which is the whole intent.
+
+    The margin exists so a slightly early or late voiced frame is not shaved
+    off the word.
     """
-    want = int(CLIP_SECONDS * SAMPLE_RATE)
-    middle = (start + end) // 2
-    begin = middle - want // 2
-
-    clip = np.zeros(want, dtype=np.float32)
-    src_start = max(0, begin)
-    src_end = min(len(audio), begin + want)
-    dst_start = src_start - begin
-    clip[dst_start : dst_start + (src_end - src_start)] = audio[src_start:src_end]
-    return clip
+    margin = int(_MARGIN_S * SAMPLE_RATE)
+    return np.array(
+        audio[max(0, start - margin) : min(len(audio), end + margin)],
+        dtype=np.float32,
+    )
 
 
 def next_index(directory: Path) -> int:

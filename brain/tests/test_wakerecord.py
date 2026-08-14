@@ -19,10 +19,21 @@ Four ways a take is wrong, and each is checked separately:
 * **cut off** — speech touching the end of the tape is half a word, which is
   what the calibration ruler was just fixed for
 
-Clips come out at exactly `CLIP_SECONDS`, matching the trainer's
-`AugmentationConfig.clip_duration = 2.0`, with the speech centred — otherwise
-augmentation slides the word out of frame and the real audio contributes
-nothing but noise.
+Clips come out **tight around the word**, not padded to a fixed length, and
+that was corrected after reading what the trainer actually does:
+
+    if round_idx == 0:
+        if is_positive:
+            audio = align_clip_to_end(audio, target_length)   # word at the END
+        else:
+            ...centre-pad or crop...
+
+The library places the clip itself, from a source clip of any length — TTS
+positives are just the word. A pre-padded 2.0s clip therefore lands *centred*
+while every synthetic positive lands at the end, and the model would see real
+and synthetic speech in systematically different positions. Emitting the bare
+utterance makes real takes indistinguishable from TTS ones to the pipeline,
+which is the entire point.
 """
 
 import numpy as np
@@ -127,31 +138,36 @@ def test_a_good_take_is_accepted():
     assert result.clip is not None
 
 
-def test_the_clip_is_exactly_the_trainers_length():
-    """`AugmentationConfig.clip_duration` is 2.0. A different length is not
-    rejected by the trainer — it is padded or truncated silently, which is how
-    real audio ends up contributing noise instead of signal."""
-    result = check_take(take(speech_at=1.0))
+def test_the_clip_is_tight_around_the_word():
+    """`align_clip_to_end` positions the clip itself, taking the LAST samples
+    of whatever it is given. A clip pre-padded to 2.0s therefore stays where
+    the padding put it, while every TTS positive is pushed to the window's
+    end — a systematic difference between real and synthetic speech, which is
+    the one thing this corpus exists to remove."""
+    result = check_take(take(speech_at=1.0, speech_len=0.7))
 
-    assert len(result.clip) == int(CLIP_SECONDS * SAMPLE_RATE)
+    length_s = len(result.clip) / SAMPLE_RATE
+    assert length_s < CLIP_SECONDS, (
+        f"clip is {length_s:.2f}s — padded clips land in a different place "
+        f"from the TTS ones"
+    )
+    assert 0.7 <= length_s <= 1.2, f"{length_s:.2f}s is not tight around a 0.7s word"
 
 
-def test_the_speech_is_centred_in_the_clip():
-    """Augmentation shifts clips around. A word already at the edge slides out
-    of frame entirely."""
+def test_the_clip_holds_the_whole_word_wherever_it_was_spoken():
+    """The margin exists so a slightly early or late voiced frame is not
+    shaved off the word."""
     for offset in (0.6, 1.0, 1.6):
         result = check_take(take(speech_at=offset, speech_len=0.7))
         assert result.ok is True, f"{offset}: {result.reason}"
 
         bounds = speech_bounds(result.clip)
         assert bounds is not None
-        middle = (bounds[0] + bounds[1]) / 2 / SAMPLE_RATE
-        assert abs(middle - CLIP_SECONDS / 2) < 0.25, (
-            f"speech centred at {middle:.2f}s in a {CLIP_SECONDS}s clip"
-        )
+        held = (bounds[1] - bounds[0]) / SAMPLE_RATE
+        assert held >= 0.6, f"only {held:.2f}s of the 0.7s word survived"
 
 
-def test_the_clip_never_clips_after_centring():
+def test_the_clip_never_clips():
     result = check_take(take(speech_at=1.0, level=0.5))
 
     assert float(np.max(np.abs(result.clip))) <= 1.0
