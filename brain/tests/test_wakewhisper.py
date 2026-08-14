@@ -173,6 +173,15 @@ class FakeSTT:
 
 
 def speech_then_silence(detector, level: float = 0.08) -> object:
+    """Push a burst, then poll until the worker has had its say.
+
+    Scoring moved off the calling thread — a 1.9s inference on the microphone
+    thread was eating the words after the wake word — so a wake is reported by
+    a later push, not the one that closed the burst. The bounded wait keeps
+    this deterministic rather than dependent on scheduling.
+    """
+    import time
+
     fired = None
     for _ in range(8):
         if fired is None:
@@ -180,6 +189,11 @@ def speech_then_silence(detector, level: float = 0.08) -> object:
     for _ in range(6):
         if fired is None:
             fired = detector.push(block(0.1, 0.0005))
+
+    deadline = time.time() + 2.0
+    while fired is None and time.time() < deadline:
+        time.sleep(0.02)
+        fired = detector.push(block(0.1, 0.0005))
     return fired
 
 

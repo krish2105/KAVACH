@@ -37,7 +37,9 @@ whisper costs more CPU than a 3MB ONNX classifier. In exchange it works.
 from __future__ import annotations
 
 import logging
+import queue
 import re
+import threading
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -113,9 +115,19 @@ class Segmenter:
     from this project on privacy grounds.
     """
 
-    #: Above this, a block counts as speech. Room tone on this machine sits
-    #: around 0.005 rms; ordinary speech is 0.02-0.08.
+    #: Floor under the adaptive threshold. A fixed level cannot work: this
+    #: room measured p20 0.005 but p80 0.025, so a 0.015 cut-off read EVERY
+    #: block as speech. The segmenter then never closed on silence and simply
+    #: cut at MAX_UTTERANCE_S forever — the live daemon transcribed ambient
+    #: noise every 3 seconds, continuously, and never heard the user at all.
     SPEECH_RMS = 0.015
+    #: Speech must also stand this far above the room's own running level.
+    #: Relative, like `wakerecord.speech_bounds`, and for the same reason: the
+    #: same numbers have to work in a quiet room and a noisy one.
+    OVER_FLOOR = 2.5
+    #: How fast the noise estimate follows the room. Slow, so a long sentence
+    #: cannot drag the floor up to meet itself.
+    FLOOR_ALPHA = 0.02
     #: A burst has to last this long to be worth transcribing. Below it, it is
     #: a key click, a cough, or a chair.
     MIN_UTTERANCE_S = 0.35
@@ -127,6 +139,9 @@ class Segmenter:
     HANG_S = 0.35
 
     def __init__(self) -> None:
+        #: Running estimate of the room, seeded pessimistically and pulled
+        #: down by the first quiet blocks.
+        self._floor = 0.01
         self._parts: list[np.ndarray] = []
         self._silence = 0.0
         #: Seconds of *speech*, not of tape. The minimum has to be measured
@@ -152,7 +167,13 @@ class Segmenter:
             return None
 
         seconds = len(block) / SAMPLE_RATE
-        loud = float(np.sqrt(np.mean(block.astype(np.float64) ** 2))) >= self.SPEECH_RMS
+        level = float(np.sqrt(np.mean(block.astype(np.float64) ** 2)))
+        threshold = max(self.SPEECH_RMS, self._floor * self.OVER_FLOOR)
+        loud = level >= threshold
+        if not loud:
+            # Only quiet blocks update the floor, or a long utterance teaches
+            # the gate that speech is the new silence.
+            self._floor += self.FLOOR_ALPHA * (level - self._floor)
 
         if loud:
             self._speaking = True
@@ -202,12 +223,25 @@ class WhisperWakeDetector:
     #: listening, the same rule `stt_models.resolve()` follows.
     FALLBACK_MODEL = "base.en"
 
+    #: Bursts waiting to be scored. Bounded, and dropped rather than queued
+    #: when full: falling behind must cost a missed wake word, never a growing
+    #: backlog of stale audio.
+    QUEUE_DEPTH = 2
+
     def __init__(self, stt=None, model: str | None = None) -> None:
         #: Injected for the tests, and so the loop can share a model rather
         #: than loading a second copy.
         self.stt = stt
         self.model = model or self.DEFAULT_MODEL
         self._segmenter = Segmenter()
+        #: Scoring happens on a worker, never on the caller's thread. Measured
+        #: live: inference took 0.7-1.9s per burst, and doing that inside
+        #: push() blocked the microphone loop for a third of all wall-clock —
+        #: so the words after the wake word were the ones being dropped.
+        self._queue: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=self.QUEUE_DEPTH)
+        self._heard: "queue.Queue[WakeHeard]" = queue.Queue()
+        self._worker: threading.Thread | None = None
+        self._stop = threading.Event()
 
     #: The loop refuses to use an uncalibrated ONNX model, because a threshold
     #: nobody measured fires on room noise. This detector has no threshold to
@@ -227,6 +261,12 @@ class WhisperWakeDetector:
     def reset(self) -> None:
         """Drop anything buffered. Called after every turn (§7)."""
         self._segmenter.reset()
+        for held in (self._queue, self._heard):
+            while True:
+                try:
+                    held.get_nowait()
+                except queue.Empty:
+                    break
 
     @property
     def buffered_seconds(self) -> float:
@@ -258,18 +298,51 @@ class WhisperWakeDetector:
         self.stt = SpeechToText(resolved)
         self.stt.load()
 
+    def _ensure_worker(self) -> None:
+        if self._worker is not None and self._worker.is_alive():
+            return
+        self._stop.clear()
+        self._worker = threading.Thread(target=self._run_worker, daemon=True,
+                                        name="kavach-wake-whisper")
+        self._worker.start()
+
+    def _run_worker(self) -> None:
+        while not self._stop.is_set():
+            try:
+                utterance = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            heard = self._score(utterance)
+            if heard is not None:
+                self._heard.put(heard)
+
     def push(self, block: np.ndarray) -> WakeHeard | None:
-        """Feed one block of microphone audio. Returns a wake, or None."""
+        """Feed one block of microphone audio. Returns a wake, or None.
+
+        Returns immediately — the transcription happens on a worker, and a
+        wake is reported on whichever later call picks it up. The delay is a
+        few hundred ms; blocking the microphone for it cost whole words.
+        """
         try:
             utterance = self._segmenter.push(block)
         except Exception:
             log.debug("segmenter failed", exc_info=True)
             self._segmenter.reset()
-            return None
+            utterance = None
 
-        if utterance is None:
+        if utterance is not None:
+            self._ensure_worker()
+            try:
+                self._queue.put_nowait(utterance)
+            except queue.Full:
+                # Behind on scoring. Dropping the burst is right: a backlog
+                # would wake KAVACH on something said several seconds ago.
+                log.debug("wake scorer is behind — burst dropped")
+
+        try:
+            return self._heard.get_nowait()
+        except queue.Empty:
             return None
-        return self._score(utterance)
 
     def _score(self, utterance: np.ndarray) -> WakeHeard | None:
         seconds = len(utterance) / SAMPLE_RATE
