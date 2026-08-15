@@ -378,7 +378,11 @@ class WhisperWakeDetector:
         try:
             if self.stt is None:
                 self.load()
-            result = self.stt.transcribe(utterance)
+            # English, not auto. The multilingual model writes this user's
+            # wake word in Devanagari and Cyrillic when left to choose, and
+            # `matches_wake` reads Latin only — so a correct transcription
+            # was being discarded. Measured: 12/42 on auto, 17/42 on en.
+            result = self.stt.transcribe(utterance, language="en")
             text = (getattr(result, "text", "") or "").strip()
         except Exception:
             # Never propagate: this runs on the microphone thread, and an

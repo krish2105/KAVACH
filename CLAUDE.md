@@ -357,6 +357,44 @@ word is falling back to silence, which looks exactly like a broken mic.
 from base straight to large. Nothing in between was ever tried.** Seven
 attempts, four trained models, and the answer was a model size.
 
+**It did not fire for the user, and there was no way to find out why.** §7
+means the daemon never logs a non-matching burst's transcript, so "it didn't
+work" was the entire body of evidence — and that cannot separate *the model
+never heard you* from *the model heard you and spelled it unusually*. Those
+have opposite fixes, and guessing between them is how four ONNX models got
+trained.
+
+Transcribing the 42 real recordings with `small` gave the answer:
+
+```
+20x  ''            ← 1s isolated clips, whisper's worst case
+ 8x  'go watch.'   match ✓        2x  'ковыч!'   match ✗   ← Cyrillic
+ 1x  'कवच'         match ✗        1x  'kovach.'  match ✓   ← Devanagari, CORRECT
+```
+
+**The multilingual model writes this user's wake word in Devanagari and
+Cyrillic, and `matches_wake` extracts `[a-z']+`** — so a transcription that
+was exactly right got thrown away by the matcher. Pinning the wake
+transcription to `language="en"` makes whisper transliterate instead:
+**12/42 → 17/42**, and no non-Latin at all. `SpeechToText.transcribe()` now
+takes an optional `language`; ordinary turns still pass `auto`, which is
+load-bearing for Hindi and must not change.
+
+`uv run kavach-wakecheck` is the missing diagnostic — opt-in, printed,
+**stores nothing** (a test greps the module for every write path). It shows
+the transcript and the closest near-miss per burst, which is how every
+spelling in `WAKE_TARGETS` was found:
+
+```
+heard  'Kavach, what time is it?'            ✓ WAKE  (2.1s)
+heard  'That was too short for me to check.' ✗ closest: 'that'→'kavatch' 0.36
+```
+
+One trap worth not repeating: a live `say` test that "did not fire" was the
+**speaker volume**, not the wake word. At 80% it fires; quieter, no burst
+reaches the segmenter at all. Check `Transcribing` counts before concluding
+anything about matching.
+
 Caveat: those transcripts are macOS `say` voices. They establish a floor and
 the ordering between models, which is what a default depends on; the live
 number on the user's own voice is still theirs to produce. The speaker gate

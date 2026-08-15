@@ -209,8 +209,24 @@ class SpeechToText:
         )
         log.info("whisper ready (%d threads)", self.n_threads)
 
-    def transcribe(self, audio: np.ndarray) -> Transcript:
-        """Transcribe 16 kHz mono float32 audio."""
+    def transcribe(self, audio: np.ndarray,
+                   language: str | None = None) -> Transcript:
+        """Transcribe 16 kHz mono float32 audio.
+
+        `language` pins the decoder. Leave it None for ordinary turns — see
+        the note below on why `auto` is load-bearing there. The **wake word**
+        passes `"en"`, and that is a different problem with a different
+        answer: it needs one word spotted, not a sentence understood.
+        Measured on 42 real recordings of this user's wake word::
+
+            auto   recognised 12/42   and wrote 'ковыч!' and 'कवच'
+            en     recognised 17/42   and wrote 'kovach.' and 'go watch.'
+
+        `matches_wake` extracts `[a-z']+`, so a correct transcription in
+        Devanagari or Cyrillic is invisible to it — the model heard the word
+        and the matcher threw it away. Pinning to English makes whisper
+        transliterate instead, which is the form the matcher can read.
+        """
         if self._model is None:
             self.load()
         assert self._model is not None
@@ -228,8 +244,8 @@ class SpeechToText:
         # encoder pass (597 ms against a 609 ms transcribe) and is available
         # via KAVACH_DETECT_LANGUAGE=full for the Latin-script languages the
         # script test cannot separate.
-        language = None
-        if os.environ.get("KAVACH_DETECT_LANGUAGE", "").lower() == "full":
+        if language is None and os.environ.get(
+                "KAVACH_DETECT_LANGUAGE", "").lower() == "full":
             language = detect_language(self._model, audio)
 
         segments = self._model.transcribe(audio, language=language or "auto")
