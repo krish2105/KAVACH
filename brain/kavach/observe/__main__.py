@@ -29,7 +29,12 @@ import sys
 import threading
 import time
 
-from ..autonomy.monitors import check_battery, check_self_health, run_all
+from ..autonomy.monitors import (
+    check_battery,
+    check_self_health,
+    check_shadow_readiness,
+    run_all,
+)
 from ..autonomy.proposals import ProposalQueue
 from ..killswitch.log import ActionLog
 from .watcher import SessionWatcher
@@ -116,14 +121,60 @@ def speak(text: str) -> bool:
         return False
 
 
+#: Findings that are said once and then never again.
+#:
+#: "You have enough voice samples" is news the first time and nagging the
+#: second. It is also asking for a security decision, and a prompt that
+#: repeats is one people learn to dismiss without reading — which is the
+#: failure confirmations already guard against.
+SAY_ONCE = frozenset({"voiceprint"})
+
+
+def _shadow_samples(action_log: ActionLog):
+    """Every scored turn as `(similarity, timestamp_seconds)`.
+
+    Read from the action log rather than kept in memory, so restarting the
+    observer does not restart the collection — days of data must survive a
+    reboot, and this one is explicitly measured in days.
+    """
+    from datetime import datetime
+
+    samples = []
+    for entry in action_log.read_all():
+        if entry.get("event") != "voice.score":
+            continue
+        value = entry.get("similarity")
+        stamp = entry.get("ts")
+        if not isinstance(value, (int, float)) or not stamp:
+            continue
+        try:
+            when = datetime.fromisoformat(str(stamp)).timestamp()
+        except ValueError:
+            continue
+        samples.append((float(value), when))
+    return samples
+
+
+def _already_said(action_log: ActionLog, source: str) -> bool:
+    return any(e.get("event") == "monitor.announced"
+               and e.get("source") == source
+               for e in action_log.read_all())
+
+
 def run_checks(queue: ProposalQueue, action_log: ActionLog) -> int:
     """One round of scheduled checks. Returns how many findings there were."""
     percent, charging = _battery()
     findings = run_all([
         lambda: check_battery(percent, charging),
         lambda: check_self_health(_processes()),
+        lambda: check_shadow_readiness(_shadow_samples(action_log)),
     ])
     for finding in findings:
+        if finding.source in SAY_ONCE:
+            if _already_said(action_log, finding.source):
+                continue
+            action_log.append("monitor.announced", source=finding.source)
+            speak(finding.detail)
         action_log.append("monitor.finding", source=finding.source,
                           severity=finding.severity, detail=finding.detail)
         log.info("%s: %s", finding.source, finding.detail)

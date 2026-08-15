@@ -105,6 +105,52 @@ def check_calendar_conflicts(events: list[dict] | None) -> Finding | None:
     return Finding("calendar", "warn", "overlapping: " + "; ".join(clashes[:3]))
 
 
+#: How many scored turns before a threshold is worth reading. A floor, not
+#: the test — see `check_shadow_readiness` for why count is the least
+#: interesting of the three conditions.
+SHADOW_MIN_SAMPLES = 10
+
+#: The scores must span at least this much. All-identical samples describe one
+#: condition however many there are.
+SHADOW_MIN_SPREAD = 0.15
+
+#: And they must come from at least this many hours apart. "One sitting" is
+#: the specific error that produced 0.803, 0.577 and 0.383 — every one of
+#: those had plenty of samples.
+SHADOW_MIN_HOURS = 6.0
+
+
+def check_shadow_readiness(samples) -> Finding | None:
+    """Whether shadow mode has collected something worth reading.
+
+    `samples` is `[(similarity, timestamp_seconds), ...]`.
+
+    **Count is the least interesting condition.** Three thresholds have been
+    set from samples that were plentiful and unrepresentative — enrolment
+    clips recorded back to back, and six sentences read aloud in one sitting.
+    Each had enough; none had spread.
+
+    Returns None until all three hold, and None is the common answer. A
+    monitor that says "not yet" every five minutes is one nobody reads.
+    """
+    if len(samples) < SHADOW_MIN_SAMPLES:
+        return None
+
+    values = sorted(float(v) for v, _ in samples)
+    if values[-1] - values[0] < SHADOW_MIN_SPREAD:
+        return None
+
+    times = [float(t) for _, t in samples]
+    if (max(times) - min(times)) < SHADOW_MIN_HOURS * 3600:
+        return None
+
+    return Finding(
+        "voiceprint", "ready",
+        f"{len(values)} voice samples spanning {values[0]:.2f}-{values[-1]:.2f} "
+        f"— enough to set the speaker threshold. Run: kavach-speaker scores",
+    )
+
+
 def run_all(checks) -> list[Finding]:
     """Run every check, collecting findings.
 
@@ -125,4 +171,6 @@ def run_all(checks) -> list[Finding]:
 
 
 __all__ = ["Finding", "check_battery", "check_self_health",
-           "check_calendar_conflicts", "run_all", "LOW_BATTERY_PERCENT"]
+           "check_calendar_conflicts", "check_shadow_readiness", "run_all",
+           "LOW_BATTERY_PERCENT", "SHADOW_MIN_SAMPLES", "SHADOW_MIN_SPREAD",
+           "SHADOW_MIN_HOURS"]
