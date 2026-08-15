@@ -154,7 +154,8 @@ Publisher = Callable[[dict], None]
 
 
 
-def remember_turn(memory, said: str, reply: str, origin: str) -> None:
+def remember_turn(memory, said: str, reply: str, origin: str,
+                  route: str = "") -> None:
     """Store one turn, from any origin. Never raises.
 
     The write used to live only in the voice-turn path, so a command from the
@@ -171,6 +172,22 @@ def remember_turn(memory, said: str, reply: str, origin: str) -> None:
     """
     if memory is None:
         return
+
+    # A question about the past must not become part of the past.
+    #
+    # Found live: asking the battery level and then asking what had just
+    # been asked returned "I don't have anything about that", with the
+    # answer sitting in the index the whole time. Every previous recall
+    # question had been stored as a turn, and a recall question is worded
+    # almost exactly like the turn it hunts for — so it scores near the top
+    # and flattens the lead `recall()` requires. The margin is relative, so
+    # near-duplicates do not raise the winner, they raise the field.
+    #
+    # Skipping costs nothing: the content of a recall turn is either a fact
+    # already in the index, or the absence of one.
+    if route == "recall":
+        return
+
     try:
         memory.remember(
             f"User said: {said}\nKAVACH replied: {reply}",
@@ -777,7 +794,8 @@ class VoiceLoop:
         # Through the shared helper, so the voice path and the API path
         # cannot drift — an inline copy here is how this write came to exist
         # for spoken turns only.
-        remember_turn(self.memory, result.text, reply, origin="voice")
+        remember_turn(self.memory, result.text, reply, origin="voice",
+                      route=self.state.route or "")
         self.session.record_turn(result.text, reply,
                                  route=self.state.route)
 

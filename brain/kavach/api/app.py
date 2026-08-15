@@ -242,7 +242,8 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         # there would remember "confirm" as a turn of its own.
         from ..voice.loop import remember_turn
 
-        remember_turn(getattr(loop, "memory", None), text, reply, origin="api")
+        remember_turn(getattr(loop, "memory", None), text, reply, origin="api",
+                      route=getattr(getattr(loop, "state", None), "route", "") or "")
 
         session = getattr(loop, "session", None)
         if session is not None:

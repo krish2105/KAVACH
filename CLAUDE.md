@@ -454,6 +454,34 @@ inline copy in the voice path is exactly how this write came to exist for
 spoken turns only — a command from the phone happened, was logged, and left
 nothing to recall.
 
+**A question about the past must not become part of the past.** Found live
+after everything above was green:
+
+```
+"what is the battery level"                 → "Battery is at 37%."
+"what did I just ask you about the battery" → "I don't have anything about that."
+```
+
+The write was fine — 11 turns, the answer among them. The **field** was the
+problem. Every recall question had itself been stored, and a recall question
+is worded almost exactly like the turn it hunts for, so it scores near the
+top and flattens the lead. Because the margin is *relative*, near-duplicates
+do not raise the winner — they raise everything. Two prior questions were
+enough to push the real answer under 0.115.
+
+`remember_turn(..., route="recall")` now returns without storing. Nothing is
+lost: a recall turn's content is either a fact already indexed or the
+absence of one. Measured after: same question three times running, all three
+answered, `turns: 3` — the four recall questions added no rows.
+
+`route` defaults to `""` so an un-updated caller keeps storing rather than
+silently stopping, which means a caller that forgets it pollutes quietly —
+so an `ast` test asserts both call sites pass it. Its first version split on
+`")"` and failed against correctly wired code, because
+`getattr(loop, "memory", None)` carries an inner paren. **String surgery on
+source is how a grep test reports a defect that is really a bug in the
+grep** — the second time that happened in this phase.
+
 Router note: recall patterns already existed in `_COMPLEX_PATTERNS`. A
 duplicate set was added to `_SIMPLE_PATTERNS` without checking — **ninth
 one-fact-in-two-places, and the first self-inflicted one.** The real bug was
