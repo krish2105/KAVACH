@@ -63,6 +63,14 @@ class VoiceConfirmer:
     audio stack.
     """
 
+    #: How long the question sits on the orb before it is also spoken.
+    #:
+    #: Short enough that not looking at the screen costs barely anything;
+    #: long enough that looking at it saves the whole ~5s of speech. An
+    #: instance attribute so the tests can drive both paths deterministically
+    #: rather than sleeping for real.
+    SPEAK_AFTER_S = 3.0
+
     def __init__(self, voice_loop, timeout: float = CONFIRM_TIMEOUT_S,
                  voiceprint=None):
         self.voice = voice_loop
@@ -91,15 +99,45 @@ class VoiceConfirmer:
         if not voice.ks.is_armed:
             return False
 
+        # ——— show it, then speak only if nobody looked ———
+        #
+        # Speech used to come first and cost the whole wait: tts is 4941ms
+        # (74% of a turn) and 4310ms (52%) in the two measurements this
+        # project has. With every shell command confirming, that is ~12s
+        # round trip per command — the speed at which a guardrail stops being
+        # used and starts being worked around.
+        #
+        # The orb already receives this snapshot stream, so publishing the
+        # question costs one frame. Speech is the fallback for the case that
+        # actually needs it: the user is not looking at the screen.
+        #
+        # Arming BEFORE the wait is what makes the silent window answerable,
+        # and it is also why clearing stale state matters more than it did —
+        # the window is open earlier than it used to be.
+        voice.arm_gesture_answer()
+        voice.set_state("listening", transcript=prompt, partial="")
+
+        answered = await asyncio.to_thread(
+            voice._gesture_event.wait, self.SPEAK_AFTER_S
+        )
+        if answered:
+            answer = voice.take_gesture_answer()
+            if answer is not None:
+                voice.ks.log.append(
+                    "confirm.answer", prompt=prompt, via="gesture",
+                    verdict="yes" if answer else "no", spoken=False,
+                )
+                log.info("confirmation by gesture, unspoken: %s", answer)
+                return answer
+
+        if not voice.ks.is_armed:
+            return False
+
         voice.set_state("speaking", transcript=prompt)
         await asyncio.to_thread(voice.speak, prompt)
 
         if not voice.ks.is_armed:
             return False
-
-        # Open the gesture window only now, and clear anything stale: a
-        # thumbs-up made before the question must not answer it.
-        voice.arm_gesture_answer()
 
         voice.set_state("listening", transcript=prompt, partial="")
 
