@@ -179,12 +179,15 @@ reads the same file happily. That is macOS working correctly. Ask the daemon
 instead:
 
 ```bash
-TOKEN=$(grep '^KAVACH_API_TOKEN=' brain/.env | cut -d= -f2) && curl -s -X POST http://127.0.0.1:8770/index-messages -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"limit":200}'
+TOKEN=$(grep -h '^KAVACH_API_TOKEN=' ~/Desktop/KAVACH/brain/.env | cut -d= -f2) && curl -s -X POST http://127.0.0.1:8770/index-messages -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"limit":200}'
 ```
 
-Setting `TOKEN` on the same line is the point — without it you get
-`{"detail":"Bad or missing token."}`, which looks like a broken endpoint and
-is really an unset shell variable.
+Two things that both bit on the way here. `TOKEN` must be set on the same
+line, or you get `{"detail":"Bad or missing token."}` — which looks like a
+broken endpoint and is an unset shell variable. And the path to `.env` is
+**absolute**, because a relative `brain/.env` only works from the repo root
+and fails with `No such file or directory` from inside `brain/` itself,
+which is where you already are.
 
 ```bash
 uv run kavach-memory forget messages     # removes every one of them

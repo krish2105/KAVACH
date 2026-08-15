@@ -95,6 +95,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kavach-voice")
     parser.add_argument("--no-wake-word", action="store_true",
                         help="push-to-talk only; skip the wake-word model")
+    # Which detector listens for the wake word.
+    #
+    # **Whisper by default, and that is a claim about this microphone.** The
+    # ONNX route was measured deaf to it four separate times — the same
+    # utterance scoring 0.858 as a file and 0.019 through the mic — and it
+    # refuses to load without a calibration that has never succeeded on this
+    # voice, so defaulting to it meant defaulting to no wake word at all.
+    # The whisper route was measured on 90 seconds of this user speaking:
+    # 10 of 12 wakes caught, zero false wakes, a YouTube advert included.
+    parser.add_argument("--wake-backend", default="whisper",
+                        choices=["whisper", "onnx"],
+                        help="whisper transcribes a burst and matches the "
+                             "text; onnx scores audio with a trained model")
     parser.add_argument("--wake-model", default=None,
                         help="defaults to the trained model if one exists")
     parser.add_argument("--models-dir", default=str(DEFAULT_MODELS_DIR))
@@ -175,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         wake_model=Path(args.wake_model) if args.wake_model else find_wake_model(),
         stt_model=args.stt_model,
         use_wake_word=not args.no_wake_word,
+        wake_backend=args.wake_backend,
         # Gates every turn, not just confirmations.
         voiceprint=voiceprint,
         memory=memory,

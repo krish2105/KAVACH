@@ -303,6 +303,66 @@ what time is it", a sentence with context, which is the shape of the transcript
 that did work. **The live path has not been tested.** Judge it with the real
 microphone and natural speech before concluding anything.
 
+### The wake word works (2026-08-16) — two bugs, neither of them the model
+
+**It fires.** Through the speakers into the real microphone, which is the
+harsher two-channel test:
+
+```
+03:19:52  kavach.voice.wakewhisper: wake word heard (2.0s)
+03:19:58  no speech in the clip, discarding turn      ← nobody said a command
+```
+
+Four bursts of ordinary speech afterwards, **zero false wakes**.
+
+**Bug 1 — the whisper detector was never switched on.** `VoiceLoop` has
+taken `wake_backend` for a while and `voice/__main__.py` never passed it, so
+the daemon built the ONNX detector every time. The ONNX detector refuses to
+load without a calibration that has never once succeeded on this voice, so
+the machine had **no wake word at all** while a working one sat in the tree.
+Eleventh built-but-unwired instance, and the most expensive by elapsed time:
+**four ONNX models were trained after the alternative was already written.**
+
+**Bug 2 — the model could not hear the word.** `DEFAULT_MODEL` was `swift`,
+a Hinglish fine-tune of whisper-*base*. On a clean file, no microphone:
+
+```
+swift           "Kavach, what time is it?" → "Have a nice day. What time is it?"
+base.en                                    → "What time is it?"   (dropped it)
+small.en                                   → "Kavac, what time is it?"    ✓
+small                                      → "Kavach, what time is it?"   ✓
+large-v3-turbo                             → "Kavach, what time is it?"   ✓
+```
+
+A base-sized model has no representation for a rare proper noun, so the
+matcher downstream never had anything to match. **That also invalidates the
+earlier 19–31% recall figure** — it measured a base model on tight 1s clips,
+its two worst conditions at once.
+
+Across four wake phrases and four ordinary sentences:
+
+| model | recall | false | median |
+|---|---|---|---|
+| `small.en` | 3/4 | 0/4 | 256ms |
+| **`small`** | **4/4** | **0/4** | **272ms** |
+| `large-v3-turbo` | 4/4 | 0/4 | 1188ms |
+
+`small` multilingual is large-v3-turbo's accuracy at 4.4x the speed.
+`small.en` heard a bare "Kavach." as **"Cabbage."** — English-only is wrong
+for this word and for this user's Hinglish. `FALLBACK_MODEL` moved off
+`base.en` for the same reason: falling back to a model that cannot hear the
+word is falling back to silence, which looks exactly like a broken mic.
+
+**The project ruled out large-v3-turbo as too slow — correctly — and went
+from base straight to large. Nothing in between was ever tried.** Seven
+attempts, four trained models, and the answer was a model size.
+
+Caveat: those transcripts are macOS `say` voices. They establish a floor and
+the ordering between models, which is what a default depends on; the live
+number on the user's own voice is still theirs to produce. The speaker gate
+at 0.300 now sits behind the wake word, so a false wake still has to pass
+voice verification before anything acts.
+
 ### Reach phases (the user's second numbering — restarts at 6)
 
 Tags are `reach-N`, because `phase-6/7/8` were already taken by the earlier

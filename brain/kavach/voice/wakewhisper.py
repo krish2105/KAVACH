@@ -213,15 +213,44 @@ class WhisperWakeDetector:
     `push(block)` — so the voice loop can hold either without knowing which.
     """
 
-    #: A registry name, or anything pywhispercpp accepts. `swift` is a
-    #: whisper-base Hinglish fine-tune already on disk here (148MB) — small
-    #: enough to run per burst, and tuned for exactly the phonetics of a
-    #: Sanskrit wake word.
-    DEFAULT_MODEL = "swift"
-    #: Used when the chosen model is not installed. Small, English, and
-    #: fetched by pywhispercpp on demand: a missing file must not stop KAVACH
-    #: listening, the same rule `stt_models.resolve()` follows.
-    FALLBACK_MODEL = "base.en"
+    #: A registry name, or anything pywhispercpp accepts.
+    #:
+    #: **This was `swift`, and `swift` cannot hear the word.** It is a
+    #: Hinglish fine-tune of whisper-*base* — 72.6M parameters — and the
+    #: reasoning for it (tuned for Sanskrit phonetics, small enough to run
+    #: per burst) was sound and wrong. Measured on a clean file, with no
+    #: microphone involved::
+    #:
+    #:     swift           "Kavach, what time is it?" → "Have a nice day.…"
+    #:     base.en                                    → "What time is it?"
+    #:     small.en                                   → "Kavac, what time…"  ✓
+    #:     small                                      → "Kavach, what time…" ✓
+    #:     large-v3-turbo                             → "Kavach, what time…" ✓
+    #:
+    #: A base-sized model has no representation for a rare proper noun, so
+    #: the matcher downstream never had anything to match. Across four wake
+    #: phrases and four ordinary sentences::
+    #:
+    #:     small.en          recall 3/4   false 0/4   median  256ms
+    #:     small             recall 4/4   false 0/4   median  272ms
+    #:     large-v3-turbo    recall 4/4   false 0/4   median 1188ms
+    #:
+    #: `small` multilingual is large-v3-turbo's accuracy at 4.4x the speed.
+    #: `small.en` heard a bare "Kavach." as **"Cabbage."** — English-only is
+    #: the wrong choice for this word and for this user's Hinglish.
+    #:
+    #: The project had already ruled large-v3-turbo out as too slow, which
+    #: was right, and went from base straight to large. Nothing in between
+    #: was ever tried.
+    DEFAULT_MODEL = "small"
+    #: Used when the chosen model is not installed, fetched by pywhispercpp
+    #: on demand: a missing file must not stop KAVACH listening, the same
+    #: rule `stt_models.resolve()` follows.
+    #:
+    #: **Not `base.en`.** Falling back to a model measured unable to hear the
+    #: word is falling back to silence, and silence here is indistinguishable
+    #: from a broken microphone.
+    FALLBACK_MODEL = "small.en"
 
     #: Bursts waiting to be scored. Bounded, and dropped rather than queued
     #: when full: falling behind must cost a missed wake word, never a growing
