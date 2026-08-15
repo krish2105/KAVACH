@@ -174,3 +174,6 @@ packages = ["kavach"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: loads a real model (TTS, the speaker encoder). Registered so an\n    unknown-mark warning cannot hide a real one.",
+]

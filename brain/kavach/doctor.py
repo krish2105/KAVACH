@@ -163,6 +163,19 @@ def check_speech_model() -> list[Check]:
     return out
 
 
+#: What the "another voice" check says.
+#:
+#: **Long enough to clear `MIN_VERIFY_SECONDS`, deliberately.** This was
+#: "Delete the draft in Notes." — 1.73s — and `verify()` refuses anything
+#: under the 3.0s floor before looking at the audio. So the check reported
+#: `✓ rejects another voice, similarity 0.000` while rejecting nothing, and
+#: would have passed for the enrolled speaker just as readily.
+OTHER_VOICE_LINE = (
+    "Delete the draft in Notes, and then open Chrome and search for the "
+    "quarterly report I was reading yesterday afternoon."
+)
+
+
 def check_voice_gates() -> list[Check]:
     import numpy as np
 
@@ -199,12 +212,20 @@ def check_voice_gates() -> list[Check]:
 
         tts = TextToSpeech(DEFAULT_MODELS_DIR)
         tts.load()
-        speech = tts.synthesize("Delete the draft in Notes.", voice="am_michael")
+        speech = tts.synthesize(OTHER_VOICE_LINE, voice="am_michael")
         audio = ss.resample_poly(speech.audio, 16_000, speech.sample_rate).astype(np.float32)
         result = vp.verify(audio, sample_rate=16_000)
-        out.append(Check("voice", "voiceprint rejects another voice",
-                         PASS if not result.accepted else FAIL,
-                         f"similarity {result.similarity:.3f} < {result.threshold:.3f}"))
+        if "too short" in result.reason:
+            # The bug this check used to have, reported instead of passed.
+            # A refusal on duration says nothing about the voice — it reads
+            # identically for the enrolled speaker.
+            out.append(Check("voice", "voiceprint rejects another voice", WARN,
+                             f"not judged: {result.reason}"))
+        else:
+            out.append(Check("voice", "voiceprint rejects another voice",
+                             PASS if not result.accepted else FAIL,
+                             f"similarity {result.similarity:.3f} < "
+                             f"{result.threshold:.3f}"))
     except Exception as exc:
         out.append(Check("voice", "voiceprint rejects another voice", WARN, str(exc)[:60]))
     return out
