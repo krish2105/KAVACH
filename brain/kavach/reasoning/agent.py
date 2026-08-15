@@ -22,20 +22,27 @@ import json
 import logging
 from pathlib import Path
 
+from ..hands.policy import Policy
+
 log = logging.getLogger("kavach.reasoning.agent")
 
 MCP_CONFIG = Path(__file__).resolve().parents[3] / "hands" / "mcp.config.json"
 
+#: What KAVACH may do is **asked, never remembered.**
+#:
+#: This paragraph used to name four apps. `allowlist.json` had held Google
+#: Chrome for two days, and the log shows no `tool.decision` between the route
+#: and the refusal — the gate was never consulted. KAVACH said "Chrome is off
+#: limits for me" about an app it was permitted to drive, which is the same
+#: failure as claiming work it never did, pointing the other way.
+#:
+#: `tests/test_agent_prompt.py` fails the build if any app name reappears here.
 SYSTEM_PROMPT = (
     "You are KAVACH, a voice-controlled presence on this Mac.\n"
     "Your replies are spoken aloud, so answer in at most two short sentences. "
     "No markdown, no bullet points, no code blocks, no preamble.\n"
     "\n"
-    "You may only act on Safari, Notes, Calendar and Finder. Anything else "
-    "will be refused before it runs — say so rather than trying.\n"
-    "Actions that send, delete, buy, submit or change a system setting are "
-    "spoken back to the user for confirmation first. Never claim to have done "
-    "something you have not done."
+    + Policy().describe_capabilities()
 )
 
 #: Never auto-approve. Named so a test can assert on it.

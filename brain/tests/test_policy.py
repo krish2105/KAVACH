@@ -9,12 +9,13 @@ Spec §9a records the decision and the risks the user accepted. This file
 tests the boundary that replaced it.
 """
 
-import ast
 import inspect
 
 import pytest
 
 from kavach.hands.policy import Policy, Verdict
+
+from ._sourcecheck import code_text
 
 # ═══ the shell ═══
 #
@@ -56,31 +57,6 @@ def test_every_shell_command_confirms(command):
     assert verdict is Verdict.CONFIRM, command
 
 
-def _code_strings(module) -> list[str]:
-    """Every string literal in `module` that is NOT a docstring.
-
-    Scanning raw source cannot tell documentation from implementation — and
-    policy.py's docstring quotes `rm -rf` as *evidence* that pattern matching
-    fails. Parsing drops comments for free and lets docstrings be excluded
-    explicitly, so what is left is the code.
-    """
-    tree = ast.parse(inspect.getsource(module))
-    docstrings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef,
-                             ast.FunctionDef, ast.AsyncFunctionDef)):
-            found = ast.get_docstring(node, clean=False)
-            if found:
-                docstrings.add(found)
-    return [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and node.value not in docstrings
-    ]
-
-
 def test_a_destructive_pattern_blocklist_was_not_built():
     """The trap this design deliberately avoided.
 
@@ -89,7 +65,7 @@ def test_a_destructive_pattern_blocklist_was_not_built():
     blocklist would look like a gate and stop nothing — worse than no gate,
     because it would be trusted. If someone adds one later, this fails.
     """
-    literals = " ".join(_code_strings(inspect.getmodule(Policy)))
+    literals = code_text(inspect.getmodule(Policy))
     for pattern in ("rm -rf", "dd if=", "mkfs", "sudo ", "shutil", "chmod"):
         assert pattern not in literals, (
             f"{pattern!r} is a string literal in policy.py — a shell "
