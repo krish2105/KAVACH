@@ -119,13 +119,20 @@ async def test_kill_switch_denies_iphone_tools_too(ks):
 
 # ——— the Mac is untouched ———
 
-async def test_mac_allowlist_behaviour_is_unchanged(ks):
+async def test_the_mac_is_now_gated_by_verb_not_by_app(ks):
+    """Renamed 2026-08-15: the Mac's behaviour *did* change (spec §9a).
+
+    The iPhone's did not, which is the point of this file — the two devices
+    are governed differently because the servers behind them are shaped
+    differently, and widening the Mac must not widen the phone.
+    """
     g = gate(ks, YesConfirmer())
     assert await allowed(
         g, "mcp__macos-automator__execute_script",
         {"script_content": 'tell application "Safari" to return name of front window'},
     )
-    assert not await allowed(
+    # Mail was refused for being unlisted. It is reachable now.
+    assert await allowed(
         g, "mcp__macos-automator__execute_script",
         {"script_content": 'tell application "Mail" to activate'},
     )

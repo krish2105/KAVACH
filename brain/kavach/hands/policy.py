@@ -40,15 +40,53 @@ spec §4.2 before relaxing it.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from ..reasoning.router import looks_destructive
+
+#: AppleScript's ways of reaching a shell.
+#:
+#: Gating on the tool *name* was not enough, and the way that was found is
+#: worth recording. `do shell script "rm -rf ~/Documents"` arrives as
+#: `execute_script`, not as `Shell`, so the always-confirm rule never fired
+#: and it was ALLOWED — a complete bypass. The old allowlist had blocked it
+#: incidentally (it could not identify a target app, so it refused), and
+#: removing the allowlist removed that side effect and exposed the hole.
+#:
+#: `test_gate.py::test_action_with_no_identifiable_app_is_denied` caught it,
+#: after it had already gone red for an unrelated reason. That is the whole
+#: argument for §B's "never modify a test to make it pass".
+#:
+#: This is **not** the destructive-pattern blocklist the docstring rejects.
+#: It does not try to sort shell commands into safe and dangerous — it
+#: detects that a shell is reached *at all*, and every shell confirms.
+_SHELL_ESCAPE_RE = re.compile(
+    r"""
+    \b do \s+ shell \s+ script \b     # AppleScript's own shell escape
+    | \b do \s+ script \b             # Terminal.app / iTerm: runs a command
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 class Verdict(str, Enum):
     ALLOW = "allow"
     CONFIRM = "confirm"
     DENY = "deny"
+
+
+def reaches_shell(tool: str | None, text: str | None) -> bool:
+    """Whether this call reaches a shell, by tool name or by payload.
+
+    Public because the confirmation prompt needs it too: anything that
+    reaches a shell must be quoted verbatim to the user rather than
+    paraphrased. "Act on something" is not a description of ``rm -rf ~``,
+    and approving it would not be consent.
+    """
+    if Policy.bare_name(tool) == "Shell":
+        return True
+    return bool(_SHELL_ESCAPE_RE.search(text or ""))
 
 
 class Policy:
@@ -96,6 +134,13 @@ class Policy:
             return (Verdict.CONFIRM, self._ALWAYS_CONFIRM_REASON[bare])
 
         text = self.action_text(tool, args)
+
+        # A shell reached through AppleScript is still a shell. Checked on the
+        # payload rather than the tool name, because `do shell script` arrives
+        # as `execute_script` and was allowed outright until this was added.
+        if _SHELL_ESCAPE_RE.search(text):
+            return (Verdict.CONFIRM, self._ALWAYS_CONFIRM_REASON["Shell"])
+
         if looks_destructive(text) or self._token_hit(text):
             return (Verdict.CONFIRM,
                     "this is irreversible or externally visible")

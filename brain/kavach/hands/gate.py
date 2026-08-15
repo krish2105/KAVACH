@@ -10,12 +10,20 @@ Checks run cheapest-and-most-absolute first, and each one can only ever deny:
    anything else so a halt cannot be out-raced by an otherwise-valid request.
 2. **Known server.** The tool must belong to a server in
    ``hands/mcp.config.json``.
-3. **Identifiable target.** If we cannot tell which app a call would touch,
-   we cannot check it against the allowlist — so it does not run. Refusing the
-   unreadable is the only safe reading of an allowlist.
-4. **Allowlist.** Safari, Notes, Calendar, Finder. Unknown means no.
-5. **Confirmation.** Destructive or externally visible actions are spoken back
+3. **Identifiable target.** Extracted for the log and the spoken prompt, but
+   no longer a gate. It used to be fatal — an action whose app could not be
+   identified was refused, because it could not be checked against the
+   allowlist. There is no allowlist now.
+4. **Policy** (`hands/policy.py`). Every installed app is allowed; the
+   question is which *verb*. Shell — including a shell reached through
+   AppleScript's ``do shell script`` — always confirms.
+5. **Confirmation.** Destructive or externally visible actions are read back
    and wait. With no confirmer wired, they are denied: silence is not consent.
+
+**This list is prose and prose goes stale.** It said "Safari, Notes, Calendar,
+Finder" for two days after Chrome was permitted, which is the same drift that
+made `agent.py` refuse an app it was allowed to drive. `policy.py` is the
+authority; if this paragraph disagrees with it, this paragraph is wrong.
 
 Every decision is written to the JSONL action log with its arguments, because
 §7 asks for "every tool call, every argument" and because when this goes wrong
@@ -31,8 +39,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ..killswitch.core import KillSwitch
-from ..reasoning.router import looks_destructive
-from .allowlist import Allowlist, AppNotAllowed
+from .allowlist import Allowlist
+from .policy import Policy, Verdict, reaches_shell
 
 log = logging.getLogger("kavach.hands.gate")
 
@@ -44,15 +52,20 @@ _TOOL_NAME_RE = re.compile(r"^mcp__(?P<server>[a-z0-9_-]+)__(?P<tool>[A-Za-z0-9_
 #: AppleScript/JXA: tell application "Safari"
 _TELL_APP_RE = re.compile(r'tell\s+application\s+"([^"]+)"', re.I)
 
-#: Tools that defeat the allowlist by design, so they are never exposed and
-#: never permitted — even for an allowlisted app, even with confirmation.
-#: A shell command has no "app" for this gate to check, which makes it a
-#: complete bypass of §7 rather than an edge case of it.
-NEVER_ALLOWED_TOOLS = frozenset({
-    "Shell",     # macos-accessibility: arbitrary commands + AppleScript
-    "agent",     # peekaboo: drives its own sub-agent, ungated by us
-    "Desktop",   # macos-accessibility: creates/switches virtual desktops
-})
+#: Empty by decision (spec §9), and kept as a name so the reason survives.
+#:
+#: `Shell` and `agent` were refused outright because a shell command names no
+#: app, so the allowlist had nothing to check and the tool was a complete
+#: bypass of §7 rather than an edge case of it. **There is no app allowlist
+#: now.** Both are handled by `Policy.ALWAYS_CONFIRM_TOOLS` instead: every
+#: invocation is read back to the user before it runs, which is a stronger
+#: check than the allowlist ever applied to them and a weaker one than
+#: refusal. `Desktop` (virtual desktops) is simply allowed.
+#:
+#: Left as an empty frozenset rather than deleted because `_decide` still
+#: consults it: a future tool that genuinely cannot be gated belongs here,
+#: and the branch should already exist when that happens.
+NEVER_ALLOWED_TOOLS = frozenset()
 
 #: Non-MCP tools that are permitted because they cannot touch the machine.
 #:
@@ -146,9 +159,13 @@ class ToolGate:
         servers: set[str] | None = None,
     ):
         self.ks = kill_switch
+        #: Retained for `confirm_always` and the iPhone's per-tool policy.
+        #: Its mac `allowed` array no longer gates anything (spec §9a).
         self.allowlist = allowlist or Allowlist()
         self.confirmer = confirmer
         self.servers = servers if servers is not None else load_configured_servers()
+        #: What may run. The app question became a verb question.
+        self.policy = Policy(confirm_tokens=frozenset(self.allowlist.confirm_always))
 
     # ——— the Agent SDK entry point ———
 
@@ -261,8 +278,21 @@ class ToolGate:
                 device, server, match.group("tool"), args
             )
 
-        # 3 — if we can't tell what it touches, we can't clear it.
+        # 3 — what does it touch? Still extracted, but no longer a gate.
+        #
+        # This used to be fatal: an action whose target app could not be
+        # identified was refused, because an unidentifiable app cannot be
+        # checked against the allowlist. There is no allowlist now, so an
+        # unknown app is no longer a reason to refuse — the verb is what
+        # decides. The name is still pulled out because it makes the log and
+        # the spoken confirmation legible.
         app = extract_target_app(tool, args)
+
+        # The whole-screen capture is the one case where a missing app still
+        # matters, and it is not about permission — it is that the capture
+        # will include whatever is on screen, which may be a password manager
+        # or a private message. That deserves asking about regardless of how
+        # wide the app policy is.
         if app is None:
             # A whole-screen capture is the one honest exception. It has no
             # single target app *by design* — and that is exactly why it needs
@@ -290,51 +320,36 @@ class ToolGate:
                         {"server": server, "whole_screen": True,
                          "confirmed": True})
 
+        # 4 — the policy decides: which verb, not which app.
+        verdict, reason = self.policy.decide(tool, args)
+        extra = {"server": server, "app": app, "policy": reason}
+
+        if verdict is Verdict.ALLOW:
+            return ("allow", reason, extra)
+
+        if verdict is Verdict.DENY:
+            return ("deny", reason, extra)
+
+        # 5 — CONFIRM: read it back and wait.
+        action_text = self.policy.action_text(tool, args)
+        what = self._describe(app, match.group("tool"), action_text)
+
+        if self.confirmer is None:
+            # Denial is the default. An unattended daemon is not consent, and
+            # "nobody objected" is not the same as "someone agreed".
             return (
                 "deny",
-                "Cannot determine which app this would affect, so it is "
-                "refused. Actions must name their target to be checked "
-                "against the allowlist.",
-                {"server": server},
+                f"This would {what}, and there is no way to ask you right "
+                f"now. Refusing.",
+                {**extra, "needed_confirmation": True},
             )
 
-        # 4 — allowlist.
-        try:
-            self.allowlist.check(app)
-        except AppNotAllowed as exc:
-            return ("deny", str(exc), {"server": server, "app": app})
-
-        # 5 — destructive or externally visible → speak it back and wait.
-        action_text = " ".join(
-            v for v in args.values() if isinstance(v, str)
-        ) or match.group("tool")
-
-        if looks_destructive(action_text) or self.allowlist.needs_confirmation(action_text):
-            if self.confirmer is None:
-                return (
-                    "deny",
-                    f"This would {self._describe(app, match.group('tool'), action_text)}, "
-                    f"and there is no way to ask you right now. Refusing.",
-                    {"server": server, "app": app, "destructive": True},
-                )
-
-            prompt = (
-                f"This will {self._describe(app, match.group('tool'), action_text)}. "
-                f"Should I?"
-            )
-            granted = await self.confirmer.confirm(prompt)
-            if not granted:
-                return (
-                    "deny", "You declined.",
-                    {"server": server, "app": app, "destructive": True},
-                )
-            return (
-                "allow", "confirmed by user",
-                {"server": server, "app": app, "destructive": True,
-                 "confirmed": True},
-            )
-
-        return ("allow", "allowlisted, read-only", {"server": server, "app": app})
+        granted = await self.confirmer.confirm(f"This will {what}. Should I?")
+        if not granted:
+            return ("deny", "You declined.",
+                    {**extra, "needed_confirmation": True})
+        return ("allow", f"confirmed by user — {reason}",
+                {**extra, "needed_confirmation": True, "confirmed": True})
 
     async def _decide_device_scoped(
         self, device: str, server: str, tool: str, args: dict
@@ -376,9 +391,22 @@ class ToolGate:
         return ("allow", f"approved read-only {device} tool", extra)
 
     @staticmethod
-    def _describe(app: str, tool: str, action_text: str) -> str:
-        """A short spoken paraphrase. Names the app and what will happen —
-        a prompt that says only "allow tool?" is not informed consent."""
+    def _describe(app: str | None, tool: str, action_text: str) -> str:
+        """A short spoken paraphrase. Names what will happen — a prompt that
+        says only "allow tool?" is not informed consent.
+
+        A shell command is quoted **verbatim**, never paraphrased. Everything
+        else here is a summary, but approving `rm -rf ~` because the prompt
+        said "act on something" is not consent, it is a trap. If it is too
+        long to say, it is truncated at the end rather than the start: the
+        command name is the part that matters most.
+        """
+        if reaches_shell(tool, action_text):
+            command = (action_text or "").strip()
+            if len(command) > 160:
+                command = command[:157] + "..."
+            return f"run the shell command: {command}"
+
         verb = "act on"
         for candidate in ("delete", "send", "remove", "trash", "buy", "purchase",
                           "submit", "post", "share", "install", "restart",
@@ -386,4 +414,5 @@ class ToolGate:
             if re.search(rf"\b{candidate}\b", action_text, re.I):
                 verb = candidate
                 break
-        return f"{verb} something in {app} (via {tool})"
+        where = f" in {app}" if app else ""
+        return f"{verb} something{where} (via {tool})"

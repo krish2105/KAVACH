@@ -17,7 +17,11 @@ import json
 import pytest
 
 from kavach.hands.allowlist import Allowlist
-from kavach.hands.gate import ToolGate, extract_target_app
+from kavach.hands.gate import (
+    ToolGate,
+    extract_target_app,
+    is_whole_screen_capture,
+)
 from kavach.killswitch.core import KillSwitch
 from kavach.killswitch.log import ActionLog
 
@@ -93,34 +97,51 @@ async def test_allowlisted_read_only_action_is_permitted(ks):
     )
 
 
-async def test_unlisted_app_is_denied(ks):
-    gate = make_gate(ks, RecordingConfirmer(True))
-    assert not await allowed(
+async def test_an_unlisted_app_is_reachable_but_sending_still_asks(ks):
+    """Rewritten 2026-08-15 with the allowlist removed (spec §9a).
+
+    This used to assert that Mail was refused outright, because Mail was not
+    on the list. Mail is reachable now — but `send` is not, without asking.
+    The gate moved from *which app* to *which verb*, and this is the case
+    that shows the difference: the app opened up, the dangerous verb did not.
+    """
+    confirmer = RecordingConfirmer(True)
+    gate = make_gate(ks, confirmer)
+    assert await allowed(
         gate, "mcp__macos-automator__execute_script",
         {"script_content": 'tell application "Mail" to send outgoing message'},
     )
+    assert confirmer.prompts, "an outgoing message was sent without asking"
 
 
-async def test_unknown_app_is_denied_by_default(ks):
-    """The whole point of an allowlist: never-heard-of means no."""
+async def test_no_app_is_refused_for_being_unheard_of(ks):
+    """The inverse of what this file used to assert, by explicit decision.
+
+    Was: "never-heard-of means no". The user chose total app access after
+    being shown the measured risks (spec §9a). Activating an app is a
+    near-harmless verb, and it is the verb that decides now.
+    """
     gate = make_gate(ks, RecordingConfirmer(True))
     for app in ["Terminal", "System Settings", "Messages", "SomeAppNobodyKnows"]:
-        assert not await allowed(
+        assert await allowed(
             gate, "mcp__macos-automator__execute_script",
             {"script_content": f'tell application "{app}" to activate'},
         ), app
 
 
-async def test_denial_explains_itself(ks):
+async def test_denial_still_explains_itself(ks):
+    """A refusal the user cannot understand is one they will switch off.
+
+    The example moved: an unlisted app is no longer refused, so this uses a
+    server that was never configured — which is still refused, and still has
+    to say why.
+    """
     gate = make_gate(ks)
     result = await gate.check(
-        "mcp__macos-automator__execute_script",
-        {"script_content": 'tell application "Mail" to activate'},
-        context=None,
+        "mcp__nonexistent-server__do_something", {}, context=None,
     )
     assert result.behavior == "deny"
-    assert "Mail" in result.message
-    assert "allowlist" in result.message.lower()
+    assert "nonexistent-server" in result.message
 
 
 # ═══ 3. confirmation for destructive / externally visible (§7) ═══
@@ -214,9 +235,12 @@ async def test_every_decision_is_logged(ks, log):
     await gate.check("mcp__macos-automator__execute_script",
                      {"script_content": 'tell application "Safari" to activate'},
                      context=None)
-    await gate.check("mcp__macos-automator__execute_script",
-                     {"script_content": 'tell application "Mail" to activate'},
-                     context=None)
+    # Was `tell application "Mail"`, which used to be denied for being
+    # unlisted. Apps are not denied any more, so the denial comes from an
+    # unconfigured server instead — the property under test is that BOTH
+    # verdicts are recorded, and a denial is exactly the entry worth looking
+    # up afterwards.
+    await gate.check("mcp__nonexistent-server__do_something", {}, context=None)
 
     entries = [r for r in log.read_all() if r["event"] == "tool.decision"]
     assert len(entries) == 2
@@ -253,13 +277,27 @@ def test_unidentifiable_target_returns_none():
     assert extract_target_app("mcp__peekaboo__see", {"question": "what is on screen"}) is None
 
 
-async def test_action_with_no_identifiable_app_is_denied(ks):
-    """If we cannot tell what it would touch, we cannot check it against the
-    allowlist — so it does not run."""
-    gate = make_gate(ks, RecordingConfirmer(True))
+async def test_a_shell_reached_through_applescript_is_not_silent(ks):
+    """This test found a real hole on 2026-08-15 and is kept for it.
+
+    It used to pass incidentally: `do shell script` names no app, and an
+    action whose target could not be identified was refused. Removing the
+    allowlist removed that side effect — and the new policy ALLOWED
+    `do shell script "rm -rf ~/Documents"` outright, because it gated on the
+    tool being named `Shell` and this one is named `execute_script`.
+
+    A shell reached through AppleScript is still a shell. It confirms, and
+    declining stops it.
+    """
+    declining = RecordingConfirmer(False)
+    gate = make_gate(ks, declining)
     assert not await allowed(
         gate, "mcp__macos-automator__execute_script",
         {"script_content": 'do shell script "rm -rf ~/Documents"'},
+    )
+    assert declining.prompts, "it ran a shell command without asking"
+    assert "rm -rf" in declining.prompts[0], (
+        "the user was asked to approve a command they were not shown"
     )
 
 
@@ -343,26 +381,47 @@ def test_bypass_tools_are_not_even_offered_to_the_model(ks):
 
 # ═══ 8. tools that defeat the allowlist entirely ═══
 
-@pytest.mark.parametrize("tool,server", [
-    ("mcp__macos-accessibility__Shell", "macos-accessibility"),
-    ("mcp__peekaboo__agent", "peekaboo"),
-    ("mcp__macos-accessibility__Desktop", "macos-accessibility"),
+@pytest.mark.parametrize("tool", [
+    "mcp__macos-accessibility__Shell",
+    "mcp__peekaboo__agent",
 ])
-async def test_bypass_tools_are_never_permitted(ks, tool, server):
-    """`Shell` runs arbitrary commands: there is no "app" for the allowlist to
-    check, so it is a complete bypass of §7 rather than an edge case of it.
-    Denied even for an allowlisted app and even with a confirmer present."""
-    gate = make_gate(ks, RecordingConfirmer(True))
-    assert not await allowed(gate, tool, {"app": "Safari", "command": "ls"})
+async def test_the_bypass_tools_now_ask_instead_of_being_refused(ks, tool):
+    """Changed by explicit decision (spec §9).
+
+    `Shell` and `agent` were refused outright because a shell command names
+    no app, so the allowlist had nothing to check. There is no allowlist now,
+    and refusal was replaced with an unconditional confirmation — a weaker
+    rule than refusal, and a stronger one than the allowlist ever applied to
+    them. What must not happen is either of them running *silently*.
+    """
+    confirmer = RecordingConfirmer(True)
+    gate = make_gate(ks, confirmer)
+    assert await allowed(gate, tool, {"app": "Safari", "command": "ls"})
+    assert confirmer.prompts, f"{tool} ran without asking"
 
 
-async def test_bypass_tools_are_denied_before_confirmation_is_asked(ks):
-    """It must not be possible to talk the user into one."""
+async def test_declining_stops_the_bypass_tools(ks):
+    confirmer = RecordingConfirmer(False)
+    gate = make_gate(ks, confirmer)
+    assert not await allowed(gate, "mcp__macos-accessibility__Shell",
+                             {"command": "rm -rf ~"})
+
+
+async def test_a_shell_command_is_always_asked_about_never_assumed(ks):
+    """The inverse of what this used to assert.
+
+    Was: "it must not be possible to talk the user into one" — the tool was
+    denied before a confirmer was ever consulted. The user chose the
+    capability instead (spec §9), so the guarantee moved: the user is ALWAYS
+    asked, and always shown the command verbatim. A prompt that paraphrases
+    `rm -rf ~` is not consent.
+    """
     confirmer = RecordingConfirmer(True)
     gate = make_gate(ks, confirmer)
     await gate.check("mcp__macos-accessibility__Shell",
-                     {"app": "Safari", "command": "rm -rf ~"}, context=None)
-    assert not confirmer.prompts
+                     {"command": "rm -rf ~"}, context=None)
+    assert confirmer.prompts, "a shell command ran with no prompt at all"
+    assert "rm -rf ~" in confirmer.prompts[0]
 
 
 # ═══ 9. schema discovery must work, without opening a hole ═══
@@ -429,13 +488,20 @@ async def test_capturing_an_allowlisted_app_window_needs_no_confirmation(ks):
     assert not confirmer.prompts
 
 
-async def test_capturing_an_unlisted_app_window_is_still_denied(ks):
-    """The exception is for the *whole screen*, not a licence to name any app."""
+async def test_capturing_a_named_app_window_no_longer_needs_the_list(ks):
+    """Was denied for naming an unlisted app. Apps are not the gate now."""
     gate = make_gate(ks, RecordingConfirmer(True))
-    assert not await allowed(gate, "mcp__peekaboo__image", {"app_target": "Mail"})
+    assert await allowed(gate, "mcp__peekaboo__image", {"app_target": "Mail"})
 
 
-async def test_non_capture_tools_get_no_whole_screen_exception(ks):
-    """A click with no target must not sneak through as a "capture"."""
-    gate = make_gate(ks, RecordingConfirmer(True))
-    assert not await allowed(gate, "mcp__peekaboo__click", {})
+def test_a_click_is_still_not_a_whole_screen_capture():
+    """A click with no target must not sneak through as a "capture".
+
+    The assertion moved from the gate's verdict to the predicate itself,
+    because a targetless click is no longer refused — but it must still not
+    trip the whole-screen path, which exists to ask about capturing a
+    password manager or a private message that happens to be on screen.
+    """
+    assert not is_whole_screen_capture("click", {})
+    assert not is_whole_screen_capture("type", {"text": "hello"})
+    assert is_whole_screen_capture("image", {})
