@@ -56,7 +56,22 @@ CHANNELS = 1
 class EndpointConfig:
     """When to decide the speaker has finished."""
 
+    #: Quiet this long **after you have spoken** ends the turn. Prompt on
+    #: purpose: waiting longer makes every reply feel slow.
     silence_ms: int = 700
+    #: Quiet this long **before you have spoken** ends it instead.
+    #:
+    #: These are separate numbers because they answer opposite questions, and
+    #: collapsing them into one is what broke push-to-talk. Measured live
+    #: 2026-08-15, twice: the hotkey fired, the mic opened, and the turn closed
+    #: after ~1.05s — `silence_ms` plus `min_utterance_ms` — while the user was
+    #: still drawing breath. Nothing reached the router, the action log stayed
+    #: empty, and it looked exactly like the speaker gate had failed.
+    #:
+    #: CLAUDE.md had recorded the symptom in August as advice about how to use
+    #: it ("clicking TALK and *then* gathering your thoughts closes it before
+    #: you speak"). It was a fact about this constant.
+    lead_in_ms: int = 6_000
     max_utterance_ms: int = 15_000
     min_utterance_ms: int = 350
     # RMS below this counts as silence. Tuned by ear on the built-in mic; the
@@ -246,29 +261,48 @@ class Recorder:
             chunks.append(pre)
 
         started = time.monotonic()
-        silence_started: float | None = None
+        #: Measured from the audio itself, not the clock.
+        #:
+        #: Wall-clock timing asks "how long have I been waiting", which
+        #: depends on how fast PortAudio delivers blocks. Sample counting asks
+        #: "how much audio is there", which is the actual question and is the
+        #: same answer whether blocks arrive smoothly or in a burst after a
+        #: scheduling hiccup.
+        elapsed_ms = 0.0
+        silent_ms = 0.0
+        heard_speech = False
 
         while True:
             block = self.mic.read(timeout=1.0)
             if block is None:
+                # No audio at all: fall back to the clock, because a stalled
+                # stream produces no samples to count and must still time out.
                 if (time.monotonic() - started) * 1000 > cfg.max_utterance_ms:
                     break
                 continue
 
             chunks.append(block)
-            elapsed_ms = (time.monotonic() - started) * 1000
+            block_ms = len(block) / TARGET_RATE * 1000
+            elapsed_ms += block_ms
             rms = float(np.sqrt(np.mean(block**2)))
 
             if rms < cfg.silence_rms:
-                if silence_started is None:
-                    silence_started = time.monotonic()
-                elif (
-                    (time.monotonic() - silence_started) * 1000 >= cfg.silence_ms
-                    and elapsed_ms >= cfg.min_utterance_ms
-                ):
+                silent_ms += block_ms
+                if heard_speech:
+                    # You have spoken and stopped. End promptly.
+                    if (silent_ms >= cfg.silence_ms
+                            and elapsed_ms >= cfg.min_utterance_ms):
+                        break
+                elif silent_ms >= cfg.lead_in_ms:
+                    # You never started. Give up — patience is not forever,
+                    # and a key pressed by accident must not hold the
+                    # microphone open indefinitely.
+                    log.info("nothing said within %d ms — closing the turn",
+                             cfg.lead_in_ms)
                     break
             else:
-                silence_started = None
+                heard_speech = True
+                silent_ms = 0.0
 
             if elapsed_ms >= cfg.max_utterance_ms:
                 log.info("hit max utterance length (%d ms)", cfg.max_utterance_ms)
