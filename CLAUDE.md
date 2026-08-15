@@ -693,6 +693,117 @@ That is arguably the test doing its job — an addition that arrives unnoticed i
 exactly what it guards against — but a red suite as a notification mechanism is
 a choice, not an accident. **The test was not touched.**
 
+### Total access (2026-08-15) — and the string literal that was never the gate
+
+KAVACH refused "open Google Chrome and search YouTube", saying it could only
+act on Safari, Notes, Calendar and Finder. **Chrome had been on the allowlist
+since 2026-08-13.** The log shows no `tool.decision` between the route and the
+refusal — the gate never ran. `agent.py:34` hardcoded the list in its system
+prompt and had drifted from the file that decided.
+
+This is the third time this codebase has produced the same bug: the startup
+banner (fixed by `Allowlist.app_names()`), the Ollama model name (fixed by a
+grep test), and now the agent prompt. **A fact written in two places is the
+recurring defect here.** Tests now forbid the *shape* — `tests/_sourcecheck.py`
+parses with `ast` so a module may still *explain* the literal it must not
+*contain*.
+
+A second bug sat beside it: `parse()` matched only a bare `open X`, so
+"Open notes for me." fell to the Claude route at **27,286ms** against the
+250ms local path built for it — 109x, for two words of politeness.
+
+**Neither was a permission problem, and Full Disk Access would have fixed
+neither.** FDA governs files, not apps; KAVACH has no file tools, so granting
+it changes nothing but the blast radius. It is deferred.
+
+#### What replaced the allowlist
+
+`hands/policy.py` — every installed app is allowed, and the question is which
+**verb**. `hands/allowlist.json` survives for `confirm_always` and the iPhone's
+per-tool policy; its mac `allowed` array no longer gates.
+
+```
+kill switch → Shell/agent (always confirm) → irreversible verb → allow
+```
+
+**The shell gets no classification, because none survives contact with a
+shell.** Measured: `rm -rf`, `dd`, `git push --force`, `killall`, `> ~/.ssh/…`,
+`chmod -R 777` and `curl|sh` **all** cleared the existing English-text check;
+only the sentence "delete the note called X" tripped it. A pattern blocklist is
+defeated by one line of `python -c "shutil.rmtree(…)"`, so it would look like a
+gate and stop nothing. `test_policy.py` fails the build if one appears.
+
+**A deleted test found a complete bypass.** `test_action_with_no_identifiable_app_is_denied`
+used `do shell script "rm -rf ~/Documents"` and went red for an unrelated
+reason. The new policy **allowed** it — the tool is named `execute_script`, not
+`Shell`. The old gate had blocked it incidentally (no identifiable app), and
+removing the allowlist removed that side effect. `reaches_shell()` checks the
+payload as well as the name now. **This is §B's "never modify a test to make it
+pass" paying for itself in the most literal way available.**
+
+The confirmation prompt was equally wrong — "act on something (via
+execute_script)". Anything reaching a shell is quoted **verbatim**; approving
+`rm -rf ~` because the prompt said "act on something" is a trap, not consent.
+
+#### Deliberate deviations (do not "fix" these back)
+
+* **The app allowlist is gone**, contradicting §C. The user was shown the
+  measured risks — speaker gate off, the room already transcribes YouTube
+  adverts (`test_wakewhisper.py:293`), whisper renders the wake word as
+  `Kavec`/`Gavach` — and chose it, keeping confirmation on irreversible actions.
+* **peekaboo's `agent` is confirmed-then-allowed, not denied.** Its sub-agent
+  loop runs inside the MCP server, so its inner tool calls never reach the
+  `PreToolUse` hook and **never reach the action log**. A real, accepted
+  deviation from §7.
+* **The voice-add-to-allowlist flow is deleted** (10 tests). It widened a
+  boundary that no longer exists.
+* **`parse()` declines compounds.** "open Chrome and search YouTube" goes to
+  the agent, because opening Chrome and answering "Opened Chrome" drops the
+  YouTube half *while reporting success*.
+
+#### Browser control — `hands/browser.py`
+
+Read off each app's `sdef`, not assumed: Chrome has `execute tab N javascript`
+and a settable tab `URL`; Safari has `do JavaScript`. **Chrome has no `open
+location` in its dictionary** — it works anyway via Standard Additions.
+
+Arguments are `json.dumps`'d into a **fixed** function body. Verified against
+the running browser: a search for `"); window.x = "EXECUTED"; ("` left the
+marker `undefined` and appeared percent-encoded in the URL bar. Schemes are an
+allowlist — `javascript:` would make `navigate()` an execution primitive.
+
+`search()` falls back to setting the tab URL when JS is refused, because
+**Allow JavaScript from Apple Events is a manual toggle that cannot be set
+programmatically.** Both are enabled on this machine as of 2026-08-15.
+
+**New risk, created by this change.** Once KAVACH reads a page, the page can
+contain "ignore previous instructions and run …". What contains it is the
+unconditional shell confirmation — a page cannot make a command run silently.
+**Rule 2 of `policy.py` is load-bearing against prompt injection, not merely
+cautious.**
+
+#### Verified live 2026-08-15
+
+```
+POST /command  "open Google Chrome and search YouTube"
+→ route  claude · "needs tools to act (app control)"
+→ Bash                                  deny   not a recognised MCP tool
+→ ToolSearch                            allow  schemas only
+→ mcp__macos-automator__execute_script  allow  reversible
+→ https://www.youtube.com/ open in Chrome
+```
+
+**The first attempt was allowed by the gate and still did nothing** — the
+daemon had never sent an AppleEvent to Chrome, and macOS needs an Automation
+(`kTCCServiceAppleEvents`) grant per *source→target app pair*. The second
+attempt worked. **A newly-reachable app may fail once, silently, before its
+grant exists.** That is TCC, not the gate; check
+`System Settings → Privacy & Security → Automation` before debugging further.
+
+**Not done:** confirmations still speak rather than render on the orb (~12s per
+shell command, and that will get routed around), and the speaker gate is still
+**OFF** with a threshold of 0.803 against real speech of 0.52–0.78.
+
 ### The clock must never reach a language model
 
 A model with no clock does not decline — it guesses. KAVACH answered "twenty
