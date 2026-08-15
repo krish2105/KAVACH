@@ -29,6 +29,7 @@ from ..autonomy.proposals import ProposalQueue
 from ..autonomy.tiers import TierPolicy
 from ..autonomy.trust import TrustLedger
 from ..hands.files import FileTools
+from ..memory.store import MemoryStore
 from ..reasoning.actions import MacActions
 from ..hands.allowlist import Allowlist
 from ..hands.confirm import VoiceConfirmer
@@ -150,6 +151,20 @@ def main(argv: list[str] | None = None) -> int:
     actions = MacActions(allowlist=allowlist, kill_switch=ks,
                          voiceprint=voiceprint)
 
+    # **Seventh built-but-unwired module found in this project.** The write
+    # path at loop.py:745 has always existed and nothing ever created the
+    # store, so every turn skipped it and the index held 0 rows. Found by
+    # asking whether the code was REACHED rather than whether it worked —
+    # the same question that found browser.py imported by nothing, file tools
+    # the agent could not call, and endpointing fixed in the copy that does
+    # not run.
+    #
+    # Embeddings need Ollama. If it is not running, `remember()` raises
+    # EmbeddingUnavailable and the loop already catches it per turn, so
+    # recall degrades to empty rather than breaking a turn that otherwise
+    # worked.
+    memory = MemoryStore()
+
     voice = VoiceLoop(
         kill_switch=ks,
         router=router,
@@ -162,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         use_wake_word=not args.no_wake_word,
         # Gates every turn, not just confirmations.
         voiceprint=voiceprint,
+        memory=memory,
     )
 
     # The confirmer needs the loop (for its mic and voice), and the gate
