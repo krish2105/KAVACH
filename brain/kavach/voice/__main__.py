@@ -242,7 +242,14 @@ def main(argv: list[str] | None = None) -> int:
         # The shared object, not a fresh read: this is the same list the
         # actions and the gate are holding, so the banner cannot describe a
         # file while they are enforcing something else.
-        print(f"  allowlist  {', '.join(allowlist.app_names())}")
+        # NOT an allowlist any more (spec §9a). Printing app names here read
+        # as "these are what KAVACH may drive", which stopped being true when
+        # the gate moved from which-app to which-verb — every installed app is
+        # reachable now. A banner describing a file while something else does
+        # the enforcing is the defect this project keeps producing.
+        print("  policy     every installed app; irreversible actions and "
+              "shell confirm")
+        print(f"  confirm on {', '.join(sorted(allowlist.confirm_always))}")
     except Exception as exc:
         # Louder than a wrong list: not knowing what is allowed is a reason to
         # look, and a confident wrong answer is not.
@@ -251,7 +258,13 @@ def main(argv: list[str] | None = None) -> int:
     # switched off would be the same lie the allowlist line used to tell.
     _vp = Voiceprint()
     if _vp.gating:
-        _identity = "voiceprint enrolled"
+        # Says what it actually covers. Commands are checked against the
+        # voiceprint; a spoken *answer* to a confirmation is not, because one
+        # word is too short to verify (see loop.should_verify_speaker). Saying
+        # only "voiceprint enrolled" would imply the approval is bound to this
+        # user's voice, and it is not — the same overclaim the allowlist line
+        # used to make.
+        _identity = "voiceprint enrolled — commands only, not confirmations"
     elif _vp.is_enrolled:
         _identity = "enrolled but OFF — any voice is acted on (kavach-speaker on)"
     else:

@@ -141,6 +141,43 @@ class VoiceState:
 Publisher = Callable[[dict], None]
 
 
+
+def should_verify_speaker(gating: bool, pending) -> bool:
+    """Whether this turn's audio should be checked against the voiceprint.
+
+    **Answering a pending confirmation skips the check, by decision.**
+
+    A one-word answer cannot be speaker-verified: "confirm" is roughly 0.5s of
+    voiced sound in a 2.4s clip, and an embedding built mostly from silence is
+    unreliable at any clip length — lowering `MIN_VERIFY_SECONDS` would not
+    fix it. Measured live 2026-08-15, with a correctly calibrated threshold
+    and everything else working::
+
+        voice.rejected  similarity 0.0  threshold 0.3825
+                        reason: "clip too short to verify (2.42s)"
+
+    The check was right and said why. The design was the problem: the
+    confirmation asked a question whose answer it could not verify, so a
+    spoken approval could never succeed.
+
+    What the confirmation still guarantees: KAVACH does not delete, send, buy
+    or submit without reading the action back and waiting, and a timeout is a
+    denial. What it no longer guarantees: that the *answer* came from the
+    enrolled speaker.
+
+    A registry that raises is treated as "no confirmation pending", so the
+    check still runs — denial is the default, and an unreadable state must not
+    silently disable a gate.
+    """
+    if not gating:
+        return False
+    try:
+        return not (pending is not None and pending.list())
+    except Exception:
+        log.debug("could not read the pending registry", exc_info=True)
+        return True
+
+
 class VoiceLoop:
     def __init__(
         self,
@@ -558,7 +595,8 @@ class VoiceLoop:
         # that acts on whatever the room says is the failure §7 exists to stop.
         # `gating`, not `is_enrolled`: the two used to be the same thing, so
         # the only way to stop checking was to delete the voiceprint.
-        if self.voiceprint is not None and self.voiceprint.gating:
+        if self.voiceprint is not None and should_verify_speaker(
+                self.voiceprint.gating, self.pending):
             result = self.voiceprint.verify(audio, sample_rate=16_000)
             if not result.accepted:
                 log.info("voice did not match the enrolled speaker "
