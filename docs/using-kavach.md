@@ -161,6 +161,39 @@ uv run kavach-memory forget files              # delete a kind
 uv run kavach-memory forget                    # delete all of it
 ```
 
+It can also index **what it did** — every tool call it has made:
+
+```bash
+uv run kavach-memory index-actions
+```
+
+Then *"when did I open Notes"* answers from the action log, with the time the
+thing actually happened rather than the time it was indexed.
+
+### Messages
+
+Messages needs Full Disk Access, and **your terminal does not have it — the
+daemon does.** macOS attributes the grant to whichever process is responsible,
+so `kavach-memory index-messages` is refused from a shell while the daemon
+reads the same file happily. That is macOS working correctly. Ask the daemon
+instead:
+
+```bash
+TOKEN=$(grep '^KAVACH_API_TOKEN=' brain/.env | cut -d= -f2) && curl -s -X POST http://127.0.0.1:8770/index-messages -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"limit":200}'
+```
+
+Setting `TOKEN` on the same line is the point — without it you get
+`{"detail":"Bad or missing token."}`, which looks like a broken endpoint and
+is really an unset shell variable.
+
+```bash
+uv run kavach-memory forget messages     # removes every one of them
+```
+
+**Think before running this one.** It copies real conversations into
+`~/.kavach/memory.db`, which is not encrypted. Everything below about
+FileVault applies to it with more force than it does to your notes.
+
 There is no flag that indexes everything — a sweep of the disk was cut, and a
 test fails the build if one is ever added. Screen contents and ambient audio
 have no indexer at all, for the same reason.
