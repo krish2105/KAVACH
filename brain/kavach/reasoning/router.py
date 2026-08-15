@@ -186,6 +186,9 @@ _ACTIONABLE_INTENTS = frozenset({
     # a file question, it narrates having looked, exactly as it once claimed
     # to have opened Notes.
     "file access",
+    # A question about the past needs the index, which lives behind the tool
+    # route. The local model would answer it from nothing.
+    "recall",
 })
 
 # ——— signals that a request needs judgement ———
@@ -221,6 +224,14 @@ _COMPLEX_PATTERNS = [
     (r"\bdo you remember\b", "recall"),
     (r"\bin my (notes|documents|files)\b", "recall"),
     (r"\bsearch my (notes|documents|files)\b", "recall"),
+    # Added 2026-08-16. The five above cover "say/decide/discuss" and
+    # "remind me"; these cover the way the question is actually asked out
+    # loud. Anchored on a past-tense verb plus a first- or second-person
+    # subject, so "what is the weather tomorrow" cannot match and neither can
+    # "what did the report say" — that is a third party, not KAVACH's history.
+    (r"\bwhat (did|have) (i|we|you)\b", "recall"),
+    (r"\bwhen did (i|we|you)\b", "recall"),
+    (r"\b(did|have) (i|we) (ever|already)\b", "recall"),
 ]
 _COMPLEX_RE = [(re.compile(p, re.I), label) for p, label in _COMPLEX_PATTERNS]
 
@@ -270,6 +281,10 @@ class Router:
             if pattern.search(text):
                 return RoutingDecision(
                     Route.CLAUDE, 0.55, f"needs judgement ({label})",
+                    # The label was computed and discarded. §13 asks for the
+                    # intent to be surfaced, and `respond()` cannot route a
+                    # recall question to the index without knowing it is one.
+                    intent=label,
                     needs_confirmation=confirm, utterance=text,
                 )
 

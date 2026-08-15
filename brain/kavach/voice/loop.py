@@ -154,6 +154,41 @@ Publisher = Callable[[dict], None]
 
 
 
+def remember_turn(memory, said: str, reply: str, origin: str) -> None:
+    """Store one turn, from any origin. Never raises.
+
+    The write used to live only in the voice-turn path, so a command from the
+    phone or the API happened, was logged, and left no memory. That was found
+    by a verification failing for the right reason: it sent an API command,
+    checked the store, and the store stayed at 0.
+
+    A command typed from your phone is as much a thing you asked for as one
+    spoken into the room, and recall that knows half your history answers
+    "I don't have that" to things you definitely did.
+
+    `origin` reaches provenance: "you asked this from your phone" and "you
+    said this out loud" are different facts.
+    """
+    if memory is None:
+        return
+    try:
+        memory.remember(
+            f"User said: {said}\nKAVACH replied: {reply}",
+            collection="turns",
+            source=f"{origin} turn",
+        )
+    except Exception:
+        # The turn already succeeded. Failing to remember it must not undo
+        # that — the same rule the action log follows.
+        #
+        # **Warning, not debug.** This was debug, and a memory write that
+        # failed on every single turn was invisible: the store stayed at 0
+        # rows while the daemon logged nothing at all, and three wrong
+        # theories were tried before the level was raised. A guard that
+        # swallows an error must still say it swallowed one.
+        log.warning("could not store turn in memory", exc_info=True)
+
+
 def should_score_speaker(voiceprint) -> bool:
     """Whether to embed this turn and record its similarity.
 
@@ -739,15 +774,10 @@ class VoiceLoop:
         self.ks.log.append("voice.turn", **record)
 
         # Remember the turn so later questions can refer back to it.
-        # Failure here must never break a turn that already succeeded.
-        if self.memory is not None:
-            try:
-                self.memory.remember(
-                    f"User said: {result.text}\nKAVACH replied: {reply}",
-                    collection="turns",
-                )
-            except Exception:
-                log.debug("could not store turn in memory", exc_info=True)
+        # Through the shared helper, so the voice path and the API path
+        # cannot drift — an inline copy here is how this write came to exist
+        # for spoken turns only.
+        remember_turn(self.memory, result.text, reply, origin="voice")
         self.session.record_turn(result.text, reply,
                                  route=self.state.route)
 
@@ -823,6 +853,28 @@ class VoiceLoop:
             if self.pending is not None:
                 self.pending.register(prompt, payload=text)
             return prompt
+
+        # Memory, before the model. A question about the past reaching a
+        # language model with no index produces an invented Friday — the same
+        # failure as the clock, which is why the clock never reaches one
+        # either.
+        #
+        # Provenance travels WITH the text rather than being appended after,
+        # so the model cannot merge three sources into one unattributed claim.
+        if decision.intent == "recall" and self.memory is not None:
+            from ..memory.recall import recall as recall_memory
+
+            found = recall_memory(self.memory, text)
+            self.state.route = "recall"
+            if found is None:
+                self.state.reason = "nothing in memory matched"
+                self.state.intent = "recall"
+                self.publish()
+                return "I don't have anything about that."
+            self.state.reason = "answered from memory"
+            self.state.intent = "recall"
+            text = (f"{text}\n\nFrom KAVACH's memory:\n{found.text}\n"
+                    f"(source: {'; '.join(found.sources) or 'unknown'})")
 
         # Music, before anything else. "skip this" should not wait on a
         # language model, and the parser returns None for anything it does not

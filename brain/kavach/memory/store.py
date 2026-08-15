@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -87,13 +88,32 @@ class MemoryStore:
         self.model = model
         self.host = host
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # One lock for the whole store. sqlite is safe under *serialised*
+        # access and not under concurrent access, and this connection is now
+        # shared by the main thread, the voice loop and the API's worker.
+        self._lock = threading.Lock()
         self._db = self._connect()
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
         import sqlite_vec
 
-        db = sqlite3.connect(str(self.path))
+        # **Cross-thread, deliberately.** The connection is opened on the
+        # thread that constructs the store — the main thread — while
+        # `remember()` is called from the voice loop's thread and from the
+        # API's `asyncio.to_thread` worker. Both raised:
+        #
+        #     sqlite3.ProgrammingError: SQLite objects created in a thread
+        #     can only be used in that same thread.
+        #
+        # Nobody could have hit this before: the module was built, tested and
+        # constructed by nothing, so its only caller was a single-threaded
+        # test. Wiring it up surfaced the bug — as silence, because the caller
+        # swallowed the exception at debug level.
+        #
+        # `check_same_thread=False` alone would trade a loud error for a
+        # corrupt index, so `self._lock` below serialises every access.
+        db = sqlite3.connect(str(self.path), check_same_thread=False)
         db.enable_load_extension(True)
         sqlite_vec.load(db)
         db.enable_load_extension(False)
@@ -139,17 +159,21 @@ class MemoryStore:
                 f"the index — delete {self.path} and re-index."
             )
 
-        cursor = self._db.execute(
-            "INSERT INTO memories(collection, text, source, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (collection, text, source, time.time()),
-        )
-        rowid = cursor.lastrowid
-        self._db.execute(
-            "INSERT INTO vectors(rowid, embedding) VALUES (?, ?)",
-            (rowid, sqlite_vec.serialize_float32(vector)),
-        )
-        self._db.commit()
+        # The whole write under one lock. Splitting it would leave a row in
+        # `memories` with no vector if another thread interleaved — a torn
+        # write is worse than the error this replaced, because it is silent.
+        with self._lock:
+            cursor = self._db.execute(
+                "INSERT INTO memories(collection, text, source, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (collection, text, source, time.time()),
+            )
+            rowid = cursor.lastrowid
+            self._db.execute(
+                "INSERT INTO vectors(rowid, embedding) VALUES (?, ?)",
+                (rowid, sqlite_vec.serialize_float32(vector)),
+            )
+            self._db.commit()
         return rowid
 
     # ——— reading ———
@@ -161,16 +185,18 @@ class MemoryStore:
         vector = embed(query, self.model, self.host)
         # Over-fetch, then filter by collection in Python: vec0 KNN cannot be
         # combined with a WHERE clause on the joined table.
-        rows = self._db.execute(
-            """
-            SELECT m.id, m.collection, m.text, m.source, m.created_at, v.distance
-            FROM vectors v
-            JOIN memories m ON m.id = v.rowid
-            WHERE v.embedding MATCH ? AND k = ?
-            ORDER BY v.distance
-            """,
-            (sqlite_vec.serialize_float32(vector), limit * 4),
-        ).fetchall()
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT m.id, m.collection, m.text, m.source, m.created_at,
+                       v.distance
+                FROM vectors v
+                JOIN memories m ON m.id = v.rowid
+                WHERE v.embedding MATCH ? AND k = ?
+                ORDER BY v.distance
+                """,
+                (sqlite_vec.serialize_float32(vector), limit * 4),
+            ).fetchall()
 
         results = [
             Memory(id=r[0], collection=r[1], text=r[2], source=r[3],
@@ -182,10 +208,14 @@ class MemoryStore:
 
     def count(self, collection: str | None = None) -> int:
         if collection is None:
-            return self._db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-        return self._db.execute(
-            "SELECT COUNT(*) FROM memories WHERE collection = ?", (collection,)
-        ).fetchone()[0]
+            with self._lock:
+                return self._db.execute(
+                    "SELECT COUNT(*) FROM memories").fetchone()[0]
+        with self._lock:
+            return self._db.execute(
+                "SELECT COUNT(*) FROM memories WHERE collection = ?",
+                (collection,),
+            ).fetchone()[0]
 
     def sources(self, collection: str = "files") -> list[str]:
         """What has been indexed — so it can be audited and revoked."""

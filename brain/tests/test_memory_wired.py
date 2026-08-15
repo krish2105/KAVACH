@@ -45,7 +45,14 @@ def test_the_loop_still_accepts_no_memory():
 
 
 def test_a_turn_without_memory_does_not_raise():
-    """The `if self.memory is not None` guard is what makes the degraded path
-    safe. If it is ever removed, this fails."""
-    source = inspect.getsource(VoiceLoop)
-    assert "if self.memory is not None:" in source
+    """A missing store degrades to no recall, never to a broken turn.
+
+    This used to assert the literal `if self.memory is not None:` guard
+    inside VoiceLoop. That guard moved into `remember_turn` when the voice
+    and API paths were unified — the inline copy was how the write came to
+    exist for spoken turns only. The GUARANTEE is unchanged, so this asserts
+    the guarantee rather than the line that used to provide it.
+    """
+    from kavach.voice.loop import remember_turn
+
+    remember_turn(None, "said", "replied", origin="voice")   # must not raise

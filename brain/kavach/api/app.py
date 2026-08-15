@@ -233,6 +233,17 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         # of the session, not of the microphone. Recorded here rather than
         # inside respond(), which also runs for confirmation follow-ups and
         # would double-count every spoken turn.
+        # And into memory, for the same reason and in the same place. The
+        # write used to live only in the voice-turn path, so a command from
+        # the phone happened, was logged, and left nothing to recall.
+        #
+        # Here rather than in respond() on the argument already made above:
+        # respond() also runs for confirmation follow-ups, and putting it
+        # there would remember "confirm" as a turn of its own.
+        from ..voice.loop import remember_turn
+
+        remember_turn(getattr(loop, "memory", None), text, reply, origin="api")
+
         session = getattr(loop, "session", None)
         if session is not None:
             try:
