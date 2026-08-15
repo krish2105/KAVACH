@@ -4,9 +4,15 @@ The hole this closes: the confirmation gate trusts *whoever is in the room*.
 Anyone within earshot of the microphone can answer "yes" to a delete prompt.
 Binding confirmation to a voiceprint means the answer has to come from you.
 
-Resemblyzer produces a 256-d L2-normalised embedding from a few seconds of
-speech, entirely on-device. Enrolment stores the mean embedding of several
-clips; verification embeds the answer and compares by cosine similarity.
+ECAPA-TDNN (`speechbrain/spkrec-ecapa-voxceleb`, Apache-2.0) produces a
+192-d embedding from a few seconds of speech, entirely on-device. Enrolment
+stores the mean embedding of several clips; verification embeds the answer and
+compares by cosine similarity.
+
+**This replaced resemblyzer, which was the reason the gate never worked.** Its
+embeddings put strangers at 0.49-0.59 against an enrolled speaker's 0.54-0.62 —
+overlapping, so no threshold existed and two rounds of tuning could not find
+one. See `ENCODER` for the measurement.
 
 **Everything denies on failure** — not enrolled, low similarity, too little
 audio, an exception in the encoder. Same asymmetry as the spoken
@@ -31,7 +37,31 @@ DEFAULT_PATH = Path.home() / ".kavach" / "voiceprint.npz"
 
 #: Below this, an embedding is too noisy to mean anything.
 MIN_ENROLMENT_SECONDS = 6.0
-MIN_VERIFY_SECONDS = 0.8
+
+#: The encoder that produces every embedding here, named **once**.
+#:
+#: Was resemblyzer, and it was the fault. Measured 2026-08-15 on identical
+#: data with an identical held-out split::
+#:
+#:     audio   resemblyzer: you / strangers      ECAPA: you / strangers
+#:       1s    0.741-0.954 / 0.559               0.220-0.728 / 0.107
+#:       2s    0.542-0.725 / 0.490               0.323-0.391 / 0.130
+#:       3s    0.563-0.587 / 0.586  <- overlap   0.314-0.406 / 0.136
+#:       7s    0.562-0.618 / 0.552               0.334-0.403 / 0.102
+#:
+#: resemblyzer's strangers reach 0.49-0.59; ECAPA's never exceed 0.14. Pooled,
+#: resemblyzer's worst genuine (0.542) sits BELOW its best stranger (0.586) —
+#: so **no threshold existed at any duration**, which is why two rounds of
+#: tuning could not find one. ECAPA's worst genuine (0.220) clears its best
+#: stranger (0.136).
+#:
+#: An embedding is not portable between encoders, so the name is stored in the
+#: profile and a profile written by a different one is refused rather than
+#: compared — the rule the wake word arrived at with its model hash.
+ENCODER = "speechbrain/spkrec-ecapa-voxceleb"
+
+#: What the encoder expects. Audio at any other rate is resampled, filtered.
+SAMPLE_RATE = 16_000
 
 #: Used only when calibration cannot run (a single enrolment clip). Resemblyzer
 #: embeddings for the same speaker typically sit well above this.
@@ -154,10 +184,10 @@ def choose_threshold(
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     """Cosine similarity, safe on zero vectors.
 
-    Resemblyzer already L2-normalises, so this is usually a dot product — but
-    a zero vector (silence that survived the VAD) would otherwise divide by
-    zero and produce a NaN that compares false against every threshold in a
-    way that only *looks* like a denial.
+    Explicitly normalised rather than assumed: ECAPA does not L2-normalise its
+    output the way resemblyzer did. A zero vector (silence that survived the
+    VAD) would otherwise divide by zero and produce a NaN that compares false
+    against every threshold in a way that only *looks* like a denial.
     """
     denom = float(np.linalg.norm(a) * np.linalg.norm(b))
     if denom == 0.0:
@@ -201,6 +231,23 @@ class Voiceprint:
             return
         try:
             data = np.load(self.path)
+
+            # An embedding is meaningless to a different encoder — comparing
+            # a resemblyzer mean against an ECAPA embedding produces a number,
+            # and that number is noise. The wake word learned this as a model
+            # hash; here it is the model's name. Refused, not migrated: there
+            # is no way to convert one into the other, and silently accepting
+            # it is how you get a gate that "works" and verifies nothing.
+            written_by = str(data.get("encoder", "resemblyzer"))
+            if written_by != ENCODER:
+                log.warning(
+                    "voiceprint at %s was written by %s, not %s — refusing it. "
+                    "Run `uv run kavach-enrol` to build one with the current "
+                    "encoder.", self.path, written_by, ENCODER,
+                )
+                self._mean = None
+                return
+
             self._mean = data["mean"]
             self.threshold = float(data["threshold"])
             self.enrolled_seconds = float(data.get("seconds", 0.0))
@@ -222,6 +269,7 @@ class Voiceprint:
             self.path,
             mean=self._mean,
             threshold=self.threshold,
+            encoder=ENCODER,
             seconds=self.enrolled_seconds,
             calibrated=self.calibrated,
             enabled=self.enabled,
@@ -279,17 +327,31 @@ class Voiceprint:
 
     def _load_encoder(self):
         if self._encoder is None:
-            from resemblyzer import VoiceEncoder
+            from speechbrain.inference.speaker import EncoderClassifier
 
-            self._encoder = VoiceEncoder(self.device)
+            self._encoder = EncoderClassifier.from_hparams(
+                source=ENCODER,
+                savedir=str(self.path.parent / "ecapa"),
+                run_opts={"device": self.device},
+            )
         return self._encoder
 
     def _embed(self, wav: np.ndarray, sample_rate: int) -> np.ndarray:
-        from resemblyzer import preprocess_wav
+        import torch
 
         encoder = self._load_encoder()
-        processed = preprocess_wav(wav.astype(np.float32), source_sr=sample_rate)
-        return encoder.embed_utterance(processed)
+        audio = np.asarray(wav, dtype=np.float32)
+        if sample_rate != SAMPLE_RATE:
+            # ECAPA is trained at 16k. Resampling with a filter rather than
+            # decimating — the wake word proved a naive `[::n]` is wrong on
+            # principle even where it happened not to matter.
+            import torchaudio
+            audio = torchaudio.functional.resample(
+                torch.from_numpy(audio), sample_rate, SAMPLE_RATE
+            ).numpy()
+        with torch.no_grad():
+            emb = encoder.encode_batch(torch.from_numpy(audio).unsqueeze(0))
+        return emb.squeeze().cpu().numpy().astype(np.float32)
 
     # ——— enrolment ———
 

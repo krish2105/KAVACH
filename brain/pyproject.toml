@@ -36,10 +36,20 @@ dependencies = [
     "pydantic>=2.13.4",
     "claude-agent-sdk>=0.2.137",
     # ——— Phase 6: speaker verification ———
+    # ECAPA-TDNN via speechbrain (Apache-2.0). It replaced resemblyzer, which
+    # was the reason the gate never worked: measured on identical data with an
+    # identical held-out split, resemblyzer put strangers at 0.49-0.59 against
+    # an enrolled speaker's 0.54-0.62 — overlapping, so no threshold existed
+    # at any duration and two rounds of tuning could not find one. ECAPA holds
+    # strangers under 0.14. See `identity/voiceprint.py::ENCODER`.
+    "speechbrain>=1.0",
     # Resemblyzer is from 2023 and its dependency list is actively harmful on
     # Python 3.12: it pulls a `typing` BACKPORT that shadows the stdlib module,
     # and a `webrtcvad` whose import crashes on `pkg_resources`. Both are
     # neutralised in [tool.uv] below; webrtcvad-wheels supplies the module.
+    #
+    # Kept only because `voice/wakerecord.py` and the wake-word tooling still
+    # import `preprocess_wav`. Nothing in the speaker gate uses it any more.
     "resemblyzer>=0.1.4",
     "librosa>=0.9.1",   # floor is resemblyzer's; audiomentations caps <1.0
     "torch>=2.13.0",             # resemblyzer's encoder — RUNTIME, not
