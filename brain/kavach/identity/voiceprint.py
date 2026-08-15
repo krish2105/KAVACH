@@ -55,6 +55,41 @@ MAX_THRESHOLD = 0.92
 #: none because they were recorded back to back.
 MIN_SAMPLES = 2
 
+#: **Below this, speaker verification is not possible — not merely unreliable.**
+#:
+#: Measured 2026-08-15. The same audio from the same speaker, scored at
+#: increasing durations::
+#:
+#:     0.8s → 0.423     7.2s → 0.774    27.5s → 0.807
+#:     2.7s → 0.579    13.8s → 0.816
+#:
+#: Resemblyzer cannot embed a one-second clip stably. The control that makes
+#: this decisive is scoring 400 clips of *other* speakers the same way: they
+#: plateau at ~0.53 while the enrolled speaker climbs::
+#:
+#:     duration    you     strangers (max)   margin
+#:         1s     0.581        0.543         +0.038   ← noise
+#:         3s     0.698        0.561         +0.138
+#:         7s     0.774        0.540         +0.234
+#:        14s     0.811        0.552         +0.258
+#:
+#: So the voiceprint is fine and the threshold was never the real fault. A
+#: voice command — "open Notes" — is about a second, where the enrolled user
+#: and a total stranger are 0.038 apart. **No threshold separates those.** It
+#: is not a tuning problem; the embedding has nothing to work with.
+#:
+#: 3.0s is where a usable margin first appears. Below it the honest answer is
+#: "I cannot tell", and `tests/test_voiceprint_duration.py` exists so that
+#: answer cannot quietly become "yes".
+MIN_VERIFY_SECONDS = 3.0
+
+
+def is_long_enough_to_verify(wav, sample_rate: int) -> bool:
+    """Whether there is enough audio for the answer to mean anything."""
+    if wav is None or sample_rate <= 0:
+        return False
+    return (len(wav) / float(sample_rate)) >= MIN_VERIFY_SECONDS
+
 
 def choose_threshold(
     genuine: "list[float]", others: "list[float]",
