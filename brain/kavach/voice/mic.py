@@ -245,6 +245,63 @@ class MicStream:
         return max(0.006, floor * 3.0)
 
 
+class TurnEndpointer:
+    """Decides when a turn is over. **The only implementation.**
+
+    There were two. `Recorder.record_utterance` had one and
+    `loop._record_with_meter` had a hand-copied duplicate, and the loop's copy
+    is the one that actually runs — so a fix to the first changed nothing and
+    the live behaviour stayed broken while the tests went green.
+
+    That is the sixth time this codebase has produced the same defect: a fact
+    written in two places where one copy quietly stops being true. The others
+    were the startup banner, the Ollama model name, the agent prompt, a
+    duplicated `MIN_VERIFY_SECONDS`, and the gate and agent disagreeing about
+    which MCP servers exist.
+
+    The loop needs per-block side effects (publishing amplitude, checking the
+    kill switch, noticing a released key) which is why it had its own loop at
+    all. Those are *its* concerns; when the turn ends is not. This owns the
+    second question and nothing else, so both callers can keep their own
+    first.
+    """
+
+    def __init__(self, config: "EndpointConfig | None" = None):
+        self.config = config or EndpointConfig()
+        self.elapsed_ms = 0.0
+        self.silent_ms = 0.0
+        self.heard_speech = False
+
+    def push(self, block: np.ndarray) -> str | None:
+        """Feed one block. Returns a reason to stop, or None to continue.
+
+        A reason rather than a bool because "you stopped talking" and "nothing
+        was ever said" produce identical empty recordings and want different
+        explanations in the log — the second one cost an evening of debugging
+        the speaker gate, which was working the whole time.
+        """
+        cfg = self.config
+        block_ms = len(block) / TARGET_RATE * 1000
+        self.elapsed_ms += block_ms
+        rms = float(np.sqrt(np.mean(block ** 2)))
+
+        if rms < cfg.silence_rms:
+            self.silent_ms += block_ms
+            if self.heard_speech:
+                if (self.silent_ms >= cfg.silence_ms
+                        and self.elapsed_ms >= cfg.min_utterance_ms):
+                    return "speaker finished"
+            elif self.silent_ms >= cfg.lead_in_ms:
+                return f"nothing said within {cfg.lead_in_ms} ms"
+        else:
+            self.heard_speech = True
+            self.silent_ms = 0.0
+
+        if self.elapsed_ms >= cfg.max_utterance_ms:
+            return f"hit max utterance length ({cfg.max_utterance_ms} ms)"
+        return None
+
+
 class Recorder:
     """Records one utterance, stopping when the speaker does."""
 
@@ -261,16 +318,7 @@ class Recorder:
             chunks.append(pre)
 
         started = time.monotonic()
-        #: Measured from the audio itself, not the clock.
-        #:
-        #: Wall-clock timing asks "how long have I been waiting", which
-        #: depends on how fast PortAudio delivers blocks. Sample counting asks
-        #: "how much audio is there", which is the actual question and is the
-        #: same answer whether blocks arrive smoothly or in a burst after a
-        #: scheduling hiccup.
-        elapsed_ms = 0.0
-        silent_ms = 0.0
-        heard_speech = False
+        endpointer = TurnEndpointer(cfg)
 
         while True:
             block = self.mic.read(timeout=1.0)
@@ -282,30 +330,9 @@ class Recorder:
                 continue
 
             chunks.append(block)
-            block_ms = len(block) / TARGET_RATE * 1000
-            elapsed_ms += block_ms
-            rms = float(np.sqrt(np.mean(block**2)))
-
-            if rms < cfg.silence_rms:
-                silent_ms += block_ms
-                if heard_speech:
-                    # You have spoken and stopped. End promptly.
-                    if (silent_ms >= cfg.silence_ms
-                            and elapsed_ms >= cfg.min_utterance_ms):
-                        break
-                elif silent_ms >= cfg.lead_in_ms:
-                    # You never started. Give up — patience is not forever,
-                    # and a key pressed by accident must not hold the
-                    # microphone open indefinitely.
-                    log.info("nothing said within %d ms — closing the turn",
-                             cfg.lead_in_ms)
-                    break
-            else:
-                heard_speech = True
-                silent_ms = 0.0
-
-            if elapsed_ms >= cfg.max_utterance_ms:
-                log.info("hit max utterance length (%d ms)", cfg.max_utterance_ms)
+            reason = endpointer.push(block)
+            if reason is not None:
+                log.debug("turn ended: %s", reason)
                 break
 
         return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)

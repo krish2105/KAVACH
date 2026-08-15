@@ -31,7 +31,13 @@ from ..reasoning import search as search_mod
 from ..reasoning.router import Route, Router
 from . import tts as tts_mod
 from .latency import TurnTimer
-from .mic import EndpointConfig, MicStream, Recorder, rms_to_amplitude
+from .mic import (
+    EndpointConfig,
+    MicStream,
+    Recorder,
+    TurnEndpointer,
+    rms_to_amplitude,
+)
 from . import stt as stt_mod
 from . import vad
 from .stt import SpeechToText
@@ -857,7 +863,15 @@ class VoiceLoop:
             chunks.append(pre)
 
         started = time.monotonic()
-        silence_started: float | None = None
+        # **One endpointer, shared with `Recorder`.** This method used to carry
+        # a hand-copied duplicate of that logic, and it is the copy that
+        # actually runs — so fixing `mic.py` alone changed nothing live while
+        # the tests went green. Sixth instance of this codebase's recurring
+        # defect: a fact in two places, one going stale.
+        #
+        # The per-block side effects below are this method's own concern and
+        # stay here. *When the turn ends* is not, and no longer lives here.
+        endpointer = TurnEndpointer(cfg)
 
         while self._running:
             block = self.mic.read(timeout=1.0)
@@ -872,26 +886,16 @@ class VoiceLoop:
             self.state.amplitude = rms_to_amplitude(block)
             self.publish()
 
-            elapsed_ms = (time.monotonic() - started) * 1000
-            rms = float(np.sqrt(np.mean(block**2)))
-
-            if rms < cfg.silence_rms:
-                if silence_started is None:
-                    silence_started = time.monotonic()
-                elif (
-                    (time.monotonic() - silence_started) * 1000 >= cfg.silence_ms
-                    and elapsed_ms >= cfg.min_utterance_ms
-                ):
-                    break
-            else:
-                silence_started = None
-
-            # Releasing push-to-talk ends the utterance at once — waiting for
-            # the silence timeout after the key is up feels broken.
-            if ptt_turn and not self._ptt.is_set() and elapsed_ms >= cfg.min_utterance_ms:
+            reason = endpointer.push(block)
+            if reason is not None:
+                log.debug("turn ended: %s", reason)
                 break
 
-            if elapsed_ms >= cfg.max_utterance_ms:
+            # Releasing push-to-talk ends the utterance at once — waiting for
+            # the silence timeout after the key is up feels broken. Kept here
+            # because it is about the keyboard, not about the audio.
+            if (ptt_turn and not self._ptt.is_set()
+                    and endpointer.elapsed_ms >= cfg.min_utterance_ms):
                 break
 
         return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)

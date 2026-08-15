@@ -115,3 +115,35 @@ def test_the_lead_in_is_longer_than_the_trailing_silence():
     """They answer different questions, so they must not be one number."""
     config = EndpointConfig()
     assert config.lead_in_ms > config.silence_ms * 2
+
+
+# ═══ one implementation, not two ═══
+
+def test_the_endpointing_logic_exists_in_exactly_one_place():
+    """The sixth instance of this codebase's recurring defect, and the one
+    that wasted the most time: `loop._record_with_meter` carried a hand-copied
+    duplicate of `Recorder`'s endpointing, and the copy is what actually runs.
+
+    Fixing `mic.py` turned the tests green and changed nothing live. The user
+    pressed the key, spoke, and got "no speech in the clip" again — with a
+    freshly verified speaker gate that was working the whole time.
+
+    So this greps for the giveaway: a second place deciding when a turn ends.
+    """
+    import ast
+    import inspect
+
+    from kavach.voice import loop as loop_mod
+
+    source = inspect.getsource(loop_mod)
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in {
+            "silence_ms", "lead_in_ms", "silence_rms",
+        }:
+            raise AssertionError(
+                f"loop.py reads cfg.{node.attr} directly — endpointing "
+                f"belongs to TurnEndpointer, and a second copy of it is how "
+                f"the live behaviour and the tests stopped agreeing."
+            )
