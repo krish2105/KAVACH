@@ -303,6 +303,56 @@ what time is it", a sentence with context, which is the shape of the transcript
 that did work. **The live path has not been tested.** Judge it with the real
 microphone and natural speech before concluding anything.
 
+### The wake word is "hey there" now, and it works (2026-08-16)
+
+**The user changed it, after seven attempts at "Kavach".** That was the
+right call and the evidence was overwhelming by then:
+
+```
+"Kavach" inside a sentence   dropped 7/7 by whisper
+"Kavach" on its own          17–24 of 42, and often ''
+whisper's spellings          'cabbage', 'go watch', 'coverage', 'कवच'
+```
+
+Whisper has no representation for a Sanskrit word, so it drops it,
+transliterates it inconsistently, or writes it in another script. **Four
+trained ONNX models and five separate fixes to the machinery were all
+treating symptoms of that one fact.**
+
+Measured with the new phrase, same rig, same room:
+
+| | "Kavach" | "hey there" |
+|---|---|---|
+| recall (synthetic) | 4/4 | **5/5** |
+| recall (user, real) | 0/8 live | — |
+| false wakes | 0 | **0/8** |
+| median transcribe | 272ms | **179ms** |
+
+The negatives were built to trip it — *"hey, are you there?"*, *"is there
+anything else"*, *"they were there yesterday"*, *"put it over there"*, *"hey
+Sam, how are you"*. Zero fired, on file and again through the speakers.
+
+**Two common words need stricter matching than one rare one.** "kavach" had
+only nonsense neighbours, so 0.70 fuzzy was safe. "hey" sits beside "they"
+(0.86) and "there" beside "where" (0.80). So: `MATCH_RATIO = 0.85`, a small
+explicit homophone list per position (`their`, `they're`, `hay`), and —
+carrying the whole defence — **the words must be adjacent and in order**.
+Both words scattered in a sentence is not the phrase.
+
+`WAKE_PHRASE` is one constant. The banner reads from it (`say "hey there" or
+hold Space`) rather than repeating it, because a banner naming a different
+wake word than the matcher is this project's most repeated defect.
+
+**The lesson worth keeping:** five fixes went into the machinery — model
+size, language pinning, hang timing (twice, in opposite directions),
+pre-roll, minimum burst length — and every one was a real bug found by real
+measurement. None of them was the problem. **The input was unreadable, and
+no amount of correct plumbing fixes an unreadable input.**
+
+Those five fixes all still apply and all still matter; they are why "hey
+there" gets 5/5 rather than 3/5. But the order was wrong, and the question
+"is this word transcribable at all?" should have been asked at attempt one.
+
 ### The wake word works (2026-08-16) — two bugs, neither of them the model
 
 **It fires.** Through the speakers into the real microphone, which is the

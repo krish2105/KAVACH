@@ -82,12 +82,15 @@ def test_the_fallback_is_not_the_broken_one():
 # ═══ the matcher is unchanged, and still has to hold ═══
 
 @pytest.mark.parametrize("said", [
-    "Kavach, what time is it?",
-    "Kavac, what time is it?",          # what `small` actually produced
-    "Hey Kavach, open Notes.",
-    "Kavach.",
+    "Hey there, what time is it?",
+    "hey there open notes",
+    "Hey there.",
 ])
 def test_what_the_chosen_model_produces_is_recognised(said):
+    """These were "Kavach" spellings until the wake word was changed. The
+    model comparison above is unaffected — it measured which whisper can
+    transcribe a rare proper noun at all, and its conclusion (`small`, not
+    base, not large) holds for ordinary words too."""
     assert matches_wake(said), said
 
 

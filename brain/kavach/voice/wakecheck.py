@@ -18,10 +18,12 @@ What it shows, per burst of speech:
     heard   'go watch.'                    ✓ WAKE
     heard   'coverage'                     ✗ no match   closest: kavatch 0.55
 
-The near-miss is the useful part. Every spelling in `WAKE_TARGETS` was
-found this way — this microphone renders कवच as *gavaj*, *gauj*, *vajah* and
-*go watch*, and none of that is guessable. If your voice produces a spelling
-that is close and not listed, that is the fix, and it is a one-line one.
+The near-miss is the useful part. If your voice produces a spelling that is
+close and not listed, that is a one-line fix to `WORD_ALTERNATIVES`.
+
+This is how the old wake word was diagnosed too: it showed that "Kavach"
+came back as 'cabbage', 'go watch', 'coverage' and 'कवच', which is what led
+to replacing it with a phrase whisper can actually read.
 """
 
 from __future__ import annotations
@@ -35,7 +37,9 @@ import numpy as np
 
 from .wakewhisper import (
     MATCH_RATIO,
-    WAKE_TARGETS,
+    WAKE_PHRASE,
+    WAKE_WORDS,
+    WORD_ALTERNATIVES,
     WhisperWakeDetector,
     _WORD_RE,
     matches_wake,
@@ -50,10 +54,10 @@ def closest_target(text: str) -> tuple[str, str, float]:
     those have completely different fixes.
     """
     best = ("", "", 0.0)
+    candidates = [c for word in WAKE_WORDS
+                  for c in WORD_ALTERNATIVES.get(word, (word,))]
     for word in _WORD_RE.findall((text or "").lower()):
-        if len(word) < 4:
-            continue
-        for target in WAKE_TARGETS:
+        for target in candidates:
             ratio = SequenceMatcher(None, word, target).ratio()
             if ratio > best[2]:
                 best = (word, target, ratio)
@@ -78,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     detector.load()
 
     print(f"""
-  Say "Kavach, what time is it?" a few times, normally.
+  Say "{WAKE_PHRASE}, what time is it?" a few times, normally.
 
   Nothing here is saved — no file, no log, no action record. It prints and
   forgets, and stops on its own after {args.seconds}s (Ctrl-C to stop sooner).
@@ -132,8 +136,8 @@ def main(argv: list[str] | None = None) -> int:
               "  or a level problem, not a wake-word one.")
     elif woke == 0:
         print("  It heard you and did not match. If a spelling above is close,\n"
-              "  add it to WAKE_TARGETS in kavach/voice/wakewhisper.py —\n"
-              "  that is how gavaj, gauj and vajah got there.")
+              "  add it to WORD_ALTERNATIVES in kavach/voice/wakewhisper.py.\n"
+              "  Both words must be adjacent and in order.")
     return 0
 
 

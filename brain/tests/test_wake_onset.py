@@ -134,3 +134,34 @@ def test_reset_clears_the_preroll():
 
     assert not seg._parts
     assert not list(seg._preroll)
+
+
+def test_a_fast_single_word_is_not_dropped_before_transcription():
+    """`MIN_UTTERANCE_S` is checked against accumulated *loud* time, so a
+    quickly-spoken "Kavach" (~0.3s) was discarded before whisper ever saw it
+    — invisibly, since nothing is logged for a burst that never opens.
+
+    That is why the user's runs showed the command burst and no wake-word
+    burst at all: not a matching failure, not a transcription failure, a
+    burst that was thrown away one layer earlier."""
+    rng = np.random.default_rng(4)
+    seg = Segmenter()
+
+    bursts = []
+    for block in _blocks(rng, [("q", 12), ("l", 3), ("q", 10)]):   # 0.3s loud
+        out = seg.push(block)
+        if out is not None:
+            bursts.append(out)
+
+    assert bursts, (
+        f"a 0.3s word was dropped: MIN_UTTERANCE_S={Segmenter.MIN_UTTERANCE_S}"
+    )
+
+
+def test_a_click_is_still_not_a_burst():
+    """The floor is lower, not gone. One block is a key press."""
+    rng = np.random.default_rng(5)
+    seg = Segmenter()
+
+    for block in _blocks(rng, [("q", 12), ("l", 1), ("q", 10)]):   # 0.1s
+        assert seg.push(block) is None

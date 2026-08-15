@@ -49,68 +49,79 @@ log = logging.getLogger("kavach.voice.wakewhisper")
 
 SAMPLE_RATE = 16_000
 
-#: Spellings to match against — every one of them observed, none invented.
+#: The wake phrase. Two ordinary English words, on purpose.
 #:
-#: Whisper writes a Sanskrit word by ear, and the model in use is a Hinglish
-#: fine-tune that renders कवच with a *j* ending. Measured live over 90 seconds
-#: of the user speaking normally, one word, eight spellings::
+#: **"Kavach" was abandoned after seven attempts**, and the final
+#: measurements say why — none of them about this code::
 #:
-#:     'Hai kavach, vah time is it.'    'Gavach.'
-#:     'Avaj open notes.'               'Hega vaj.'
-#:     'Ek avach.'                      'Gaavj.'
-#:     'Hey gauj.'                      'Thik hai vajah.'
+#:     "Kavach" inside a sentence   dropped 7/7 by whisper
+#:     "Kavach" on its own          17–24 of 42, and often ''
+#:     whisper's spellings          'cabbage', 'go watch', 'coverage', 'कवच'
 #:
-#: Matching only the canonical spelling caught 3 of 12. With `gavaj`, `gauj`
-#: and `vajah` added it catches 10 of 12 and still fires on none of that run's
-#: ordinary speech. The variants are not a nicety here; they are the feature.
-WAKE_TARGETS = ("kavach", "kawach", "kavatch", "gavaj", "gauj", "vajah")
+#: It is a Sanskrit word whisper has no representation for, so it drops it,
+#: transliterates it inconsistently, or writes it in another script. Four
+#: trained ONNX models and five fixes downstream were all treating symptoms.
+#:
+#: "hey there" transcribes identically every time, takes ~0.6s so nothing
+#: discards it for being too short, and has no rare token to lose.
+WAKE_PHRASE = "hey there"
 
-#: Spellings matched **exactly**, never fuzzily.
-#:
-#: `cabbage` is what this microphone writes for an isolated "Kavach" —
-#: observed twice, in `kavach-wakecheck` ('cabbage, cabbage') and in the 42
-#: recordings ('Cabbage.'). It is also an ordinary English word, and fuzzy
-#: matching it at 0.70 would drag in `garbage` (0.714) and sit uncomfortably
-#: near `carriage` (0.667). Those are words people say.
-#:
-#: So the rule differs by the kind of spelling: the *kavach* family is
-#: fuzzy-matched because whisper mangles it unpredictably and its neighbours
-#: are nonsense words; a real English word is matched exactly, because its
-#: neighbours are real too.
-EXACT_TARGETS = frozenset({"cabbage"})
+#: The phrase split into the words that must appear, adjacent and in order.
+WAKE_WORDS = tuple(WAKE_PHRASE.split())
 
-#: How close a word must be to count. Chosen from measurement, not taste —
-#: against the targets above::
+#: Alternatives per position — what whisper actually reaches for.
 #:
-#:     kavach  1.000     kavec   0.727   ← the real transcript, must match
-#:     kawach  1.000     catch   0.667   ← must not
-#:     kavac   0.909     wash    0.600
-#:     cavach  0.833     kayak   0.545
+#: Only homophones, and only ones observed or obvious: `their`/`they're` for
+#: `there`, `hay` for `hey`. Not a fuzzy net, because unlike "kavach" these
+#: words have real English neighbours and every one added is false-wake
+#: surface.
+WORD_ALTERNATIVES = {
+    "hey": ("hey", "hay", "he"),
+    "there": ("there", "their", "they're", "theres", "there's"),
+}
+
+#: How close a word must be to count, per position.
 #:
-#: 0.70 is the only gap in that ordering. Lower and "catch" wakes it; higher
-#: and the one transcript we have actually measured does not.
-MATCH_RATIO = 0.70
+#: **Higher than the 0.70 used for the old single rare word.** "kavach" had
+#: only nonsense neighbours, so a loose threshold was safe. "hey" sits next
+#: to "they" (0.86) and "there" next to "where" (0.80), so the same
+#: looseness here would wake on ordinary speech. Adjacency does most of the
+#: work; this stops the rest.
+MATCH_RATIO = 0.85
 
 _WORD_RE = re.compile(r"[a-z']+")
 
 
 def matches_wake(text: str | None) -> bool:
-    """Whether a transcript contains the wake word, however it was spelled.
+    """Whether a transcript contains the wake phrase.
 
-    Word-level rather than whole-string: "ok kavach what time is it" is a wake
-    followed by a command, and the user will not pause obligingly between them.
+    **Adjacent and in order.** "hey" and "there" are both common, and either
+    alone — or both scattered through a sentence — must not be enough. That
+    adjacency requirement is the entire false-wake defence, so it is checked
+    on consecutive word pairs rather than by searching the whole string.
+
+    The command may follow in the same breath: "hey there what time is it"
+    wakes on the first two words and the rest is ignored here, because the
+    turn that follows re-records it.
     """
     if not text:
         return False
-    for word in _WORD_RE.findall(text.lower()):
-        if len(word) < 4:
-            # Too short to be this word, and short words are where fuzzy
-            # matching produces nonsense.
-            continue
-        if word in EXACT_TARGETS:
+
+    words = _WORD_RE.findall(text.lower())
+    span = len(WAKE_WORDS)
+    for start in range(len(words) - span + 1):
+        if all(_word_matches(words[start + offset], WAKE_WORDS[offset])
+               for offset in range(span)):
             return True
-        if any(SequenceMatcher(None, word, target).ratio() >= MATCH_RATIO
-               for target in WAKE_TARGETS):
+    return False
+
+
+def _word_matches(spoken: str, expected: str) -> bool:
+    """One position of the phrase, against what was heard."""
+    for candidate in WORD_ALTERNATIVES.get(expected, (expected,)):
+        if spoken == candidate:
+            return True
+        if SequenceMatcher(None, spoken, candidate).ratio() >= MATCH_RATIO:
             return True
     return False
 
@@ -144,9 +155,19 @@ class Segmenter:
     #: How fast the noise estimate follows the room. Slow, so a long sentence
     #: cannot drag the floor up to meet itself.
     FLOOR_ALPHA = 0.02
-    #: A burst has to last this long to be worth transcribing. Below it, it is
-    #: a key click, a cough, or a chair.
-    MIN_UTTERANCE_S = 0.35
+    #: A burst has to hold this much *speech* to be worth transcribing.
+    #:
+    #: **Measured against `_speech` — accumulated loud time — not against the
+    #: buffered duration.** At 0.35 a quickly-spoken "Kavach" (~0.3s of loud
+    #: audio) was dropped here, before the transcriber, silently. That is why
+    #: the user's `kavach-wakecheck` runs showed only the command bursts
+    #: ('What time is it?', 0.9–1.0s) and no line at all for the wake word:
+    #: it never reached whisper to be printed.
+    #:
+    #: 0.2 lets a fast single word through. The cost is that a cough or a
+    #: chair now sometimes reaches whisper — one transcription, ~270ms, no
+    #: wake unless the text matches. Losing the wake word is the worse trade.
+    MIN_UTTERANCE_S = 0.2
     #: Longer than this and it is cut and scored anyway, so someone talking on
     #: a call cannot accumulate audio in memory waiting for a pause.
     MAX_UTTERANCE_S = 3.0

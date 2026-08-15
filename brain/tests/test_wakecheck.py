@@ -45,32 +45,25 @@ def test_it_does_not_touch_the_action_log():
 
 def test_a_close_spelling_is_reported_with_its_score():
     """"no match" alone sends you to retrain a model when the real fix is a
-    one-line addition to WAKE_TARGETS."""
-    word, target, ratio = closest_target("coverage")
+    one-line addition to WORD_ALTERNATIVES."""
+    word, target, ratio = closest_target("they where")
 
-    assert word == "coverage"
-    assert target in ("kavach", "kawach", "kavatch", "gavaj", "gauj", "vajah")
+    assert word in ("they", "where")
+    assert target in ("hey", "hay", "he", "there", "their",
+                      "they're", "theres", "there's")
     assert 0.0 < ratio < 1.0
 
 
 def test_an_exact_hit_scores_high():
-    _, _, ratio = closest_target("kavach please open notes")
+    _, _, ratio = closest_target("hey there what time is it")
     assert ratio == pytest.approx(1.0)
 
 
 def test_nothing_close_reports_nothing():
     """Distinguishing "heard the wrong word" from "heard no word like it" is
     the distinction the whole tool exists to make."""
-    word, _, ratio = closest_target("the weather is pleasant today")
-    assert ratio < 0.7, (word, ratio)
-
-
-def test_short_words_are_ignored_the_same_way_the_matcher_does():
-    """`matches_wake` skips words under 4 characters because fuzzy matching
-    produces nonsense there. A diagnostic that scored them would report a
-    near-miss the real matcher can never act on."""
-    word, _, _ = closest_target("go to it")
-    assert word == ""
+    word, _, ratio = closest_target("open the notes application")
+    assert ratio < 0.85, (word, ratio)
 
 
 def test_empty_and_none_are_survivable():

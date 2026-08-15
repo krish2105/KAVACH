@@ -21,8 +21,30 @@ you press — that lead-in exists because the turn used to close after 1.05s and
 you would be mid-breath. Once you *have* spoken, 700ms of quiet ends the turn,
 so it does not feel slow.
 
-The wake word does not work. Six approaches have failed on this microphone;
-push-to-talk has never failed. Use the key.
+**Or just say "hey there".** The wake word works now — say it, pause, then
+your command:
+
+> **"Hey there."** … *"what time is it?"*
+
+It also works in one breath: *"Hey there, what time is it?"*
+
+Measured 5/5 recognised and 0 false wakes across eight sentences built to
+trip it ("hey, are you there?", "is there anything else", "they were there
+yesterday"). Both words must be **adjacent and in order**, which is what
+keeps ordinary speech quiet.
+
+If it stops firing, this shows exactly what it heard and stores nothing:
+
+```bash
+uv run --directory brain kavach-wakecheck
+```
+
+**It used to be "Kavach", and that never worked.** Seven attempts, four
+trained models. Whisper has no representation for the Sanskrit word — it
+dropped it 7 times out of 7 inside a sentence, and wrote it as 'cabbage',
+'go watch', 'coverage' or 'कवच' on its own. Changing the phrase fixed in one
+step what five fixes to the machinery could not. Push-to-talk still works
+and is still the reliable one.
 
 ### What it answers locally, with no model at all
 

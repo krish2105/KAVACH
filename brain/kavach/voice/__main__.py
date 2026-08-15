@@ -279,7 +279,12 @@ def main(argv: list[str] | None = None) -> int:
     voice.warm_up()
     voice.start()
 
-    trigger = "wake word 'KAVACH' or hold Space" if voice.wake else "hold Space (push-to-talk)"
+    from .wakewhisper import WAKE_PHRASE
+    # Read from the constant, never typed out. A banner that names a
+    # different wake word than the matcher uses is this project's most
+    # repeated defect, found nine times.
+    trigger = (f"say \"{WAKE_PHRASE}\" or hold Space" if voice.wake
+               else "hold Space (push-to-talk)")
     print("─" * 62)
     print("  KAVACH voice loop — wake word · STT · router · TTS")
     print("─" * 62)

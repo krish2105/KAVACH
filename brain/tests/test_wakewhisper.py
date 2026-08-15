@@ -35,55 +35,49 @@ from kavach.voice.wakewhisper import (
 SAMPLE_RATE = 16_000
 
 
-# ═══ what counts as hearing the name ═══
+# ═══ what counts as hearing the wake phrase ═══
+#
+# **These asserted "kavach" spellings until 2026-08-16.** The wake word was
+# changed to "hey there" by the user after seven attempts at making a
+# Sanskrit word readable by whisper — it was dropped 7/7 inside a sentence
+# and rendered 'cabbage', 'go watch', 'coverage' or 'कवच' on its own.
+#
+# The full phrase behaviour lives in `test_wake_phrase.py`; what stays here
+# is the pairing with the detector below, so this file still tests one thing
+# end to end.
 
 @pytest.mark.parametrize("said", [
-    "kavach",
-    "Kavach.",
-    "hey kavach",
-    "Hey, KAVACH!",
-    # What Whisper actually returned for a real recording of the wake word.
-    "Kavec, Kavec, testing 1, 2, 3.",
-    "kavac",
-    "kawach",
-    "cavach",
-    "kovach",
-    "ok kavach what time is it",
+    "hey there",
+    "Hey there.",
+    "Hey there, what time is it?",
+    "hey there open notes",
 ])
-def test_the_wake_word_is_recognised_however_it_was_transcribed(said):
-    """Whisper spells a Sanskrit word by ear. Requiring an exact match would
-    fail on the one transcript we have actually measured."""
+def test_the_wake_phrase_is_recognised(said):
     assert matches_wake(said), said
 
 
 @pytest.mark.parametrize("said", [
-    "cover it",
-    "car wash",
-    "come back",
-    "catch it",
     "what time is it",
-    "open my calendar for tomorrow",
-    "delete the draft in notes",
-    "call Vatsal",
-    "the coverage was good",
-    "package arrived",
-    "kayak",
-    "",
-    "   ",
+    "open the notes app",
+    "I was just thinking about lunch",
+    "hey",                          # half of it
+    "is there anything else",       # the other half, in ordinary use
+    "Kavach.",                      # the wake word this replaced
 ])
 def test_ordinary_speech_does_not_wake_it(said):
-    """A false wake starts recording the room unprompted, so these matter more
-    than the misses. Every one of these is a phrase the user actually says."""
+    """A false wake starts a turn nobody asked for. With a phrase made of
+    two common words this matters more than it did, which is why adjacency
+    is required — see test_wake_phrase.py."""
     assert not matches_wake(said), said
 
 
-def test_the_threshold_sits_between_what_was_measured():
-    """Chosen from data, not taste. Against the targets:
+def test_the_threshold_is_stricter_than_it_was_for_a_rare_word():
+    """0.70 was safe for "kavach", whose neighbours are nonsense. "hey" sits
+    next to "they" and "there" next to "where", so the same looseness would
+    wake on ordinary speech."""
+    from kavach.voice.wakewhisper import MATCH_RATIO
 
-        kavec   0.727   ← the real transcript, must match
-        catch   0.667   ← must not
-    """
-    assert 0.667 < MATCH_RATIO <= 0.727
+    assert MATCH_RATIO >= 0.8
 
 
 # ═══ finding the burst to transcribe ═══
@@ -171,7 +165,7 @@ def test_a_long_burst_is_cut_rather_than_grown_forever():
 class FakeSTT:
     """Stands in for whisper. Records what it was asked to transcribe."""
 
-    def __init__(self, text: str = "kavach"):
+    def __init__(self, text: str = "hey there"):
         self.text = text
         self.calls = 0
 
@@ -211,8 +205,8 @@ def speech_then_silence(detector, level: float = 0.08) -> object:
     return fired
 
 
-def test_hearing_the_name_fires():
-    detector = WhisperWakeDetector(stt=FakeSTT("Hey Kavach"))
+def test_hearing_the_phrase_fires():
+    detector = WhisperWakeDetector(stt=FakeSTT("hey there"))
 
     assert speech_then_silence(detector) is not None
 
@@ -271,32 +265,15 @@ def test_nothing_is_kept_after_a_burst_is_scored(caplog):
 
 # ═══ what this microphone actually produces ═══
 #
-# Measured live, 90 seconds, the user speaking normally — 30 bursts. The wake
-# word was heard every time and spelled a different way almost every time:
+# The old corpus here was 90 seconds of the user saying "Kavach", which
+# whisper rendered eight different ways ('Gavach.', 'Gaavj.', 'Hey gauj.',
+# 'Thik hai vajah.'). That variety is exactly why the wake word was
+# replaced, and the corpus went with it.
 #
-#     'Hai kavach, vah time is it.'      'Gavach.'
-#     'Avaj open notes.'                 'Hega vaj.'
-#     'Ek avach.'                        'Gaavj.'
-#     'Hey gauj.'                        'ayka vaj, what time is it?'
-#
-# The STT in use is a Hinglish fine-tune, and it renders the Sanskrit कवच with
-# a j ending — avaj, gauj, vaj, gavaj. Matching only `kavach` caught 3 of 12.
-# These are not invented spellings: every one below is a transcript this
-# machine produced for this voice.
+# The negatives are kept as-is. They are real speech from this room,
+# including a YouTube advert, and a wake phrase of two common English words
+# has more to prove against them than a rare one did.
 
-LIVE_WAKE = [
-    "Hai kavach, vah time is it.",
-    "Avaj open notes.",
-    "Ek avach.",
-    "Hey gauj.",
-    "Gavach.",
-    "Gaavj.",
-    "ey gauj.",
-    "Thik hai vajah.",
-]
-
-#: From the same 90 seconds. Ordinary speech, and one YouTube advert the room
-#: happened to contain — all of which must stay silent.
 LIVE_NOT = [
     "reason.",
     "ambi",
@@ -308,11 +285,6 @@ LIVE_NOT = [
     "Double 08:30.",
     "e.",
 ]
-
-
-@pytest.mark.parametrize("said", LIVE_WAKE)
-def test_the_spellings_this_microphone_produces_are_recognised(said):
-    assert matches_wake(said), said
 
 
 @pytest.mark.parametrize("said", LIVE_NOT)
