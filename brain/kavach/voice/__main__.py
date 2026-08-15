@@ -25,6 +25,9 @@ from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import DEFAULT_MODEL as LOCAL_DEFAULT_MODEL
 from ..reasoning.local import LocalModel
+from ..autonomy.proposals import ProposalQueue
+from ..autonomy.tiers import TierPolicy
+from ..autonomy.trust import TrustLedger
 from ..hands.files import FileTools
 from ..reasoning.actions import MacActions
 from ..hands.allowlist import Allowlist
@@ -178,9 +181,19 @@ def main(argv: list[str] | None = None) -> int:
         # confirmation, whichever lands first. Being asked by voice and
         # approving from a phone is the point of the Reach layer, and the gate
         # itself does not need to know which happened.
+        # Phase 30/33/34. Every action defaults to ALWAYS_ASK, so wiring
+        # these changes nothing until the user deliberately sets a tier —
+        # an autonomy system that alters behaviour the moment it is
+        # installed is one nobody chose.
+        tiers = TierPolicy(log_=ks.log)
+        trust = TrustLedger(tiers=tiers, log_=ks.log)
+        queue = ProposalQueue(log_=ks.log, trust=trust)
+
         gate = ToolGate(
             kill_switch=ks,
             allowlist=allowlist,
+            tiers=tiers,
+            queue=queue,
             confirmer=EitherConfirmer(
                 VoiceConfirmer(voice, voiceprint=voiceprint),
                 ApiConfirmer(pending_registry),

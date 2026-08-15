@@ -1018,6 +1018,81 @@ nothing** — built, tested, and recorded as "web control, verified live" for a
 day. What had been verified was calling it by hand. Run that grep before
 believing any note in this file.
 
+### Autonomy — Phases 30–34 (2026-08-15), and the ceiling
+
+`kavach/autonomy/`. Three tiers: **AUTO** runs unattended, **PROPOSE** queues
+for batch review, **ALWAYS_ASK** interrupts. Everything defaults to ALWAYS_ASK,
+including action types nobody has classified — the case most likely to be
+dangerous, because nobody has thought about it yet.
+
+**Manage it with `uv run kavach-autonomy`.** Wiring it changed nothing on its
+own: with no tier set, behaviour is byte-for-byte what shipped.
+
+#### The ceiling is enforced in three places, because one is one too few
+
+Anything that sends, deletes, buys or changes a system setting can **never** be
+AUTO. Verified end to end against the running stack:
+
+```
+set_tier('delete_file', AUTO)           → refused, with the reason
+100 approvals, then accept()            → offered PROPOSE, never AUTO
+hand-edit the config to "auto", reload  → read back as ALWAYS_ASK
+PROPOSE tier + delete payload           → queued · 0 executed · 0 asked
+```
+
+| where | why it is not redundant |
+|---|---|
+| `set_tier()` | raises rather than silently downgrading — a caller told it got AUTO would report the wrong thing |
+| `_load()` | **the obvious way around a code rule is the file the code reads.** A hand-edited `auto`, or one written by a future phase or an agent that read a hostile page, is refused on load |
+| the gate | re-checks rather than trusting assignment validated. A gate relying on someone else having checked is a gate with a second source of truth |
+
+The gate check also reads the **payload**, not just the tool name:
+`execute_script` is not a ceilinged word and its argument can be
+`delete note 1`. Same hole `Policy.action_text` had one layer down.
+
+#### Properties worth not undoing
+
+* **No auto-execute timeout** (Phase 33). An unreviewed proposal sits or
+  expires *unexecuted*. §7 already treats a timeout as a denial; a queue that
+  ran on expiry would be the opposite rule living next door.
+* **`EXPIRED` ≠ `REJECTED`.** "Nobody looked" is not "you said no", and Phase
+  34 learns from approval history — counting a lapse as a rejection teaches it
+  something that never happened.
+* **Promotions are offered, never applied** (Phase 34). Silently lowering a
+  gate because someone was agreeable five times is how a system ends up with
+  permissions nobody chose.
+* **A rejection resets the streak.** "Yes, yes, yes, no, yes" is not four
+  approvals.
+* **Demotion is instant, unconditional, and clears the streak** — without that
+  the next approval re-offers at once and demoting means nothing.
+* **A missing queue degrades PROPOSE to ALWAYS_ASK, never to AUTO.** A missing
+  component must not make the system quieter.
+
+#### Phase 31 — the mechanism, checked before building (§A)
+
+`kavach/observe/`. **Hooks were rejected on the spec's own terms**: configuring
+them means writing to `~/.claude/settings.json`, and a read-only observer whose
+first act is editing the thing it observes has already broken its rule.
+
+Session logs won: `~/.claude/projects/<slug>/<uuid>.jsonl`, with `tool_use`
+*and* `tool_result` blocks, so outcomes are readable rather than only "something
+ran". They are written whether KAVACH looks or not, so watching changes Claude
+Code's behaviour by exactly nothing.
+
+Verified against the real transcript, not fixtures: **178 observations** from
+one session. Read-only is enforced by a test that greps the module for every
+write mode. Ambiguous output produces **no** narration — "your tests finished"
+with no idea whether they passed teaches the user to stop checking.
+
+#### Two spec references that do not exist here
+
+The Phase 30–34 brief says to continue from **Phase 29** and feed **Phase 23's
+morning briefing**. Neither exists: this repo has Phases 0–5 and a second
+numbering, reach 6–21. The three real dependencies (Phase 6 API, Phase 7 phone,
+Phase 4 confirmations) were confirmed present first. Findings route to the
+queue only — inventing a briefing to satisfy a reference is pouring a
+foundation for a wall nobody asked for.
+
 ### The defect this codebase keeps producing
 
 **A fact written in two places, where one copy quietly stops being true.**
