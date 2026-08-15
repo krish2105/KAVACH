@@ -800,9 +800,64 @@ attempt worked. **A newly-reachable app may fail once, silently, before its
 grant exists.** That is TCC, not the gate; check
 `System Settings → Privacy & Security → Automation` before debugging further.
 
-**Not done:** confirmations still speak rather than render on the orb (~12s per
-shell command, and that will get routed around), and the speaker gate is still
-**OFF** with a threshold of 0.803 against real speech of 0.52–0.78.
+#### Confirmations show before they speak
+
+`VoiceConfirmer.SPEAK_AFTER_S = 3.0`. The question is published to the snapshot
+the orb already receives and the gesture window opens **immediately**; speech
+is the fallback for the case that needs it — the user not looking at the
+screen. Answer on the orb and nothing is spoken at all.
+
+Deliberately **not** a new orb state: `OrbState` in `apps/orb/lib/orbScene.ts`
+is a closed union backing a `Record<OrbState, StateProfile>`, so "confirming"
+means a Presence change and a visual to verify. `listening` is honestly what
+this is, and the prompt rides in `transcript`, which the HUD already renders —
+so the snapshot contract is untouched.
+
+Arming the gesture window *before* the wait is what makes the silent window
+answerable. It also gives a stale thumbs-up a longer runway, so the test that a
+gesture made before the question cannot answer it matters **more** now.
+
+#### The speaker gate rejected its owner 42 times out of 42
+
+Measured 2026-08-15 — the 42 real microphone recordings in
+`wakeword/data/real/positive`, the user's own voice from a different session
+than enrolment, scored against the enrolled mean:
+
+```
+min 0.387   p10 0.424   median 0.498   max 0.803
+rejected by the saved threshold 0.803:   42/42   (100%)
+```
+
+**Not "too tight" — non-functional.** It would have refused every genuine
+utterance, which is why it has been off since 2026-08-14.
+
+The cause is the *sampling*, not the arithmetic. `_calibrate` used
+`sims.mean() - 3*sims.std() - 0.05` over enrolment clips recorded back to back
+— one seat, one distance, one minute — so they cluster tightly, `std` is tiny,
+and the threshold lands just under the mean. **It measured self-similarity
+within one session and used it as a proxy for across sessions.** Those are
+different distributions, and tight clustering at enrolment is evidence the
+clips were recorded together, nothing more.
+
+`MIN_THRESHOLD` was **0.55**, above the user's real minimum of 0.387 — so even
+a perfectly clamped calibration would still have locked them out. A floor
+catches a broken measurement; it must not overrule a correct one. Now 0.30.
+
+`choose_threshold(genuine, others)` places the threshold **halfway through the
+measured gap** and returns `(None, why)` when they overlap — `waketune`'s rule,
+reached the same way — naming the side that failed, because being told the
+wrong half is broken sends you re-recording the wrong thing. `_calibrate` now
+reports `calibrated=False`, since a threshold from one sitting should not claim
+to be calibrated.
+
+**The gate stays OFF.** Turning it on with an unverified number is precisely
+what produced this. It needs `uv run kavach-enrol` from a second session —
+different distance, different time of day — and then `choose_threshold` against
+at least one other voice.
+
+**Still not done:** the gate is off, so any voice in the room is acted on, and
+that matters more now than it did — the app allowlist is gone and shell is
+reachable. The unconditional shell confirmation is what stands in for it.
 
 ### The clock must never reach a language model
 
