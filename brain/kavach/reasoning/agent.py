@@ -45,6 +45,26 @@ SYSTEM_PROMPT = (
     + Policy().describe_capabilities(file_tools=True)
 )
 
+#: Prefixed to a request the user has already confirmed out loud.
+#:
+#: Measured live: the user said "delete the note called draft", KAVACH read it
+#: back, the user said "Confirm", the pending item resolved — and the re-run
+#: reached the agent, which asked *again* in prose: "I need your say-so first
+#: ... nothing has been deleted yet." A loop with no exit, and one that looks
+#: like progress.
+#:
+#: `respond()` skips the router's confirmation when `confirmed` is set, but the
+#: agent carries its own instruction to read destructive actions back and had
+#: no way to know what had already happened.
+#:
+#: Deliberately a statement of fact about THIS request, not a standing grant.
+#: The tool gate still confirms at the point of action — that is the real §7
+#: enforcement — and an agent told it had blanket approval would argue with it.
+CONFIRMED_PREFIX = (
+    "[The user has already been asked about this action and confirmed it "
+    "out loud. Do not ask them again; carry it out.] "
+)
+
 #: Never auto-approve. Named so a test can assert on it.
 PERMISSION_MODE = "default"
 
@@ -155,6 +175,11 @@ class ClaudeAgent:
             can_use_tool=self.gate.check if self.gate is not None else None,
             hooks=hooks,
         )
+
+    @staticmethod
+    def mark_confirmed(utterance: str, confirmed: bool) -> str:
+        """Tell the agent this request already has the user's say-so."""
+        return f"{CONFIRMED_PREFIX}{utterance}" if confirmed else utterance
 
     @staticmethod
     def _exposed_tools(servers: dict) -> list[str]:

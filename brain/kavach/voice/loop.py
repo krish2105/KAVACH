@@ -824,7 +824,13 @@ class VoiceLoop:
                 return self.local.respond(text)
             if self.agent is not None:
                 return asyncio.run(
-                    self.agent.respond(text, on_tool=self.on_tool_event)
+                    self.agent.respond(
+                        # A request the user already confirmed out loud must
+                        # not be confirmed again in prose. Without this the
+                        # agent asked a second time and the loop had no exit.
+                        self.agent.mark_confirmed(text, confirmed),
+                        on_tool=self.on_tool_event,
+                    )
                 )
         except Exception:
             log.exception("reasoning failed")
