@@ -1174,8 +1174,17 @@ class VoiceLoop:
         # answer.
         status = tts_mod.last_playback_status()
         elapsed = time.monotonic() - started
-        log.info("playback: %.2fs audio at %d Hz, peak %.3f, took %.2fs, status=%s",
-                 duration, speech.sample_rate,
+        # Report the DEVICE rate beside the source rate. Printing only the
+        # source is what made this line useless: it said "24000 Hz ...
+        # status=clean" for two days while the speakers ran at 48000 and
+        # PortAudio silently resampled between them. A diagnostic that
+        # cannot show a mismatch cannot report the fault it exists for.
+        device_rate = tts_mod.device_sample_rate()
+        log.info("playback: %.2fs audio, %d Hz → device %s Hz%s, peak %.3f, "
+                 "took %.2fs, status=%s",
+                 duration, speech.sample_rate, device_rate or "?",
+                 "" if device_rate in (None, speech.sample_rate)
+                 else " (resampled here, not by PortAudio)",
                  float(np.max(np.abs(speech.audio))) if len(speech.audio) else 0.0,
                  elapsed, status if status else "clean")
         if status:

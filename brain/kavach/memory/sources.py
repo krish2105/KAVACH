@@ -103,6 +103,35 @@ def index_file(store, tools, path: str) -> int:
     return 1 if written is not None else 0
 
 
+def index_messages(store, tools, db_path=None, limit: int = 500) -> int:
+    """Index recent iMessages. Returns how many rows were written.
+
+    **`messages` was declared in `SOURCES` with no indexer at all**, so the
+    collection existed, `forget messages` worked, and nothing could ever put
+    anything in it to forget.
+
+    Read through `FileTools`, so the kill switch and the §7 log apply to
+    reading your conversations exactly as they apply to any other file, and
+    a missing Full Disk Access grant raises rather than reporting an empty
+    history.
+
+    Direction is recorded because "tell him yes" *from* you and *to* you are
+    different facts, and a later question about who agreed to what cannot be
+    answered from the text alone.
+    """
+    written = 0
+    for message in tools.read_messages(db_path=db_path, limit=limit):
+        who = message["who"]
+        speaker = "You said" if message["from_me"] else f"{who} said"
+        text = f"{speaker}: {message['text']}"
+        if store.remember(text, collection=SOURCES["messages"],
+                          source=f"message with {who}, "
+                                 f"{message['when'] or 'an unknown time'}"
+                          ) is not None:
+            written += 1
+    return written
+
+
 def index_folder(store, tools, folder, recursive: bool = True) -> dict:
     """Index the text files under a folder the user named.
 
@@ -160,4 +189,4 @@ def index_folder(store, tools, folder, recursive: bool = True) -> dict:
 
 
 __all__ = ["Source", "SOURCES", "WORTH_REMEMBERING", "index_actions",
-           "index_file", "index_folder"]
+           "index_file", "index_folder", "index_messages"]

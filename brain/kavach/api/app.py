@@ -38,6 +38,8 @@ from .models import (
     GhostRequest,
     GhostResponse,
     KillRequest,
+    IndexMessagesRequest,
+    IndexMessagesResponse,
     KillResponse,
     CommandResponse,
     ConfirmRequest,
@@ -268,6 +270,55 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
 
         return CommandResponse(status="done", reply=reply,
                                route=loop.state.as_dict().get("route"))
+
+    @app.post("/index-messages", response_model=IndexMessagesResponse,
+              dependencies=guard)
+    def index_messages_route(request: IndexMessagesRequest) -> IndexMessagesResponse:
+        """Index recent iMessages — here, because this is where the grant is.
+
+        **TCC attributes Full Disk Access to the responsible process.** For a
+        launchd job that is this daemon; for `uv run kavach-memory
+        index-messages` it is the terminal's parent, which does not hold it.
+        The CLI is refused with the Settings path and this route works, and
+        that asymmetry is macOS behaving correctly rather than a bug.
+
+        Not a sweep: the user posts it, with a limit, and `forget messages`
+        empties what it wrote. Nothing schedules it.
+        """
+        from ..hands.files import FileTools
+        from ..memory import sources as sources_mod
+
+        try:
+            kill_switch.guard("memory.index-messages")
+        except KillSwitchDisarmed:
+            # 409, matching /command. Picking a different code for the same
+            # condition would make a client handle "latched" twice.
+            raise HTTPException(
+                status_code=409,
+                detail="Kill switch is latched. Re-arm before indexing.",
+            )
+
+        store = getattr(loop, "memory", None)
+        if store is None:
+            # Not "0 indexed". A missing store and an empty Messages
+            # database are different problems with different fixes, and the
+            # whole point of this endpoint is not lying about causes.
+            raise HTTPException(
+                status_code=503,
+                detail="memory is not available — is Ollama running?",
+            )
+
+        try:
+            written = sources_mod.index_messages(
+                store, FileTools(kill_switch), limit=request.limit)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+        kill_switch.log.append("memory.index_messages", count=written,
+                               limit=request.limit)
+        return IndexMessagesResponse(indexed=written)
 
     @app.post("/confirm", response_model=ConfirmResponse, dependencies=guard)
     async def confirm(request: ConfirmRequest,

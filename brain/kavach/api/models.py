@@ -121,3 +121,13 @@ class SayRequest(BaseModel):
     """Text for KAVACH to speak. Never routed, never acted on."""
 
     text: str
+
+
+class IndexMessagesRequest(BaseModel):
+    """How many recent messages to index. Named and bounded, never "all"."""
+
+    limit: int = 500
+
+
+class IndexMessagesResponse(BaseModel):
+    indexed: int

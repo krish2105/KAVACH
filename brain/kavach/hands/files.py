@@ -150,6 +150,73 @@ class FileTools:
                            truncated=truncated)
         return text
 
+    def read_messages(self, db_path=None, limit: int = 500) -> list[dict]:
+        """Recent iMessages, read through the same gate as any other file.
+
+        **Not a second path to the disk.** It lives here rather than in
+        `memory/sources.py` so the kill switch, the §7 log and the missing
+        -grant reporting are the ones already written, not a second copy of
+        them — this project has found one-fact-in-two-places nine times and
+        a private-message reader is the worst place to find it a tenth.
+
+        `chat.db` is SQLite rather than text, which is the only reason
+        `read()` cannot serve. Opened **read-only** via a URI, so an
+        indexing run can never write to the user's message history.
+
+        **Full Disk Access is attributed to the responsible process.** The
+        daemon holds it; a terminal generally does not, so the same call
+        succeeds from one and raises from the other. That is TCC working,
+        and the raise carries the Settings path rather than returning an
+        empty list — "you have no messages" would be a lie about the cause.
+        """
+        import sqlite3
+        from pathlib import Path as _Path
+
+        self._guard("read_messages")
+        target = (resolve_path(str(db_path)) if db_path is not None
+                  else _Path.home() / "Library" / "Messages" / "chat.db")
+        if not target.exists():
+            self.ks.log.append("file.refused", path=str(target),
+                               reason="missing")
+            raise FileNotFoundError(
+                f"{target} does not exist. Messages has never been set up on "
+                f"this machine, or the path has moved."
+            )
+
+        try:
+            db = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+        except sqlite3.OperationalError as exc:
+            self.ks.log.append("file.refused", path=str(target),
+                               reason="permission")
+            raise self._wrap_permission(PermissionError(str(exc)), target)
+
+        try:
+            rows = db.execute(
+                """
+                SELECT m.text, m.is_from_me,
+                       datetime(m.date/1000000000 + 978307200, 'unixepoch'),
+                       h.id
+                FROM message m LEFT JOIN handle h ON m.handle_id = h.ROWID
+                WHERE m.text IS NOT NULL AND TRIM(m.text) != ''
+                ORDER BY m.date DESC LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            self.ks.log.append("file.refused", path=str(target),
+                               reason="permission")
+            raise self._wrap_permission(PermissionError(str(exc)), target)
+        finally:
+            db.close()
+
+        self.ks.log.append("file.read_messages", path=str(target),
+                           count=len(rows))
+        return [
+            {"text": text, "from_me": bool(mine), "when": when or "",
+             "who": who or "unknown"}
+            for text, mine, when, who in rows
+        ]
+
     def list_dir(self, path: str) -> list[str]:
         self._guard("list")
         target = resolve_path(path)

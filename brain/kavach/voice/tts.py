@@ -117,10 +117,69 @@ class TextToSpeech:
         )
 
 
+def device_sample_rate() -> int | None:
+    """The output device's own rate, or None if it cannot be asked."""
+    try:
+        import sounddevice as sd
+
+        rate = sd.query_devices(kind="output")["default_samplerate"]
+        return int(rate) if rate else None
+    except Exception:
+        # A headless machine, no device, a PortAudio that will not answer.
+        # Playing at the source rate is worse than playing at the right one
+        # and far better than not playing.
+        return None
+
+
+def resample_for_device(audio, from_rate: int, to_rate: int | None):
+    """Convert to the device's rate ourselves, and return `(audio, rate)`.
+
+    **Why this exists.** Kokoro speaks at 24 kHz and this MacBook's speakers
+    run at 48 kHz. `sd.play(audio, 24000)` does not make the hardware run at
+    24 kHz — measured, the device stayed at 48000 throughout — it makes
+    PortAudio's CoreAudio backend resample, with a converter chosen for cost
+    rather than quality. Nothing errors, so nothing is reported: the
+    playback diagnostic said `status=clean` for two days while the user
+    described the output as fuzzy and then as breaking the speaker.
+
+    `sd.check_output_settings(samplerate=24000)` passes too. It means "I can
+    accept this", never "the hardware will run at it".
+
+    `resample_poly` reduces the ratio itself and applies a proper
+    anti-imaging filter — 24000 → 48000 is an exact 2x. The same correction
+    the microphone path already got, where a naive `block[::3]` decimator
+    was replaced on the same grounds.
+    """
+    import numpy as np
+
+    audio = np.asarray(audio, dtype=np.float32)
+    if to_rate is None or to_rate == from_rate or len(audio) == 0:
+        return audio, from_rate or to_rate
+
+    from math import gcd
+
+    from scipy.signal import resample_poly
+
+    divisor = gcd(int(to_rate), int(from_rate))
+    converted = resample_poly(audio, int(to_rate) // divisor,
+                              int(from_rate) // divisor).astype(np.float32)
+
+    # Polyphase interpolation overshoots on transients. Past 1.0 that is the
+    # literal speaker-damaging case, so it is scaled down rather than left
+    # to wrap or to be hard-limited by the driver.
+    peak = float(np.max(np.abs(converted))) if len(converted) else 0.0
+    if peak > 1.0:
+        converted = converted / peak
+
+    return converted, int(to_rate)
+
+
 def play(speech: Speech, blocking: bool = True) -> None:
     import sounddevice as sd
 
-    sd.play(speech.audio, speech.sample_rate)
+    audio, rate = resample_for_device(
+        speech.audio, speech.sample_rate, device_sample_rate())
+    sd.play(audio, rate)
     if blocking:
         sd.wait()
 

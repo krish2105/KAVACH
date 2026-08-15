@@ -29,7 +29,8 @@ from datetime import datetime
 
 from ..hands.files import FileTools
 from ..killswitch.core import KillSwitch, KillSwitchDisarmed
-from .sources import SOURCES, index_folder
+from ..killswitch.log import ActionLog
+from .sources import SOURCES, index_actions, index_folder, index_messages
 from .store import DEFAULT_DB, EmbeddingUnavailable, MemoryStore
 
 #: Collections, in the order a person would want to read them.
@@ -46,6 +47,11 @@ def _kill_switch() -> KillSwitch:
     return KillSwitch()
 
 
+def _action_log() -> ActionLog:
+    """Seam. What KAVACH did, which `index-actions` turns into memory."""
+    return ActionLog()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kavach-memory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -56,6 +62,18 @@ def main(argv: list[str] | None = None) -> int:
     index = sub.add_parser("index", help="index a folder you name")
     index.add_argument("folder")
     index.add_argument("--no-recursive", action="store_true")
+
+    # One subcommand per source, rather than `index <thing>` guessing what
+    # kind of thing it was given. `index-actions` was the missing half of
+    # Phase 10: KAVACH recorded every tool call it made and indexed none of
+    # them, so it could recall what you said and never what it did.
+    sub.add_parser("index-actions",
+                   help="index what KAVACH did, from the action log")
+
+    messages = sub.add_parser(
+        "index-messages",
+        help="index recent iMessages (needs Full Disk Access)")
+    messages.add_argument("--limit", type=int, default=500)
 
     search = sub.add_parser("search", help="semantic search over memory")
     search.add_argument("query")
@@ -72,10 +90,10 @@ def main(argv: list[str] | None = None) -> int:
     # anything. `MacActions` and `FileTools` both order it this way, and the
     # reason is that every step after it is a step taken while latched.
     tools = None
-    if args.command == "index":
+    if args.command in ("index", "index-messages"):
         try:
             switch = _kill_switch()
-            switch.guard("memory.index")
+            switch.guard(f"memory.{args.command}")
             tools = FileTools(switch)
         except KillSwitchDisarmed as exc:
             print(f"✗ {exc}", file=sys.stderr)
@@ -117,6 +135,19 @@ def main(argv: list[str] | None = None) -> int:
                   f"{result['skipped']} skipped")
             print(f"    review with `kavach-memory sources`, "
                   f"undo with `kavach-memory forget files`")
+            return 0
+
+        if args.command == "index-actions":
+            written = index_actions(store, _action_log())
+            print(f"  ✓ {written} action(s) indexed")
+            print(f"    undo with `kavach-memory forget actions`")
+            return 0
+
+        if args.command == "index-messages":
+            print(f"  reading up to {args.limit} recent message(s) …")
+            written = index_messages(store, tools, limit=args.limit)
+            print(f"  ✓ {written} message(s) indexed")
+            print(f"    undo with `kavach-memory forget messages`")
             return 0
 
         if args.command == "search":
