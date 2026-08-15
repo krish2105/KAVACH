@@ -176,7 +176,7 @@ class Policy:
 
     # ——— what the model is told ———
 
-    def describe_capabilities(self) -> str:
+    def describe_capabilities(self, file_tools: bool = False) -> str:
         """The capability text for the agent's system prompt.
 
         **Generated, never written by hand.** `agent.py` used to carry its own
@@ -187,11 +187,27 @@ class Policy:
 
         Nothing here names an app, and `test_policy.py` fails if one appears.
         """
-        return (
-            "You may act on any application installed on this Mac. "
+        parts = ["You may act on any application installed on this Mac."]
+        if file_tools:
+            # Measured 2026-08-15: without this sentence the agent reached for
+            # the built-in `Read` tool, which the gate refuses as not an MCP
+            # tool, and never looked for the file tools it actually had. MCP
+            # schemas are deferred, so a capability nobody mentions is one the
+            # model does not go searching for.
+            #
+            # Deliberately names no tool: `mcp__kavach-files__read_file` here
+            # would be the agent.py defect again, a fact in two places waiting
+            # to drift. ToolSearch finds the real names.
+            parts.append(
+                "You can also read, search, write and delete files on this "
+                "Mac through your tools — search for the right tool rather "
+                "than assuming a built-in one."
+            )
+        parts.append(
             "Actions that delete, send, buy, submit or change a system "
             "setting are read back to the user for confirmation before they "
             "run, and shell commands are always read back — so do not "
-            "promise an action is instant. "
-            "Never claim to have done something you have not done."
+            "promise an action is instant."
         )
+        parts.append("Never claim to have done something you have not done.")
+        return " ".join(parts)

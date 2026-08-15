@@ -80,6 +80,16 @@ NEVER_ALLOWED_TOOLS = frozenset()
 #: fallback when the MCP path failed.
 SAFE_META_TOOLS = frozenset({"ToolSearch"})
 
+#: Built-ins the model reaches for by habit when it wants the filesystem.
+#:
+#: All still denied — each bypasses `FileTools`' kill switch, its confirmation
+#: and the §7 log — but denied with a pointer to the tools that do the same job
+#: through the gate. Listed rather than pattern-matched so adding one is a
+#: deliberate act.
+_BUILTIN_FILE_TOOLS = frozenset({
+    "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS",
+})
+
 #: Which physical device each MCP server reaches. A server that is not listed
 #: here is denied: unmapped means ungovernable.
 SERVER_DEVICES = {
@@ -243,7 +253,20 @@ class ToolGate:
         # 3 — must be a tool on a server we configured.
         match = _TOOL_NAME_RE.match(tool or "")
         if not match:
-            return ("deny", f"{tool!r} is not a recognised MCP tool name.", {})
+            # A denial the model cannot recover from is a dead end wearing a
+            # reason. Measured live, twice: asked to read a file, the agent
+            # reached for the built-in `Read`, was told only that it "is not a
+            # recognised MCP tool name", and gave up — asking the user to
+            # repeat themselves without ever trying the file tools it had.
+            #
+            # The refusal is right: a built-in filesystem tool bypasses
+            # FileTools' kill switch, its confirmation and the §7 log. What
+            # was missing is the second half of the sentence.
+            hint = ""
+            if (tool or "") in _BUILTIN_FILE_TOOLS:
+                hint = (" Use the kavach-files tools instead — they are gated "
+                        "and logged; find them with ToolSearch.")
+            return ("deny", f"{tool!r} is not a recognised MCP tool name.{hint}", {})
 
         server = match.group("server")
         if server not in self.servers:

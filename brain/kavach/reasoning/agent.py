@@ -42,7 +42,7 @@ SYSTEM_PROMPT = (
     "Your replies are spoken aloud, so answer in at most two short sentences. "
     "No markdown, no bullet points, no code blocks, no preamble.\n"
     "\n"
-    + Policy().describe_capabilities()
+    + Policy().describe_capabilities(file_tools=True)
 )
 
 #: Never auto-approve. Named so a test can assert on it.

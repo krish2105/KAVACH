@@ -49,7 +49,7 @@ def test_no_app_name_is_hardcoded_anywhere_in_the_module():
 def test_the_prompt_is_generated_from_the_policy():
     """Not merely 'contains no app names' — it must come from the one place
     that decides, so it cannot be right today and stale tomorrow."""
-    assert Policy().describe_capabilities() in agent.SYSTEM_PROMPT
+    assert Policy().describe_capabilities(file_tools=True) in agent.SYSTEM_PROMPT
 
 
 def test_the_prompt_still_forbids_claiming_unfinished_work():

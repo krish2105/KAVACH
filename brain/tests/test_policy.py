@@ -209,3 +209,32 @@ def test_configured_confirm_tokens_are_honoured():
         policy, "mcp__macos-automator__execute_script",
         {"script_content": 'tell application "Store" to purchase item 1'})
     assert verdict is Verdict.CONFIRM
+
+
+# ═══ the model has to know what it has ═══
+
+def test_the_capability_text_mentions_files_when_they_are_available():
+    """Live 2026-08-15: asked to read a file, the agent reached for the
+    built-in `Read` tool, which the gate correctly refused as not an MCP
+    tool. It never tried `mcp__kavach-files__read_file` because nothing had
+    told it those existed — MCP schemas are deferred and loaded on demand, so
+    a capability nobody mentions is a capability the model does not look for.
+    """
+    text = Policy().describe_capabilities(file_tools=True).lower()
+    assert "file" in text
+
+
+def test_it_does_not_claim_file_access_it_does_not_have():
+    """The inverse matters as much. An agent told it can read files, with no
+    file tools wired, will say it read one."""
+    text = Policy().describe_capabilities(file_tools=False).lower()
+    assert "file" not in text
+
+
+def test_the_capability_text_still_names_no_tool():
+    """Naming `mcp__kavach-files__read_file` here would be the agent.py bug
+    again — a fact written in two places, drifting the moment a tool is
+    renamed. ToolSearch is how the model finds the actual names."""
+    text = Policy().describe_capabilities(file_tools=True)
+    assert "mcp__" not in text
+    assert "read_file" not in text

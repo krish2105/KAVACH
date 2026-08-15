@@ -162,3 +162,25 @@ async def test_the_sub_agent_is_confirmed_not_refused(gate):
     verdict, _, _ = await gate._decide("mcp__peekaboo__agent", {"task": "tidy up"})
     assert verdict == "allow"
     assert gate.confirmer.asked
+
+
+# ═══ a denial that teaches ═══
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("builtin", ["Read", "Write", "Edit", "Glob", "Grep"])
+async def test_a_denied_builtin_file_tool_says_what_to_use_instead(gate, builtin):
+    """Measured live 2026-08-15, twice. Asked to read a file, the agent
+    reached for the built-in `Read`. The gate refused correctly — a built-in
+    filesystem tool bypasses FileTools' gates and the §7 log entirely — and
+    the message was "'Read' is not a recognised MCP tool name", which tells
+    the model nothing it can act on. It gave up and asked the user to repeat
+    themselves, having never tried the file tools it actually had.
+
+    A denial that cannot be recovered from is a dead end wearing a reason.
+    """
+    verdict, reason, _ = await gate._decide(builtin, {"file_path": "/tmp/x"})
+
+    assert verdict == "deny"
+    assert "kavach-files" in reason, (
+        f"{builtin} was refused without naming the alternative"
+    )
