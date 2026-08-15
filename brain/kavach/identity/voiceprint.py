@@ -31,7 +31,8 @@ from pathlib import Path
 
 import numpy as np
 
-log = logging.getLogger("kavach.identity.voiceprint")
+log_ = logging.getLogger("kavach.identity.voiceprint")
+log = log_
 
 DEFAULT_PATH = Path.home() / ".kavach" / "voiceprint.npz"
 
@@ -215,6 +216,18 @@ class Voiceprint:
     def __init__(self, path: Path | str = DEFAULT_PATH, device: str = "cpu"):
         #: Enrolled means gated. See `gating`.
         self.enabled = True
+        #: Score every turn and log it, reject nothing.
+        #:
+        #: Three thresholds have been calibrated and all three were wrong,
+        #: each from a sample that did not represent real use — the last one
+        #: measured properly, from a second sitting against 400 other voices
+        #: with a 0.672 margin, and still failed because reading a prepared
+        #: sentence is not the same act as giving a command.
+        #:
+        #: There is no cleverer fourth sample. The only representative record
+        #: of how this user talks to KAVACH is the user talking to KAVACH,
+        #: which cannot be collected while the gate is rejecting them.
+        self.shadow = False
         self.path = Path(path)
         self.device = device
         self._encoder = None
@@ -256,6 +269,10 @@ class Voiceprint:
             # `enabled` key, and defaulting it to False would silently drop
             # the §7 speaker gate for anyone who upgrades.
             self.enabled = bool(data.get("enabled", True))
+            # Defaults False: a mode that resets on restart would collect a
+            # few minutes of data and silently stop, and one that resets ON
+            # would start measuring nobody asked to measure.
+            self.shadow = bool(data.get("shadow", False))
             log.info("voiceprint loaded (threshold %.3f)", self.threshold)
         except Exception:
             # A corrupt profile must not be treated as a valid one.
@@ -273,6 +290,7 @@ class Voiceprint:
             seconds=self.enrolled_seconds,
             calibrated=self.calibrated,
             enabled=self.enabled,
+            shadow=self.shadow,
         )
         self.path.chmod(0o600)  # biometric data
 
@@ -291,6 +309,21 @@ class Voiceprint:
         voiceprint afterwards.
         """
         return self.is_enrolled and self.enabled
+
+    def set_shadow(self, on: bool, log=None) -> None:
+        """Measure without enforcing, or stop measuring.
+
+        Turning shadow **off** returns to off, never to enforcing. A mode
+        change that quietly starts rejecting turns is exactly the failure
+        this mode exists to prevent.
+        """
+        self.shadow = bool(on)
+        if self.shadow:
+            self.enabled = False
+        self._save()
+        if log is not None:
+            log.append("voiceprint.shadow", shadow=self.shadow)
+        log_.info("speaker shadow mode %s", "ON" if self.shadow else "off")
 
     def enable(self, log=None) -> None:
         """Resume gating on the enrolled voice."""

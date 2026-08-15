@@ -142,6 +142,22 @@ Publisher = Callable[[dict], None]
 
 
 
+def should_score_speaker(voiceprint) -> bool:
+    """Whether to embed this turn and record its similarity.
+
+    Separate from `should_verify_speaker`, which decides whether to *reject*.
+    In shadow mode they disagree deliberately: every turn is measured, none
+    is refused, and the action log becomes the calibration set that three
+    attempts at guessing a threshold could not produce.
+
+    An enforcing profile is scored too — a threshold that starts rejecting
+    its owner should leave the evidence to prove it.
+    """
+    if voiceprint is None or not voiceprint.is_enrolled:
+        return False
+    return bool(voiceprint.enabled or voiceprint.shadow)
+
+
 def should_verify_speaker(gating: bool, pending) -> bool:
     """Whether this turn's audio should be checked against the voiceprint.
 
@@ -595,6 +611,20 @@ class VoiceLoop:
         # that acts on whatever the room says is the failure §7 exists to stop.
         # `gating`, not `is_enrolled`: the two used to be the same thing, so
         # the only way to stop checking was to delete the voiceprint.
+        # Score first, always, whenever there is a profile to score against.
+        # The rejection below is a separate decision; this is the measurement
+        # that lets a future threshold be read off real use rather than
+        # guessed from a sample that turned out not to represent it.
+        if should_score_speaker(self.voiceprint):
+            try:
+                scored = self.voiceprint.verify(audio, sample_rate=16_000)
+                self.ks.log.append(
+                    "voice.score", enforcing=self.voiceprint.gating,
+                    **scored.as_dict(),
+                )
+            except Exception:
+                log.debug("could not score the speaker", exc_info=True)
+
         if self.voiceprint is not None and should_verify_speaker(
                 self.voiceprint.gating, self.pending):
             result = self.voiceprint.verify(audio, sample_rate=16_000)
