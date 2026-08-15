@@ -53,6 +53,22 @@ export interface Proposal {
   status: "pending" | "approved" | "rejected" | "expired";
 }
 
+/**
+ * A promotion KAVACH would make if asked (Phase 34).
+ *
+ * Never applied on its own. The user is the one who gets to notice they have
+ * stopped wanting to be asked — and `tier` can never be "auto" for anything
+ * that sends, deletes, buys or changes a system setting, however many times
+ * it has been approved.
+ */
+export interface TrustOffer {
+  action: string;
+  tier: "auto" | "propose" | "always_ask";
+  /** How many consecutive approvals earned it. The evidence for the offer,
+   *  shown because "KAVACH wants to stop asking" is a claim and this is why. */
+  streak: number;
+}
+
 export interface KavachSnapshot {
   state: AgentState;
   /** Finalised transcript of the current turn. */
@@ -78,6 +94,14 @@ export interface KavachSnapshot {
    * them is a crash.
    */
   proposals: Proposal[];
+  /**
+   * Phase 34 — promotions offered, never taken.
+   *
+   * Here for the same reason as `proposals`: an offer you only see if you
+   * happen to type a command is one you never see, which is silence with
+   * extra steps.
+   */
+  trustOffers: TrustOffer[];
   /**
    * Ghost mode (§14): every input suspended — mic, camera, action logging.
    *
@@ -143,6 +167,7 @@ export const INITIAL_SNAPSHOT: KavachSnapshot = {
   reason: "",
   intent: "",
   proposals: [],
+  trustOffers: [],
 };
 
 // ───────────────────────────────────────────────────────────────

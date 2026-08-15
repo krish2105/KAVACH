@@ -1,6 +1,6 @@
 "use client";
 
-import type { Proposal } from "@/lib/kavachState";
+import type { Proposal, TrustOffer } from "@/lib/kavachState";
 
 /**
  * Phase 33 — what is waiting for your review, where you can see it.
@@ -20,18 +20,26 @@ import type { Proposal } from "@/lib/kavachState";
  * behind it — the CLI and the token-gated API are the review surfaces. This
  * one tells you there is something to review.
  */
-export function ProposalPanel({ proposals }: { proposals: Proposal[] }) {
+export function ProposalPanel({
+  proposals,
+  trustOffers = [],
+}: {
+  proposals: Proposal[];
+  trustOffers?: TrustOffer[];
+}) {
   const pending = proposals.filter((p) => p.status === "pending");
-  if (pending.length === 0) return null;
+  if (pending.length === 0 && trustOffers.length === 0) return null;
 
   return (
     <section className="hud-panel proposal-panel" aria-live="polite">
-      <header className="proposal-head">
-        <span className="proposal-count">{pending.length}</span>
-        <span className="proposal-title">
-          queued for review — nothing has run
-        </span>
-      </header>
+      {pending.length > 0 && (
+        <header className="proposal-head">
+          <span className="proposal-count">{pending.length}</span>
+          <span className="proposal-title">
+            queued for review — nothing has run
+          </span>
+        </header>
+      )}
 
       <ul className="proposal-list">
         {pending.slice(0, 4).map((item) => (
@@ -46,6 +54,22 @@ export function ProposalPanel({ proposals }: { proposals: Proposal[] }) {
         <p className="proposal-more">
           and {pending.length - 4} more
         </p>
+      )}
+
+      {trustOffers.length > 0 && (
+        <div className="trust-offers">
+          <p className="trust-offers-head">KAVACH would stop asking about:</p>
+          <ul className="proposal-list">
+            {trustOffers.map((offer) => (
+              <li key={offer.action} className="proposal-item">
+                <span className="proposal-action">{offer.action}</span>
+                <span className="proposal-description">
+                  → {offer.tier} · approved {offer.streak}&times;
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <p className="proposal-how">

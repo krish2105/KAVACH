@@ -514,7 +514,10 @@ export default function JarvisOrb() {
         {/* Above the status panel deliberately: a queued destructive action
             is the most important thing on this screen when there is one, and
             nothing below the fold gets reviewed. */}
-        <ProposalPanel proposals={snapshot.proposals ?? []} />
+        <ProposalPanel
+          proposals={snapshot.proposals ?? []}
+          trustOffers={snapshot.trustOffers ?? []}
+        />
         <StatusPanel
           state={snapshot.state}
           route={snapshot.route}

@@ -103,6 +103,44 @@ Two things to know before you rely on this:
   destructive command from my phone, now I approve it"* and not for *"KAVACH
   needs me and I'm in another room."*
 
+### Menu → Queue
+
+The Phase 33 proposal queue. **Different from Pending above**, and the
+difference is the whole point of the two phases:
+
+* **Pending** is a §7 confirmation — KAVACH is *blocked*, waiting, and it
+  expires in 120 seconds.
+* **Queue** is a PROPOSE-tier action — KAVACH is *not* waiting. It queued
+  instead of interrupting you, and it will sit for a week. **Nothing in it
+  ever executes on its own**, however long you leave it.
+
+| # | Action | Settings |
+|---|---|---|
+| 1 | **Get Contents of URL** | `https://$KAVACH/proposals`, **GET**, `Authorization` header |
+| 2 | **Get Dictionary Value** | `proposals` from *Contents of URL* |
+| 3 | **Count** | *Dictionary Value* |
+| 4 | **If** | *Count* **is** `0` → **Show Alert** "Nothing queued." |
+| 5 | **Otherwise** → **Repeat with Each** | *Dictionary Value* |
+| 6 |  ↳ **Get Dictionary Value** | `description` from *Repeat Item* |
+| 7 |  ↳ **Choose from Menu** | Prompt: *Dictionary Value* — items `Approve`, `Reject`, `Skip` |
+| 8 |  ↳ *Approve:* **Get Dictionary Value** | `id` from *Repeat Item* |
+| 9 |  ↳ *Approve:* **Get Contents of URL** | `https://$KAVACH/proposals/approve`, **POST**, header, JSON body: `ids` (Array) = [*Dictionary Value*] |
+| 10 |  ↳ *Reject:* same as 8–9 against `/proposals/reject` |
+| 11 |  ↳ *Skip:* nothing — it stays queued |
+
+Batch approval works too: send several ids in the `ids` array in one call.
+That is what the queue is *for* — reviewing five things at once beats being
+interrupted five times.
+
+Two things worth knowing:
+
+* **Approving here does not execute anything.** It marks the proposal
+  approved; when it runs it still passes the tool gate — kill switch,
+  confirmation, action log. The queue is not a second permission system.
+* **An unknown or expired id is reported, not silently skipped.** The response
+  carries `decided` and `failed`, so a shortcut that says "approved" when
+  nothing was approved is a shortcut you wrote wrong, not a lie from KAVACH.
+
 ### Menu → Stop
 
 | # | Action | Settings |

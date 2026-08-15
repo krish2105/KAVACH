@@ -136,6 +136,22 @@ class TrustLedger:
             return None            # already there; nothing to offer
         return Offer(action=action, tier=target, streak=count)
 
+    def pending_offers(self) -> list[Offer]:
+        """Every promotion currently worth asking about.
+
+        The spec says a promotion is "always something you ask me about,
+        never something that happens silently". It was not silent — it was in
+        `kavach-autonomy status`. But an offer you only see if you happen to
+        type a command is one you will never see, which is silence with extra
+        steps. This is what puts it on the orb.
+        """
+        offers = []
+        for action in sorted(self._streaks):
+            offer = self.offer_for(action)
+            if offer is not None:
+                offers.append(offer)
+        return offers
+
     def accept(self, action: str) -> Tier:
         """Apply an offer the user agreed to. Returns the tier now in force.
 

@@ -127,6 +127,10 @@ class VoiceState:
     #: screen. Empty list rather than None: `null` and `[]` render
     #: differently in TypeScript and one of them is a crash.
     proposals: list[dict] = field(default_factory=list)
+    #: Phase 34. Promotions KAVACH would make if asked — never applied on
+    #: its own. On the snapshot for the same reason as the proposals: an
+    #: offer you only see by typing a command is one you never see.
+    trustOffers: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -142,6 +146,7 @@ class VoiceState:
             "reason": self.reason,
             "intent": self.intent,
             "proposals": self.proposals,
+            "trustOffers": self.trustOffers,
         }
 
 
@@ -298,12 +303,19 @@ class VoiceLoop:
         one again). One reader beats three writers remembering to publish.
         """
         queue = getattr(self, "proposal_queue", None)
-        if queue is None:
-            return
-        try:
-            self.state.proposals = [p.as_dict() for p in queue.pending()]
-        except Exception:
-            log.debug("could not read the proposal queue", exc_info=True)
+        if queue is not None:
+            try:
+                self.state.proposals = [p.as_dict() for p in queue.pending()]
+            except Exception:
+                log.debug("could not read the proposal queue", exc_info=True)
+
+        ledger = getattr(self, "trust_ledger", None)
+        if ledger is not None:
+            try:
+                self.state.trustOffers = [o.as_dict()
+                                          for o in ledger.pending_offers()]
+            except Exception:
+                log.debug("could not read the trust ledger", exc_info=True)
 
     def set_state(self, state: str, **fields) -> None:
         # Ghost is read from the source of truth on every publish rather than

@@ -215,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         # it the HUD panel renders nothing forever, which is the same as not
         # having built it.
         voice.proposal_queue = queue
+        voice.trust_ledger = trust
         voice.agent = ClaudeAgent(gate=gate, file_tools=file_tools,
                                   browser_factory=browser_factory)
 
