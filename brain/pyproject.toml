@@ -110,6 +110,7 @@ kavach-stt = "kavach.voice.stt_cli:main"
 kavach-app = "kavach.presence.appbundle:main"
 kavach-daemons = "kavach.daemons:main"
 kavach-speaker = "kavach.identity.speaker_cli:main"
+kavach-verify-voice = "kavach.identity.verify_cli:main"
 
 [dependency-groups]
 # Only needed to CONVERT a Hugging Face checkpoint to GGML (§21). A normal
