@@ -184,21 +184,35 @@ uv run kavach-export        # what it has heard recently
 Ghost mode suppresses what KAVACH **saw**, never what it **did** — every action
 stays in the log.
 
-### The speaker gate is currently in shadow mode
+### The speaker gate is ON (2026-08-16)
 
-It scores every turn and **rejects nothing**. This is on purpose: three
-thresholds were set from samples collected deliberately, and all three rejected
-you. The only representative sample of how you talk to KAVACH is you talking to
-KAVACH.
+Only your voice is acted on. Threshold **0.300**, enrolled from the 42
+recordings of you made for the wake word — real audio through this exact
+microphone, which is what the three earlier attempts were missing.
+
+Measured before switching it on: your voice **0.345–0.634**, sixteen other
+voices **−0.182 … +0.097**. Nothing but you gets in, with a 0.239 margin.
 
 ```bash
-uv run kavach-speaker scores    # what your real turns actually score
+uv run kavach-speaker status    # threshold and state
+uv run kavach-speaker off       # reverse it; the voiceprint is kept
 ```
 
-Needs ~10+ turns before it means anything. Then it can be turned on properly.
+**The one thing to watch.** A clip under 3 seconds cannot be speaker-verified,
+and with the gate on such a turn is discarded rather than guessed at. If short
+commands start vanishing, that is the cause:
 
-**Until then, any voice in the room can command KAVACH** — and since Full Disk
-Access is granted, that includes asking it to read your Messages.
+```bash
+grep voice.rejected ~/.kavach/logs/actions.jsonl | tail -5
+```
+
+A `clip too short to verify` reason means the gate, not the microphone. Tell
+me if you see it — the fix is a design decision, not a knob.
+
+Spoken **confirmations** are deliberately not speaker-checked: a one-word
+"confirm" is too short to verify at any threshold. So someone else in the room
+could answer a confirmation prompt within its 120-second window, though they
+could not start the action.
 
 ---
 

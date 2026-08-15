@@ -1022,7 +1022,65 @@ is a sum of sine waves, resemblyzer separated two tones, ECAPA does not. The
 honest fix is real audio from gitignored dirs, which makes the test
 machine-dependent. **The user's call.**
 
-**The gate is still OFF.** It needs `uv run kavach-enrol` from a second session.
+#### The gate is ON as of 2026-08-16 — threshold 0.300, and how it got there
+
+**The enrolment was the broken part all along, not the encoder or the
+arithmetic.** Shadow mode had collected four real turns and every one of them
+would have been refused:
+
+```
+real turns   -0.042  +0.017  +0.128  +0.145     against threshold 0.383
+```
+
+Scored against the *old* profile, twelve synthetic voices landed at −0.10 to
++0.10 — **the user's own live speech scored inside the stranger range.** No
+threshold existed. That profile was read-aloud sentences from one sitting;
+it did not resemble how this person sounds to this microphone.
+
+The fix used audio that was already on disk: **the 42 real-microphone
+recordings in `wakeword/data/real/positive`**, made for the wake word and
+never used for anything else. Re-enrolling on them moved the median from
+~0.07 to **0.417** with strangers unchanged.
+
+**Evaluated at 1s it still overlapped and `choose_threshold` refused** —
+two held-out takes scored 0.024 and 0.031 against a best stranger of 0.106.
+That refusal was correct *and* the wrong question: `verify()` never sees a
+clip under `MIN_VERIFY_SECONDS` (3.0), so a threshold read off 1s audio
+describes a regime that cannot occur. CLAUDE.md already recorded the reason
+— the same audio scores 0.42 at 0.8s and 0.82 at 13.8s.
+
+Re-measured at the length the gate actually judges (held-out takes joined
+into 3.8s clips — real voice, real mic, realistic duration):
+
+| | range | median |
+|---|---|---|
+| the user, 5 held-out clips | +0.345 … +0.634 | **+0.553** |
+| 12 other voices | −0.174 … +0.106 | −0.040 |
+
+`choose_threshold` → **0.300**, gap 0.239. Final profile enrolled on all 42
+clips (44.0s) and checked in the safety-critical direction against it:
+**0/16 other voices admitted** (−0.182 … +0.097).
+
+`enrol()`'s own `_calibrate` is discarded explicitly — it measures
+self-similarity within one sitting, which is the method that produced 0.803
+and locked the user out. The threshold is set from the held-out measurement
+and `calibrated=True` is only claimed because that measurement happened.
+
+**The known failure mode to watch:** with gating on, a clip under 3.0s is
+refused as `clip too short to verify` and **the turn is discarded**. All four
+shadow-scored turns cleared 3s, so the endpointer's padding appears to carry
+ordinary commands over the floor — but that is four samples. If short
+commands start vanishing, `grep voice.rejected ~/.kavach/logs/actions.jsonl`
+shows the reason, and `kavach-speaker off` reverses it. The confirmation path
+already skips verification for this exact reason (`test_confirm_speaker.py`).
+
+The previous profile is backed up at `~/.kavach/voiceprint.npz.bak-*`.
+
+**Caveat, stated rather than buried:** the negatives are synthesised Kokoro
+voices, not real people in this room, and the genuine clips are joined
+single words rather than sentences. The channel is real and the separation
+is wide (0.239), but a real second speaker has not been tested against this
+profile.
 
 ### Files — and the three-link chain that made them reachable (2026-08-15)
 
@@ -1283,9 +1341,11 @@ Found five times now, each time as a different-looking bug:
 it must not **contain** — grep cannot tell prose from code, and the modules
 that must not hold a fact are exactly the ones whose comments must say why.
 
-**Still not done:** the speaker gate is off, so any voice in the room is acted
-on — and that matters more now than it did, with no app allowlist and shell
-reachable. The unconditional shell confirmation is what stands in for it.
+**The speaker gate is ON as of 2026-08-16** (threshold 0.300, enrolled from
+the 42 real-microphone recordings — see above). Until then any voice in the
+room was acted on, which mattered a great deal with no app allowlist and the
+shell reachable; the unconditional shell confirmation was what stood in for
+it, and still backs it up.
 
 ### The clock must never reach a language model
 
