@@ -38,9 +38,82 @@ MIN_VERIFY_SECONDS = 0.8
 FALLBACK_THRESHOLD = 0.75
 
 #: Calibration floor and ceiling. A threshold outside this range means
-#: something went wrong with enrolment, and clamping is safer than trusting it.
-MIN_THRESHOLD = 0.55
+#: something went wrong with the measurement, and clamping is safer than
+#: trusting it.
+#:
+#: **The floor was 0.55 and it locked the user out.** Their real speech was
+#: measured at 0.361–0.781 across a normal evening, so the floor alone would
+#: have rejected several genuine turns even if calibration had been perfect.
+#: A floor is meant to catch a broken measurement, not to overrule a correct
+#: one — 0.30 is below anything this microphone has produced for the enrolled
+#: speaker and still far above what a stranger scores.
+MIN_THRESHOLD = 0.30
 MAX_THRESHOLD = 0.92
+
+#: How many samples make a distribution. Two is the minimum that can show any
+#: spread at all; the original bug was drawing conclusions from clips that had
+#: none because they were recorded back to back.
+MIN_SAMPLES = 2
+
+
+def choose_threshold(
+    genuine: "list[float]", others: "list[float]",
+) -> "tuple[float | None, str]":
+    """A threshold from the measured gap, or `(None, why)` if there isn't one.
+
+    `genuine` are similarity scores for the enrolled speaker — ideally from a
+    *different* session than enrolment. `others` are scores for anyone else.
+
+    **Why this replaced the old calibration.** `_calibrate` used
+    ``sims.mean() - 3*sims.std() - 0.05`` over the enrolment clips, which are
+    recorded back to back in one sitting. They cluster tightly, `std` is tiny,
+    and the threshold lands just under the mean — 0.803, against real speech
+    of 0.361–0.781. It measured self-similarity *within one session* and used
+    it as a proxy for self-similarity *across sessions*, and the first tells
+    you almost nothing about the second.
+
+    **Refusing to save is a result, not a failure.** `waketune` arrived at the
+    same rule after the wake word wrote a threshold that could not work: a
+    number that does not separate is worse than no number, because it fails
+    silently and hours later. The reason names the side that failed, because
+    being told the wrong half is broken sends you re-recording the wrong
+    thing.
+    """
+    genuine = sorted(float(s) for s in (genuine or []))
+    others = sorted(float(s) for s in (others or []))
+
+    if len(genuine) < MIN_SAMPLES:
+        return (None, (
+            f"only {len(genuine)} sample(s) of your voice — need at least "
+            f"{MIN_SAMPLES}, and more is better. One clip cannot show spread, "
+            f"which is the mistake that produced 0.803."
+        ))
+    if not others:
+        return (None, (
+            "no negative samples, so there is nothing to separate from. "
+            "A threshold that only ever saw one speaker accepts everyone "
+            "below it and rejects everyone above, for no measured reason."
+        ))
+
+    worst_genuine, best_other = genuine[0], others[-1]
+    if worst_genuine <= best_other:
+        return (None, (
+            f"overlap: your quietest take scored {worst_genuine:.3f} and "
+            f"another voice reached {best_other:.3f}. No threshold can accept "
+            f"you and refuse them, so none was saved."
+        ))
+
+    # Halfway through the gap: the most forgiving place it can sit without
+    # accepting the nearest impostor. Hugging the genuine edge fails the first
+    # time the user has a cold or sits further back.
+    threshold = (worst_genuine + best_other) / 2.0
+    clamped = float(min(max(threshold, MIN_THRESHOLD), MAX_THRESHOLD))
+    return (clamped, (
+        f"separated by {worst_genuine - best_other:.3f} — your worst take "
+        f"{worst_genuine:.3f}, best other {best_other:.3f}, threshold "
+        f"{clamped:.3f} from {len(genuine)} genuine and {len(others)} other "
+        f"samples."
+    ))
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -227,8 +300,28 @@ class Voiceprint:
             return FALLBACK_THRESHOLD
 
         sims = np.array([cosine_similarity(e, mean) for e in embeddings])
-        threshold = float(sims.mean() - 3.0 * sims.std() - 0.05)
-        self.calibrated = True
+
+        # **This is the number that locked the user out, and the reason is
+        # the sampling, not the arithmetic.**
+        #
+        # Enrolment clips are recorded back to back — one seat, one distance,
+        # one minute — so they cluster tightly and `std` is tiny. Sitting
+        # three of those standard deviations below the mean therefore lands
+        # just under the mean itself: 0.803, measured 2026-08-14.
+        #
+        # Scored against 42 real recordings of the same person from a
+        # different session, that threshold rejected **42 of 42** — median
+        # 0.498, best take 0.803. Not "too tight": non-functional.
+        #
+        # Within-session spread is not evidence about across-session spread.
+        # So this is now a *provisional* number, and it is deliberately
+        # generous: the margin is widened to reflect that the clips it was
+        # measured from cannot show the variation that matters.
+        # `choose_threshold()` is the real answer, and it needs samples from
+        # a second session plus at least one other voice.
+        spread = max(float(sims.std()), 0.08)
+        threshold = float(sims.mean() - 3.0 * spread - 0.05)
+        self.calibrated = False        # provisional until choose_threshold runs
         return float(np.clip(threshold, MIN_THRESHOLD, MAX_THRESHOLD))
 
     # ——— verification ———
