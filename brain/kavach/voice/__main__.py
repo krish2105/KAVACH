@@ -191,7 +191,15 @@ def main(argv: list[str] | None = None) -> int:
         # same one the phone can answer.
         file_tools = FileTools(kill_switch=ks,
                                confirmed_upstream=True)
-        voice.agent = ClaudeAgent(gate=gate, file_tools=file_tools)
+        # A factory, not a Browser: the frontmost browser changes between
+        # calls, and binding one at startup drives Safari after the user has
+        # moved to Chrome.
+        def browser_factory(app):
+            from ..hands.browser import Browser
+            return Browser(app)
+
+        voice.agent = ClaudeAgent(gate=gate, file_tools=file_tools,
+                                  browser_factory=browser_factory)
 
     # §15: watch for calls and stop listening for the wake word during them.
     # Given the ghost and the switch so it can never resume a microphone that

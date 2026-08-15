@@ -345,11 +345,13 @@ def test_configured_servers_match_what_the_agent_actually_gets():
     the agent searched for the file tool, found it, called it, and was
     refused at the last step because only one side knew about it.
     """
+    from kavach.hands.browser_server import BROWSER_SERVER_NAME
     from kavach.hands.file_server import FILE_SERVER_NAME
     from kavach.hands.gate import load_configured_servers
     from kavach.reasoning.agent import load_mcp_servers
 
-    assert set(load_mcp_servers()) | {FILE_SERVER_NAME} == load_configured_servers()
+    in_process = {FILE_SERVER_NAME, BROWSER_SERVER_NAME}
+    assert set(load_mcp_servers()) | in_process == load_configured_servers()
 
 
 def test_every_tool_call_reaches_the_gate_via_a_hook(ks):

@@ -97,6 +97,7 @@ SERVER_DEVICES = {
     # for anything unlisted and the gate denies that outright. A new server
     # that forgets this line is refused, not waved through.
     "kavach-files": "mac",
+    "kavach-browser": "mac",
     "macos-automator": "mac",
     "macos-accessibility": "mac",
     "peekaboo": "mac",
@@ -125,6 +126,7 @@ def load_configured_servers(path: Path = MCP_CONFIG) -> set[str]:
     refused its tools as coming from an unconfigured server. It is configured;
     it is just configured in Python.
     """
+    from .browser_server import BROWSER_SERVER_NAME
     from .file_server import FILE_SERVER_NAME
 
     try:
@@ -133,7 +135,7 @@ def load_configured_servers(path: Path = MCP_CONFIG) -> set[str]:
         log.warning("could not read %s; no subprocess MCP server is trusted",
                     path)
         configured = set()
-    return configured | {FILE_SERVER_NAME}
+    return configured | {FILE_SERVER_NAME, BROWSER_SERVER_NAME}
 
 
 #: Peekaboo capture tools, and the pseudo-targets that mean "the whole

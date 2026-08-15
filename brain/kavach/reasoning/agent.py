@@ -81,6 +81,7 @@ class ClaudeAgent:
         gate=None,
         enable_tools: bool = True,
         file_tools=None,
+        browser_factory=None,
     ):
         self.system_prompt = system_prompt
         self.max_turns = max_turns
@@ -90,6 +91,9 @@ class ClaudeAgent:
         #: everything else — see `hands/file_server.py` for why that shape
         #: rather than regex intents. None means no file access at all.
         self.file_tools = file_tools
+        #: `browser_factory(app) -> Browser`. A factory rather than a Browser
+        #: because which browser is frontmost changes between calls.
+        self.browser_factory = browser_factory
         # No gate means no hands. An ungated agent with MCP servers attached
         # would be exactly the thing §7 exists to prevent.
         self.enable_tools = enable_tools and gate is not None
@@ -106,6 +110,15 @@ class ClaudeAgent:
             from ..hands.file_server import FILE_SERVER_NAME, build_file_server
 
             servers[FILE_SERVER_NAME] = build_file_server(self.file_tools)
+
+        if self.enable_tools and self.browser_factory is not None:
+            from ..hands.browser_server import (
+                BROWSER_SERVER_NAME,
+                build_browser_server,
+            )
+
+            servers[BROWSER_SERVER_NAME] = build_browser_server(
+                self.browser_factory)
 
         # Two independent enforcement points, both wired to the same gate.
         # The PreToolUse hook is the one that reliably fires; can_use_tool is
