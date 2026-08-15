@@ -155,6 +155,39 @@ def spectral_flatness(audio: np.ndarray) -> float:
     return float(geometric / arithmetic) if arithmetic > 0 else 0.0
 
 
+#: The gate for answering a closed question, where the reply is one word.
+#:
+#: Measured live 2026-08-15: the user said "confirm" to a pending §7 prompt and
+#: the clip was discarded — 10/61 voiced frames, rms 0.0276, so it was captured
+#: and then rejected. `SpeechGate` wants 8 voiced frames inside ONE run, and
+#: "confirm" has an unvoiced /f/ that splits it into two shorter ones. The gate
+#: rejected exactly the utterance the confirmation flow had just asked for, so
+#: the answer could never have got through.
+#:
+#: **Relaxing it here is safe for a specific reason, not a general one.** The
+#: strict gate exists because whisper confabulates on room noise — an empty
+#: room produced "Legend and legend do it." — and a confabulated COMMAND can
+#: act. A confabulated ANSWER cannot: `confirm.interpret()` returns None for
+#: anything that is not an unambiguous yes or no, and None is treated as a
+#: denial. The cost of a false positive here is being asked again.
+#:
+#: The unbroken-core requirement is kept, only shortened. It is what rejects
+#: intermittent noise, and length alone never did that.
+#: `max_gap_frames` is widened too, and that is the load-bearing part. A
+#: fricative is precisely what splits a short word: /f/ runs 60-80ms against a
+#: 20ms frame, so "confirm" arrives as two runs separated by 3-4 frames and the
+#: default tolerance of 2 cannot bridge them. Lengthening the runs would not
+#: have helped — there are no long runs in a one-syllable answer.
+#:
+#: `min_consecutive_frames` is kept, only shortened, because it is what
+#: rejects intermittent noise. Alternating voiced/unvoiced frames merge into a
+#: long "run" under any gap tolerance; only the unbroken-core test refuses
+#: them.
+SHORT_ANSWER_GATE = SpeechGate(
+    min_voiced_frames=4, min_consecutive_frames=2, max_gap_frames=4,
+)
+
+
 def has_speech(
     audio: np.ndarray,
     sample_rate: int,

@@ -526,7 +526,21 @@ class VoiceLoop:
         # Energy alone was not enough: the gate sat at rms 0.006 and this room
         # measures 0.0365, so room tone sailed through. This asks whether the
         # audio is *voiced*, which loudness cannot answer.
-        if not vad.has_speech(audio, 16_000):
+        # A pending confirmation changes what counts as speech, because it
+        # changes what is being asked for. The strict gate wants 8 voiced
+        # frames in one run; "confirm" and "yes" do not have that, and the
+        # fricative in "confirm" splits what there is. Measured live: the
+        # user answered a §7 prompt and the clip was discarded at 10/61
+        # voiced frames — the gate rejecting the exact utterance the prompt
+        # had just requested.
+        #
+        # Safe here and not in general: a confabulated COMMAND can act, a
+        # confabulated ANSWER cannot. `interpret()` returns None for anything
+        # that is not an unambiguous yes or no, and None is a denial.
+        answering = bool(self.pending is not None and self.pending.list())
+        gate = vad.SHORT_ANSWER_GATE if answering else None
+
+        if not vad.has_speech(audio, 16_000, gate=gate):
             log.info("no speech in the clip (%s), discarding turn",
                      vad.describe(audio, 16_000))
             self.set_state("idle", amplitude=0.0)
