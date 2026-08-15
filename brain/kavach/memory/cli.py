@@ -9,6 +9,16 @@
 Indexing is deliberately a command you type, never something KAVACH decides to
 do. `sources` shows exactly what has been read and `forget` removes it — memory
 you cannot audit or delete is surveillance.
+
+**Every collection name comes from `sources.SOURCES`.** They were typed out
+here as `choices=["turns", "files"]` while `SOURCES` held four, so `forget
+actions` died in argparse: the collection recording what KAVACH *did* was the
+only one that could not be deleted. `test_memory_sources.py` asserted every
+source is purgeable and passed the whole time, because it reads the dict and
+this file did not. Ninth instance of one-fact-in-two-places here.
+
+**Indexing reads through `FileTools`**, which checks the kill switch and writes
+`file.read` to the §7 log. It used to call `Path.read_text()` directly.
 """
 
 from __future__ import annotations
@@ -17,7 +27,23 @@ import argparse
 import sys
 from datetime import datetime
 
+from ..hands.files import FileTools
+from ..killswitch.core import KillSwitch, KillSwitchDisarmed
+from .sources import SOURCES, index_folder
 from .store import DEFAULT_DB, EmbeddingUnavailable, MemoryStore
+
+#: Collections, in the order a person would want to read them.
+COLLECTIONS = sorted(SOURCES)
+
+
+def _open_store() -> MemoryStore:
+    """Seam, so tests can point the CLI at a throwaway database."""
+    return MemoryStore()
+
+
+def _kill_switch() -> KillSwitch:
+    """Seam, for the same reason. The real one reads `~/.kavach`."""
+    return KillSwitch()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,17 +60,29 @@ def main(argv: list[str] | None = None) -> int:
     search = sub.add_parser("search", help="semantic search over memory")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=5)
-    search.add_argument("--collection", default=None,
-                        choices=["turns", "files"])
+    search.add_argument("--collection", default=None, choices=COLLECTIONS)
 
     forget = sub.add_parser("forget", help="delete a collection, or all of it")
     forget.add_argument("collection", nargs="?", default=None,
-                        choices=["turns", "files"])
+                        choices=COLLECTIONS)
 
     args = parser.parse_args(argv)
 
+    # The gate comes first — before the store, before the disk, before
+    # anything. `MacActions` and `FileTools` both order it this way, and the
+    # reason is that every step after it is a step taken while latched.
+    tools = None
+    if args.command == "index":
+        try:
+            switch = _kill_switch()
+            switch.guard("memory.index")
+            tools = FileTools(switch)
+        except KillSwitchDisarmed as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 3
+
     try:
-        store = MemoryStore()
+        store = _open_store()
     except Exception as exc:
         print(f"✗ could not open memory at {DEFAULT_DB}: {exc}", file=sys.stderr)
         return 1
@@ -52,9 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             print(f"  database : {store.path}")
-            print(f"  turns    : {store.count('turns')}")
-            print(f"  files    : {store.count('files')} chunks "
-                  f"from {len(store.sources('files'))} file(s)")
+            for collection in COLLECTIONS:
+                count = store.count(collection)
+                line = f"  {collection:<9}: {count}"
+                if collection == "files":
+                    line += (f" chunks from "
+                             f"{len(store.sources('files'))} file(s)")
+                print(line)
             return 0
 
         if args.command == "sources":
@@ -69,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "index":
             print(f"  indexing {args.folder} …")
-            result = store.index_folder(args.folder, recursive=not args.no_recursive)
+            result = index_folder(store, tools, args.folder,
+                                  recursive=not args.no_recursive)
             print(f"  ✓ {result['indexed']} file(s) indexed, "
                   f"{result['skipped']} skipped")
             print(f"    review with `kavach-memory sources`, "
@@ -96,10 +139,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ✓ removed {removed} record(s) from {target}")
             return 0
 
+    except KillSwitchDisarmed as exc:
+        # Latched means nothing runs, reads included. Reported as its own
+        # failure rather than as "0 files indexed", which would read like an
+        # empty folder and send the user looking for the wrong problem.
+        print(f"✗ kill switch is latched — nothing was read. {exc}",
+              file=sys.stderr)
+        return 3
     except EmbeddingUnavailable as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
-    except (NotADirectoryError, FileNotFoundError) as exc:
+    except (NotADirectoryError, FileNotFoundError, PermissionError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 1
     finally:

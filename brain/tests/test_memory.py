@@ -13,6 +13,10 @@ from pathlib import Path
 
 import pytest
 
+from kavach.killswitch.core import KillSwitch
+from kavach.killswitch.log import ActionLog
+from kavach.hands.files import FileTools
+from kavach.memory.sources import index_folder
 from kavach.memory.store import EmbeddingUnavailable, MemoryStore, _chunk, embed
 
 
@@ -27,6 +31,13 @@ def _ollama_ready() -> bool:
 needs_ollama = pytest.mark.skipif(
     not _ollama_ready(), reason="ollama + nomic-embed-text not available"
 )
+
+
+@pytest.fixture
+def tools(tmp_path):
+    """The one gated path to the disk. An armed kill switch and a real action
+    log, so the reads these tests do are recorded exactly as production's are."""
+    return FileTools(KillSwitch(log=ActionLog(tmp_path / "actions.jsonl")))
 
 
 @pytest.fixture
@@ -87,9 +98,15 @@ def test_collections_are_searchable_separately(store):
 
 
 # ——— indexing is explicit and reversible ———
+#
+# `index_folder` moved from `MemoryStore` to `memory/sources.py` when it was
+# found reading the disk with `Path.read_text()` — no kill-switch check, and
+# no `file.read` in the §7 log. It reads through `FileTools` now, so these
+# call it there. **Every assertion below is unchanged**: what they guarantee
+# about indexing did not move, only the function did.
 
 @needs_ollama
-def test_indexing_only_touches_the_named_folder(store, tmp_path):
+def test_indexing_only_touches_the_named_folder(store, tools, tmp_path):
     wanted = tmp_path / "notes"
     wanted.mkdir()
     (wanted / "a.md").write_text("Project KAVACH uses a device-scoped allowlist.")
@@ -98,7 +115,7 @@ def test_indexing_only_touches_the_named_folder(store, tmp_path):
     elsewhere.mkdir()
     (elsewhere / "secret.md").write_text("This folder was never named by the user.")
 
-    store.index_folder(wanted)
+    index_folder(store, tools, wanted)
 
     # Compare resolved paths, not substrings: on macOS tmp_path itself lives
     # under /private/var/folders/…, so a naive `"private" not in sources`
@@ -114,37 +131,37 @@ def test_indexing_only_touches_the_named_folder(store, tmp_path):
 
 
 @needs_ollama
-def test_hidden_folders_are_skipped(store, tmp_path):
+def test_hidden_folders_are_skipped(store, tools, tmp_path):
     """.git and .venv are noise at best and secrets at worst."""
     root = tmp_path / "proj"
     (root / ".git").mkdir(parents=True)
     (root / ".git" / "config.md").write_text("token = abcdef123456")
     (root / "readme.md").write_text("A perfectly ordinary readme file here.")
 
-    store.index_folder(root)
+    index_folder(store, tools, root)
 
     assert not any(".git" in s for s in store.sources("files"))
 
 
 @needs_ollama
-def test_non_text_files_are_ignored(store, tmp_path):
+def test_non_text_files_are_ignored(store, tools, tmp_path):
     root = tmp_path / "mixed"
     root.mkdir()
     (root / "notes.md").write_text("Something worth indexing goes here.")
     (root / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
     (root / "app.py").write_text("print('code is not a note')")
 
-    result = store.index_folder(root)
+    result = index_folder(store, tools, root)
     assert result["indexed"] == 1
 
 
 @needs_ollama
-def test_what_was_indexed_can_be_listed_and_deleted(store, tmp_path):
+def test_what_was_indexed_can_be_listed_and_deleted(store, tools, tmp_path):
     """Memory you cannot audit or delete is surveillance."""
     folder = tmp_path / "docs"
     folder.mkdir()
     (folder / "one.md").write_text("The first document about local-first design.")
-    store.index_folder(folder)
+    index_folder(store, tools, folder)
 
     assert store.sources("files"), "cannot see what was indexed"
     assert store.count("files") > 0
@@ -166,6 +183,6 @@ def test_forgetting_one_collection_leaves_the_other(store):
     assert store.count("files") == 0
 
 
-def test_indexing_a_missing_folder_raises_clearly(store, tmp_path):
+def test_indexing_a_missing_folder_raises_clearly(store, tools, tmp_path):
     with pytest.raises(NotADirectoryError):
-        store.index_folder(tmp_path / "does-not-exist")
+        index_folder(store, tools, tmp_path / "does-not-exist")

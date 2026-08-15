@@ -23,6 +23,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 log = logging.getLogger("kavach.memory.sources")
 
@@ -102,5 +103,61 @@ def index_file(store, tools, path: str) -> int:
     return 1 if written is not None else 0
 
 
+def index_folder(store, tools, folder, recursive: bool = True) -> dict:
+    """Index the text files under a folder the user named.
+
+    Moved here from `MemoryStore` because it read the disk with
+    `Path.read_text()` — no kill-switch check and no `file.read` in the §7
+    log. Two hundred files could be read while the switch was latched and
+    leave no record that any of them had been opened. `tools.read` is the one
+    gated path, so it is the one used.
+
+    **Never called implicitly**; the folder is always something the user
+    typed. A missing folder raises rather than reporting zero, for the same
+    reason `index_file` does.
+    """
+    from .store import MAX_FILE_BYTES, TEXT_SUFFIXES, _chunk
+
+    folder = Path(folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise NotADirectoryError(f"{folder} is not a directory")
+
+    indexed, skipped = 0, 0
+
+    for candidate in sorted(folder.glob("**/*" if recursive else "*")):
+        if not candidate.is_file() or candidate.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        # Skip anything hidden or inside a dot-directory — .git, .venv and
+        # friends are noise at best and secrets at worst.
+        if any(part.startswith(".") for part in candidate.parts):
+            skipped += 1
+            continue
+        if candidate.stat().st_size > MAX_FILE_BYTES:
+            skipped += 1
+            continue
+
+        # A per-file failure skips that file; the kill switch stops the run.
+        # Catching `Exception` here would swallow `KillSwitchDisarmed` and
+        # index the remaining files after a latch — which is the whole reason
+        # this loop moved behind the gate.
+        try:
+            text = tools.read(str(candidate)).strip()
+        except (OSError, UnicodeDecodeError, ValueError):
+            skipped += 1
+            continue
+
+        if not text:
+            skipped += 1
+            continue
+
+        for chunk in _chunk(text):
+            store.remember(chunk, collection=SOURCES["files"],
+                           source=str(candidate))
+        indexed += 1
+
+    log.info("indexed %d file(s) from %s (%d skipped)", indexed, folder, skipped)
+    return {"folder": str(folder), "indexed": indexed, "skipped": skipped}
+
+
 __all__ = ["Source", "SOURCES", "WORTH_REMEMBERING", "index_actions",
-           "index_file"]
+           "index_file", "index_folder"]

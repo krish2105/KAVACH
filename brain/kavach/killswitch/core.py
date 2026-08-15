@@ -19,19 +19,37 @@ Semantics, decided deliberately:
 * **Fail toward stopped.** Every failure mode in ``trigger`` is caught and
   recorded rather than raised. A kill switch that throws halfway through is a
   kill switch that didn't kill.
+* **The latch outlives the process.** ``trigger`` writes the state to disk and
+  ``__init__`` reads it back, so a CLI launched after a kill starts disarmed
+  too. Until this existed the latch lived only in the daemon's memory: a
+  freshly constructed switch reported ``ARMED`` seconds after a kill, and
+  ``kavach-memory index`` read the disk while the system was supposedly
+  halted. A gate that answers yes in every process but one is the shape of a
+  gate, not a gate.
+
+  The state file sits **beside the action log** rather than at a fixed path,
+  so a test pointed at a ``tmp_path`` log is isolated by construction.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import signal
 import subprocess
 import threading
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .log import ActionLog
+
+log = logging.getLogger("kavach.killswitch")
+
+#: Name of the latch file, kept next to `actions.jsonl`.
+STATE_FILENAME = "killswitch.state"
 
 
 class State(str, Enum):
@@ -47,11 +65,66 @@ class KillSwitchDisarmed(RuntimeError):
 class KillSwitch:
     def __init__(self, log: ActionLog | None = None) -> None:
         self.log = log if log is not None else ActionLog()
-        self._state = State.ARMED
+        self._state_path = Path(self.log.path).parent / STATE_FILENAME
         self._lock = threading.RLock()
         self._tasks: set[asyncio.Task] = set()
         self._processes: list[subprocess.Popen] = []
         self._last_trigger: dict[str, Any] | None = None
+        self._state = self._read_state()
+
+    # --- persistence ------------------------------------------------------
+    #
+    # Deliberately a plain file rather than the socket the CLI already uses:
+    # `kavach status` asks a *running daemon*, and the case that matters is a
+    # process starting up when the daemon may not be there at all.
+
+    def _read_state(self) -> State:
+        """The state a newly started process should begin in.
+
+        Three cases, and the difference between the last two is the whole
+        point:
+
+        * **no file** — nothing has ever fired. ARMED. A fresh install must
+          not ship dead.
+        * **a file saying disarmed** — someone hit the switch. DISARMED.
+        * **a file we cannot parse** — truncated, hand-edited, half-written.
+          DISARMED, because §C says an ambiguous state stays stopped, and
+          guessing "armed" is the expensive guess.
+        """
+        try:
+            raw = self._state_path.read_text()
+        except FileNotFoundError:
+            return State.ARMED
+        except OSError as exc:
+            log.warning("kill switch state unreadable (%s) — staying stopped", exc)
+            return State.DISARMED
+
+        try:
+            return State(json.loads(raw)["state"])
+        except (ValueError, KeyError, TypeError) as exc:
+            log.warning("kill switch state unparseable (%s) — staying stopped", exc)
+            return State.DISARMED
+
+    def _write_state(self, state: State, **detail: Any) -> None:
+        """Record the state for other processes.
+
+        **Never raises.** If the disk is full or the directory is gone, the
+        in-memory latch still holds — losing the ability to *record* a stop
+        must not become a failure to *stop*. It is logged loudly, because the
+        consequence is that a CLI started afterwards would not know.
+        """
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"state": state.value, **detail}
+            tmp = self._state_path.with_suffix(".state.tmp")
+            tmp.write_text(json.dumps(payload))
+            # Atomic, so a reader never sees a half-written file — which
+            # would land in the unparseable branch above and stop a machine
+            # that was only ever being re-armed.
+            tmp.replace(self._state_path)
+        except OSError as exc:
+            log.warning("could not persist kill switch state %s: %s",
+                        state.value, exc)
 
     # --- state ------------------------------------------------------------
 
@@ -132,6 +205,11 @@ class KillSwitch:
             self._state = State.DISARMED
             tasks = list(self._tasks)
             processes = list(self._processes)
+
+        # And persist it before doing the slow work, for the same reason: a
+        # process launched during cancellation must find the gate already
+        # shut. `_write_state` never raises.
+        self._write_state(State.DISARMED, source=source, reason=reason)
 
         cancelled = self._cancel_tasks(tasks)
         killed, kill_errors = self._kill_processes(processes)
@@ -231,4 +309,5 @@ class KillSwitch:
             self._processes = [p for p in self._processes if p.poll() is None]
             self._state = State.ARMED
 
+        self._write_state(State.ARMED, source=source, reason=reason)
         return self.log.append("killswitch.rearm", source=source, reason=reason)

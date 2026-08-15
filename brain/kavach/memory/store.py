@@ -219,76 +219,51 @@ class MemoryStore:
 
     def sources(self, collection: str = "files") -> list[str]:
         """What has been indexed — so it can be audited and revoked."""
-        return [
-            r[0] for r in self._db.execute(
-                "SELECT DISTINCT source FROM memories WHERE collection = ? "
-                "AND source != '' ORDER BY source",
-                (collection,),
-            ).fetchall()
-        ]
+        with self._lock:
+            return [
+                r[0] for r in self._db.execute(
+                    "SELECT DISTINCT source FROM memories WHERE collection = ? "
+                    "AND source != '' ORDER BY source",
+                    (collection,),
+                ).fetchall()
+            ]
 
     # ——— forgetting ———
 
     def forget(self, collection: str | None = None) -> int:
         """Delete a collection, or everything. Memory you cannot delete is
-        surveillance, so this is a first-class operation."""
-        if collection is None:
-            removed = self.count()
-            self._db.execute("DELETE FROM vectors")
-            self._db.execute("DELETE FROM memories")
-        else:
-            ids = [r[0] for r in self._db.execute(
-                "SELECT id FROM memories WHERE collection = ?", (collection,)
-            ).fetchall()]
-            removed = len(ids)
-            for rowid in ids:
-                self._db.execute("DELETE FROM vectors WHERE rowid = ?", (rowid,))
-            self._db.execute("DELETE FROM memories WHERE collection = ?", (collection,))
-        self._db.commit()
+        surveillance, so this is a first-class operation.
+
+        Under the same lock as `remember`, and for a sharper reason: a delete
+        interleaved with a write can drop the `memories` row while its vector
+        survives, leaving a search hit that cannot be rendered.
+        """
+        with self._lock:
+            if collection is None:
+                removed = self._db.execute(
+                    "SELECT COUNT(*) FROM memories").fetchone()[0]
+                self._db.execute("DELETE FROM vectors")
+                self._db.execute("DELETE FROM memories")
+            else:
+                ids = [r[0] for r in self._db.execute(
+                    "SELECT id FROM memories WHERE collection = ?", (collection,)
+                ).fetchall()]
+                removed = len(ids)
+                for rowid in ids:
+                    self._db.execute("DELETE FROM vectors WHERE rowid = ?", (rowid,))
+                self._db.execute("DELETE FROM memories WHERE collection = ?",
+                                 (collection,))
+            self._db.commit()
         return removed
 
     # ——— explicit indexing ———
-
-    def index_folder(self, folder: Path | str, recursive: bool = True) -> dict:
-        """Index text files under a folder the user named.
-
-        Never called implicitly. The folder is always something the user typed.
-        """
-        folder = Path(folder).expanduser().resolve()
-        if not folder.is_dir():
-            raise NotADirectoryError(f"{folder} is not a directory")
-
-        pattern = "**/*" if recursive else "*"
-        indexed, skipped = 0, 0
-
-        for candidate in sorted(folder.glob(pattern)):
-            if not candidate.is_file() or candidate.suffix.lower() not in TEXT_SUFFIXES:
-                continue
-            # Skip anything hidden or inside a dot-directory — .git, .venv and
-            # friends are noise at best and secrets at worst.
-            if any(part.startswith(".") for part in candidate.parts):
-                skipped += 1
-                continue
-            if candidate.stat().st_size > MAX_FILE_BYTES:
-                skipped += 1
-                continue
-
-            try:
-                text = candidate.read_text(errors="ignore").strip()
-            except Exception:
-                skipped += 1
-                continue
-
-            if not text:
-                skipped += 1
-                continue
-
-            for chunk in _chunk(text):
-                self.remember(chunk, collection="files", source=str(candidate))
-            indexed += 1
-
-        log.info("indexed %d file(s) from %s (%d skipped)", indexed, folder, skipped)
-        return {"folder": str(folder), "indexed": indexed, "skipped": skipped}
+    #
+    # `index_folder` used to live here and read the disk with `read_text()`,
+    # which skipped the kill switch and left no §7 record of a single file it
+    # opened. It now lives in `sources.py` and reads through `FileTools`, so
+    # there is one gated path to the disk rather than two.
+    # `test_memory_cli_index.py` fails the build if `read_text` reappears in
+    # this module.
 
     def close(self) -> None:
         self._db.close()
