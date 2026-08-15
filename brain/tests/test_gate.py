@@ -332,13 +332,24 @@ def test_agent_permission_mode_is_never_auto_approving():
     assert ClaudeAgent().options().permission_mode == PERMISSION_MODE
 
 
-def test_configured_servers_match_the_mcp_config():
-    """The gate trusts hands/mcp.config.json; the agent must load the same
-    file, or the gate would be validating against a different list."""
+def test_configured_servers_match_what_the_agent_actually_gets():
+    """The gate trusts a list; the agent exposes a list. They must be the
+    same list, or the gate is validating against something the agent never
+    sees — and the first symptom is a tool refused for coming from a server
+    that is right there.
+
+    Updated 2026-08-15: there is now an in-process server (`kavach-files`)
+    with no command to launch, so it is legitimately absent from
+    hands/mcp.config.json. The invariant is unchanged and the arithmetic
+    moved: file servers PLUS the in-process one, on both sides. Found live —
+    the agent searched for the file tool, found it, called it, and was
+    refused at the last step because only one side knew about it.
+    """
+    from kavach.hands.file_server import FILE_SERVER_NAME
     from kavach.hands.gate import load_configured_servers
     from kavach.reasoning.agent import load_mcp_servers
 
-    assert set(load_mcp_servers()) == load_configured_servers()
+    assert set(load_mcp_servers()) | {FILE_SERVER_NAME} == load_configured_servers()
 
 
 def test_every_tool_call_reaches_the_gate_via_a_hook(ks):

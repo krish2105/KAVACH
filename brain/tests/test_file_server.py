@@ -119,3 +119,18 @@ class FileToolsStub:
     def search(self, root, pattern, **k): return ["/tmp/a.txt"]
     def write(self, path, content): return path
     def delete(self, path): return path
+
+
+def test_the_in_process_server_counts_as_configured():
+    """It is not in hands/mcp.config.json — it has no command to launch — so
+    `load_configured_servers()` did not know it and the gate refused its tools
+    as coming from an unconfigured server.
+
+    Found on the third live attempt, and only because the two fixes before it
+    worked: the agent was told what to use, searched for it, found it, called
+    it, and was refused at the last step. Each fix moved the failure one link
+    along the chain.
+    """
+    from kavach.hands.gate import load_configured_servers
+
+    assert FILE_SERVER_NAME in load_configured_servers()

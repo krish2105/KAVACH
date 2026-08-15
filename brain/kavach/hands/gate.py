@@ -118,11 +118,22 @@ class Confirmer(Protocol):
 
 
 def load_configured_servers(path: Path = MCP_CONFIG) -> set[str]:
+    """Every server whose tools this gate will consider.
+
+    `kavach-files` runs in-process and has no command to launch, so it is not
+    in `hands/mcp.config.json` and this used to omit it — the gate then
+    refused its tools as coming from an unconfigured server. It is configured;
+    it is just configured in Python.
+    """
+    from .file_server import FILE_SERVER_NAME
+
     try:
-        return set(json.loads(path.read_text())["mcpServers"])
+        configured = set(json.loads(path.read_text())["mcpServers"])
     except Exception:
-        log.warning("could not read %s; no MCP server is trusted", path)
-        return set()
+        log.warning("could not read %s; no subprocess MCP server is trusted",
+                    path)
+        configured = set()
+    return configured | {FILE_SERVER_NAME}
 
 
 #: Peekaboo capture tools, and the pseudo-targets that mean "the whole
