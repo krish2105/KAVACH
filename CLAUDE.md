@@ -979,6 +979,45 @@ It was stopped to avoid two whisper instances competing (a real contamination
 recorded above), the measurement outlived its wrapper, and the user's assistant
 sat down while they were out. Bootstrap it back *before* diagnosing anything.
 
+### Hardening pass (2026-08-15) — enumerate, don't reason
+
+The method that found things: **list every tool the agent can reach, call
+`Policy.decide` on each with plausible arguments, and read off which return
+ALLOW.** Two holes fell out immediately that no amount of reasoning about the
+design had surfaced.
+
+**`write_file` ran silently.** `action_text` was `"write_file /path content"` —
+no English destructive verb, nothing in `confirm_always` — so it was allowed.
+And the agent's `FileTools` is built `confirmed_upstream=True` on the premise
+that the gate asks, so **nothing in the chain asked at all.** An overwrite is
+worse than a delete here: delete goes to the Trash, an overwrite is gone.
+
+**`Type`, `Click` and `Key` ran silently.** `Type` fills whatever has keyboard
+focus, which may be a password field; `Key` answers a dialog the user never
+saw; `Click` lands anywhere on a screen they are not looking at. Identical
+danger to the browser's `click_text`/`fill_field` — the only difference was
+which MCP server they arrived from, which is not a security property.
+
+Both are the same mistake as the `do shell script` bypass: **the verb was not
+in the place the check was looking.**
+
+`ALWAYS_CONFIRM_TOOLS` is now `Shell, agent, click_text, fill_field,
+write_file, Type, Click, Key`. **Reads stay silent, deliberately** — if
+everything confirms then nothing does, the user stops reading the prompts and
+the guardrail becomes a keystroke.
+
+**Checked and found sound**, so do not re-derive: the shell-escape regex holds
+against extra whitespace, tabs, newlines, `do script`, and `script(` with no
+space; the URL scheme allowlist rejects `javascript:` in any casing and with
+leading whitespace; `resolve_path` resolves symlinks and `..` to the real
+target *before* the confirmation, so the prompt shows the truth; reads
+truncate at 2 MB and **say so**.
+
+**A grep for who imports each module found `hands/browser.py` imported by
+nothing** — built, tested, and recorded as "web control, verified live" for a
+day. What had been verified was calling it by hand. Run that grep before
+believing any note in this file.
+
 ### The defect this codebase keeps producing
 
 **A fact written in two places, where one copy quietly stops being true.**
