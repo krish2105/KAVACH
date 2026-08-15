@@ -41,8 +41,14 @@ class FakeLoop:
             }
         })()
 
-    def respond(self, text: str) -> str:
+    def respond(self, text: str, confirmed: bool = False,
+                out: dict | None = None) -> str:
+        # Mirrors VoiceLoop.respond, which fills `out` with the route THIS
+        # call took. A double that lags the real signature turns a genuine
+        # TypeError into a test failure nobody trusts.
         self.commands.append(text)
+        if out is not None:
+            out["route"] = "local"
         return f"handled: {text}"
 
 
@@ -271,8 +277,11 @@ class StubLocal:
     def __init__(self):
         self.ran: list[str] = []
 
-    def respond(self, text: str) -> str:
+    def respond(self, text: str, confirmed: bool = False,
+                out: dict | None = None) -> str:
         self.ran.append(text)
+        if out is not None:
+            out["route"] = "local"
         return f"ran: {text}"
 
 

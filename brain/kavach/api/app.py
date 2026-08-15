@@ -227,7 +227,12 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         # The same path a spoken command takes — router, handlers, search,
         # music, then a model. There is deliberately no second route to the
         # tools that skips the gate.
-        reply = await asyncio.to_thread(loop.respond, text)
+        # `taken` is filled by respond() with the route THIS call took. Read
+        # off loop.state instead, it races every concurrent turn — measured
+        # live, an agent turn that drove a browser reported route "local"
+        # because a spoken turn finished in between.
+        taken: dict = {}
+        reply = await asyncio.to_thread(loop.respond, text, out=taken)
 
         # §16. Typed commands belong in the session buffer too — it is a record
         # of the session, not of the microphone. Recorded here rather than
@@ -243,7 +248,7 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         from ..voice.loop import remember_turn
 
         remember_turn(getattr(loop, "memory", None), text, reply, origin="api",
-                      route=getattr(getattr(loop, "state", None), "route", "") or "")
+                      route=taken.get("route", ""))
 
         session = getattr(loop, "session", None)
         if session is not None:

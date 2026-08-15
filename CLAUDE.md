@@ -1082,6 +1082,80 @@ single words rather than sentences. The channel is real and the separation
 is wide (0.239), but a real second speaker has not been tested against this
 profile.
 
+### Three faults the first hour of the live gate exposed (2026-08-16)
+
+Worth reading together: none was found by tests, all three by reading the
+action log after the user actually spoke.
+
+**1. A refused turn said nothing at all.**
+
+```
+20:30:14  similarity 0.6154  voice matches                     ✓
+20:30:21  similarity 0.0     clip too short to verify (2.16s)  → DISCARDED
+20:30:30  similarity 0.3177  voice matches                     ✓
+```
+
+The middle turn produced no speech, no orb change, no transcript — from the
+room, indistinguishable from a dead microphone or a hotkey that never
+registered. `rejection_message()` now answers, with **different words per
+reason**: a clip under `MIN_VERIFY_SECONDS` is not a verdict about the voice
+(the encoder never ran), so "I didn't recognise you" would send someone to
+re-enrol over a duration problem. The turn is still discarded, still never
+transcribed, still logged — only the silence changed.
+
+**2. "search wwe on youtube" was answered by a model with no browser.**
+
+```
+router.decision  route=local · "local model classified as simple"
+voice.turn       said="I'm unable to access external links or websites."
+```
+
+Four words, so the short-utterance shortcut claimed it. The turn *before* it
+worked — "open Chrome and search YouTube" matched `app control` — but a bare
+search names no app and matched nothing. Fourth instance of
+`_SIMPLE_PATTERNS` treating *simple to understand* as *simple to answer*,
+after `open Notes`, `find the master prompt`, and recall. **The mildest and
+most instructive**, because the model refused honestly instead of inventing;
+`hands/browser.py` had been reachable and working the whole time.
+
+`web search` is now an intent in `_ACTIONABLE_INTENTS`, anchored on a **named
+destination or explicit web verb** — never the bare word "search", because
+"search my notes" is recall and "find my tax document" is the filesystem.
+Those patterns sit above it and claim their phrasings first;
+`test_router_websearch.py` fixes that ordering as the specification.
+
+**3. The API reported a route belonging to a different turn.**
+
+```
+20:36:54  api.command      "search wwe on youtube"
+20:36:54  router.decision  route=claude · web search
+20:37:04  router.decision  route=local     ← a SPOKEN turn, interleaved
+```
+
+The response said `"route":"local"` for a turn that drove a browser. `respond()`
+records the route on `self.state`, and the API read that field *after*
+`asyncio.to_thread` returned. **Cosmetic in the response and not cosmetic in
+memory** — `remember_turn` skips on `recall`, so an interleaved turn could
+suppress a write or store one that should have been dropped, silently.
+`respond(text, out=d)` fills a dict the caller owns.
+
+The test for it was first written with two different-sounding utterances that
+**both returned `local`** — the fixture has no agent, so everything falls
+back and the test could not have distinguished a fix from the bug. The routes
+are forced now.
+
+#### The threshold has almost no headroom
+
+Real turns since the gate went on: **0.6154, 0.3177, 0.3943, 0.3004** against
+**0.300**. The last cleared by 0.0004. The joined-clip proxy predicted a worst
+case of 0.345; real sentences score lower, exactly the caveat recorded above.
+
+Strangers top out at **+0.106**, so the measured midpoint would be ~0.21 —
+but `MIN_THRESHOLD = 0.30` clamps it. **The floor is now overruling a correct
+measurement**, which is the mistake it was lowered from 0.55 to avoid. Left
+alone deliberately: two real turns is not enough to move a security floor, and
+every turn is being scored. Revisit with a week of `voice.score` data.
+
 ### Files — and the three-link chain that made them reachable (2026-08-15)
 
 `hands/files.py` + `hands/file_server.py`. Read/list/search free; **writes and

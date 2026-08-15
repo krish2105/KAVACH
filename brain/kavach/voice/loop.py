@@ -154,6 +154,34 @@ Publisher = Callable[[dict], None]
 
 
 
+def rejection_message(result) -> str:
+    """What to say when the speaker gate refuses a turn. "" if it accepted.
+
+    A refused turn used to produce **nothing at all** — no speech, no orb
+    change, no transcript. Measured live minutes after the gate went on: a
+    2.16s "open Terminal" was dropped in silence, between two turns that
+    worked. From the room that is indistinguishable from a dead microphone
+    or a hotkey that never registered.
+
+    **This does not loosen the gate.** The turn is still discarded, still
+    never transcribed, still logged. The person is simply told.
+
+    Two reasons, two messages, because they need two different actions. A
+    clip under `MIN_VERIFY_SECONDS` is not a verdict about the voice — the
+    encoder never ran — so saying "I didn't recognise you" would send
+    someone to re-enrol over a problem that is about duration.
+
+    Short on purpose: TTS is ~5s here and 74% of a turn's latency. A
+    paragraph spoken at someone whose command was just dropped is a second
+    failure on top of the first.
+    """
+    if getattr(result, "accepted", False):
+        return ""
+    if "too short" in getattr(result, "reason", ""):
+        return "That was too short for me to check. Say it again, a bit longer."
+    return "That didn't sound like you, so I didn't act on it."
+
+
 def remember_turn(memory, said: str, reply: str, origin: str,
                   route: str = "") -> None:
     """Store one turn, from any origin. Never raises.
@@ -722,6 +750,15 @@ class VoiceLoop:
                 # VerificationResult.as_dict() already carries `reason`, so
                 # passing one alongside it raised TypeError and killed the turn.
                 self.ks.log.append("voice.rejected", **result.as_dict())
+                # Say why. A discarded turn that produces no output at all
+                # reads as broken hardware, and the user stops trusting the
+                # key rather than the gate.
+                message = rejection_message(result)
+                self.set_state("speaking", transcript=message, amplitude=0.0)
+                try:
+                    self.speak(message)
+                except Exception:
+                    log.warning("could not speak the rejection", exc_info=True)
                 self.set_state("idle", amplitude=0.0)
                 return
 
@@ -807,12 +844,27 @@ class VoiceLoop:
 
         self.set_state("idle", amplitude=0.0, partial="")
 
-    def respond(self, text: str, confirmed: bool = False) -> str:
+    def respond(self, text: str, confirmed: bool = False,
+                out: dict | None = None) -> str:
         """Route the utterance and produce a spoken reply (spec §5).
 
         Phase 2 echoed. Phase 3 replaces exactly this method — the rest of the
         loop is unchanged, which is what the Phase 2 seam was for.
+
+        `out`, if given, is filled with `{"route": ...}` **for this call**.
+        The route is also recorded on `self.state` for the orb, but that field
+        is shared and a caller reading it later races every other turn.
+        Observed live: an API command that went to the agent and drove a
+        browser reported `"route":"local"`, because a spoken turn finished
+        between `respond()` returning and the API reading the field. That is
+        cosmetic in the response and **not** cosmetic in memory, where
+        `remember_turn` skips a turn whose route is `recall`.
         """
+        def _route(value: str | None) -> None:
+            self.state.route = value
+            if out is not None:
+                out["route"] = value or ""
+
         # A spoken answer to "say confirm if you want me to". Checked before
         # routing, because "confirm" on its own is not a command and the
         # router would otherwise hand it to a model as a fresh request — which
@@ -848,9 +900,8 @@ class VoiceLoop:
         # the HUD sat on "ROUTE —" for every API turn. §13 is about the
         # explanation reaching you, so it has to be pushed when it is produced.
         self.publish()
-        self.state.route = (
-            decision.route.value if decision.route.value != "reject" else None
-        )
+        _route(decision.route.value
+               if decision.route.value != "reject" else None)
         self.ks.log.append("router.decision", **decision.as_dict())
 
         if decision.route is Route.REJECT:
@@ -883,7 +934,7 @@ class VoiceLoop:
             from ..memory.recall import recall as recall_memory
 
             found = recall_memory(self.memory, text)
-            self.state.route = "recall"
+            _route("recall")
             if found is None:
                 self.state.reason = "nothing in memory matched"
                 self.state.intent = "recall"
@@ -919,7 +970,7 @@ class VoiceLoop:
                 self.state.confidence = 0.99
                 # §13: the route the HUD shows must be the one that acted, not
                 # the one the router guessed at before this handler claimed it.
-                self.state.route = "action"
+                _route("action")
                 self.state.reason = "acted locally — no model involved"
                 self.state.intent = decision.intent or "action"
                 self.publish()
@@ -932,7 +983,7 @@ class VoiceLoop:
             answer = search_mod.search(text, log_to=self.ks.log)
             if answer:
                 self.state.confidence = 0.9
-                self.state.route = "search"
+                _route("search")
                 # Keep the explanation with the route that actually handled it.
                 #
                 # The router's reason describes the router's classification.

@@ -136,6 +136,23 @@ _SIMPLE_PATTERNS = [
     (r"\b(read|open|show|list|delete|save|write)\b[\w\s]{0,24}?"
      r"\b(file|files|folder|document)\b", "file access"),
     (r"\bfiles?\s+(in|on|under|inside)\b", "file access"),
+    # The web. Measured live 2026-08-16: "search wwe on youtube" is four
+    # words, so the short-utterance shortcut below sent it to the 3B local
+    # model, which answered "I'm unable to access external links or
+    # websites." `hands/browser.py` was reachable and working; nothing
+    # routed to it.
+    #
+    # Anchored on a **named destination or an explicit web verb**, never on
+    # the bare word "search": "search my notes" is recall and "find my tax
+    # document" is the filesystem. Those sit above this and claim their
+    # phrasings first, which is why this can afford to be broad afterwards.
+    (r"\b(search|look\s+up|find|play|watch|open)\b[\w\s'&-]{0,30}?\b"
+     r"(on\s+)?(youtube|google|wikipedia|reddit|amazon|spotify|twitter|"
+     r"instagram|the\s+web|the\s+internet|online)\b", "web search"),
+    (r"\b(google|youtube|wikipedia)\s+\w+", "web search"),
+    (r"\b(search|look\s+up)\s+(for\s+)?(the\s+)?(web|internet)\b",
+     "web search"),
+    (r"\blook\s+up\b", "web search"),
     # A filesystem path, which is the strongest signal available and the one
     # the word-distance patterns above cannot see. Measured live: "write the
     # text hello kavach to the file /tmp/kavach_propose_test.txt" routed
@@ -189,6 +206,10 @@ _ACTIONABLE_INTENTS = frozenset({
     # A question about the past needs the index, which lives behind the tool
     # route. The local model would answer it from nothing.
     "recall",
+    # The web needs a browser. Added 2026-08-16 after "search wwe on
+    # youtube" was answered by a model with no browser — honestly, which is
+    # the only reason it was noticed rather than believed.
+    "web search",
 })
 
 # ——— signals that a request needs judgement ———
