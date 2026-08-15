@@ -132,6 +132,47 @@ It **offers** — the orb shows it, and you accept or ignore it.
 
 ---
 
+## It remembers what you asked it
+
+Ask about something you said earlier and it answers from an index of your own
+turns, not from a model's guess:
+
+```
+you    "what did I ask you about the battery"
+KAVACH "You asked about the battery level, and I said it was at 41%."
+
+you    "what did I ask you about last March"
+KAVACH "I don't have anything about that."
+```
+
+The second one matters as much as the first. A model with no index does not
+decline — it invents a plausible Friday. KAVACH answers only when what it found
+clearly beats everything else it found, and says it has nothing otherwise.
+
+Every voice turn and every command from your phone is remembered. **Files are
+not** — you name those:
+
+```bash
+uv run kavach-memory index ~/Documents/notes   # a folder you name, nothing else
+uv run kavach-memory status                    # how much is stored, by kind
+uv run kavach-memory sources                   # every file it has read
+uv run kavach-memory search "the roof quote"   # look without asking out loud
+uv run kavach-memory forget files              # delete a kind
+uv run kavach-memory forget                    # delete all of it
+```
+
+There is no flag that indexes everything — a sweep of the disk was cut, and a
+test fails the build if one is ever added. Screen contents and ambient audio
+have no indexer at all, for the same reason.
+
+**The index is not encrypted at rest.** It is a SQLite file at
+`~/.kavach/memory.db`, and anything indexed into it is readable by anything
+that can read your home directory. FileVault is the right layer for that — if
+your Mac has it on, this is covered; if not, that is the thing to turn on. Do
+not index a folder you would not want sitting in a plain file.
+
+---
+
 ## Privacy controls
 
 ```bash
@@ -176,6 +217,19 @@ tell me if it happens.
 **"It said it did something but didn't."** That is the one failure this project
 treats as unacceptable. The action log has every tool call and its verdict —
 send me the last ten lines.
+
+**"It refuses everything and says the kill switch is latched."** Then it is.
+The latch survives a restart and a reboot — that is what "does not auto-recover"
+means, and the fix is to say so deliberately:
+
+```bash
+uv run kavach rearm --reason "know why it fired"
+```
+
+`~/.kavach/logs/actions.jsonl` records why it fired and everything it refused
+while latched. Until this was fixed the latch lived only in the running
+daemon's memory, so a CLI started afterwards would happily read your disk while
+the system was supposedly halted.
 
 **Restart the voice loop:**
 

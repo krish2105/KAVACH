@@ -314,7 +314,7 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 7 — The phone commands KAVACH | **complete** (tag `reach-7`) — two Apple Shortcuts, `POST /kill`, Tailscale Serve |
 | 8 — Apple Watch | **CUT — the user owns no Apple Watch.** Also: Tailscale has **no watchOS app** (iOS/iPadOS/tvOS/visionOS only), and `Get Contents of URL` is unreliable on watchOS. A Watch app would need the iPhone as a WatchConnectivity relay, hence Xcode |
 | 9 — Remote access | **complete** (2026-08-16) — the tailnet leg is proven; see below |
-| 10 — Tiered memory | mostly built (`kavach/memory/store.py`, sqlite-vec). **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
+| 10 — Tiered memory | **complete** (tag `recall`) — see *Recall* below. **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
 | 12 — Speaker ID | **complete** — `kavach-speaker on/off`. `Voiceprint.gating` (enrolled AND enabled) is what the loop asks; `is_enrolled` conflated "we know your voice" with "we are checking it", leaving `forget()` as the only way to stop checking. Enrolled defaults to ON so an upgrade cannot silently drop the gate, the setting persists, and both directions are logged. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
 | 13 — Explainability | **complete** — `reason`/`intent` in the snapshot and the STATUS panel. `respond()` now publishes its decision; before, an API turn computed and logged a route the HUD never saw |
@@ -408,6 +408,108 @@ off and it stays off until you load it again.
 
 Ollama is started at login by `brew services start ollama`, not by KAVACH. The
 router silently falls back without it.
+
+### Recall (§10) — and the two bugs that only appear once something calls you
+
+`kavach/memory/recall.py`, `sources.py`, wired in `voice/loop.py`. Working:
+
+```
+"what did I ask you about the battery"
+→ route=recall → "You asked about the battery level, and I said it was at 41%."
+"what did I ask you about last March"
+→ route=recall → "I don't have anything about that."
+```
+
+The refusal is half the feature. A model with no index does not decline, it
+invents a plausible Friday — the clock lesson in different clothes.
+
+**The threshold is a measured gap, not a chosen number.** `MIN_SCORE = 0.35`
+in the plan would have rejected every result: the real scale here is
+0.037–0.054. The replacement `MIN_LEAD = 0.25` then missed 2 of 4 true
+matches. Measured properly, a match leads the field by 0.184–0.610 and
+nonsense by 0.007–0.046, so **0.115 is the midpoint of a measured gap** —
+same method as `choose_threshold`. Fourth time this project has been bitten
+by a threshold set from an assumed scale.
+
+**Eighth built-but-unwired instance:** `MemoryStore` and `SessionRecorder`
+were built and tested, and constructed by nothing. `VoiceLoop.memory` was
+always None, so every turn hit `if self.memory is not None:` and skipped.
+`tests/test_memory_wired.py` asserts the daemon constructs one.
+
+Wiring it surfaced a bug nobody could have hit: the sqlite connection was
+opened on the constructing thread, and `remember()` runs on the voice loop's
+thread *and* the API's `asyncio.to_thread` worker — `ProgrammingError:
+SQLite objects created in a thread can only be used in that same thread`.
+`check_same_thread=False` plus a lock, and the write is under **one** lock,
+because splitting insert from vector leaves a torn row that no error
+announces.
+
+**It surfaced as silence**, which cost three wrong theories (stale daemon,
+deleted-inode ghost file, early return): `remember_turn` swallowed the
+exception at `debug` while the daemon logs at `info`. It logs at `warning`
+now. A guard that eats an error must still say it ate one.
+
+**API turns are remembered too**, through a shared `remember_turn()`. The
+inline copy in the voice path is exactly how this write came to exist for
+spoken turns only — a command from the phone happened, was logged, and left
+nothing to recall.
+
+Router note: recall patterns already existed in `_COMPLEX_PATTERNS`. A
+duplicate set was added to `_SIMPLE_PATTERNS` without checking — **ninth
+one-fact-in-two-places, and the first self-inflicted one.** The real bug was
+smaller: the complex branch computed a label and discarded it, so `intent`
+was `""` for every recall question.
+
+### The kill switch latched in one process only
+
+Found by wiring `kavach-memory index` to the gate and then testing it **from
+a shell** rather than in-process:
+
+```
+$ uv run kavach kill                 ✓ latched
+$ python -c "print(KillSwitch().state)"
+  State.ARMED                        ← a NEW process disagreed
+$ uv run kavach-memory index <dir>
+  ✓ 1 file(s) indexed                ← read the disk while halted
+```
+
+`__init__` set `State.ARMED` unconditionally and `trigger()` only mutated
+memory. The daemon was gated because every path in it shares one object;
+**every separately launched CLI started armed.** The unit test passed
+throughout because it shared a `KillSwitch` with the code it tested.
+
+State is now a file beside `actions.jsonl`, written atomically. No file →
+ARMED (a fresh install must not ship dead); `disarmed` → latched; **a file
+that will not parse → DISARMED**, because §C says an ambiguous state stays
+stopped. `_write_state` never raises — losing the ability to *record* a stop
+must not become a failure to *stop*.
+
+**A latch now survives a reboot.** That is "no auto-recovery" applied
+honestly; `kavach rearm` is the only way out.
+
+The first live re-test still indexed, because **the running daemon held the
+old module** — `launchctl kickstart -k gui/$UID/com.krishna.kavach` before
+believing any measurement of daemon behaviour.
+
+Three defects led there, all from `cli.py` and `store.index_folder`
+predating `memory/sources.py`:
+
+* `index_folder` read the disk with `Path.read_text()` — no kill-switch
+  check, no `file.read` in the §7 log. It lives in `sources.py` now and
+  reads through `FileTools`; a test fails the build if `read_text` reappears
+  in `store.py`.
+* `forget` accepted only `turns` and `files` while `SOURCES` held four, so
+  `forget actions` — the collection recording what KAVACH *did* — died in
+  argparse. `test_memory_sources.py` asserted every source is purgeable and
+  passed the whole time, because it reads the dict and the CLI did not.
+* `status` under-reported for the same reason. Both derive from `SOURCES`.
+
+One new test was written as `"read_text(" not in code_text(...)` and
+**passed against the bug it was aimed at**: `code_text` emits bare
+identifiers, so no token carries a paren and that assertion could not fail
+for any input. A test that cannot go red reports a guarantee nobody
+provides. Check a grep test against the real module before trusting its
+colour.
 
 ### One instance, enforced by a file (§18 extended)
 
