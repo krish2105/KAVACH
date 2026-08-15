@@ -91,7 +91,13 @@ def _bench(loop: VoiceLoop, phrase: str, rounds: int) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The daemon's options, as a function.
+
+    Extracted so `kavach-doctor` can read the default wake backend from the
+    one place that defines it. It used to assume ONNX and told the user
+    their working wake word was "not loaded".
+    """
     parser = argparse.ArgumentParser(prog="kavach-voice")
     parser.add_argument("--no-wake-word", action="store_true",
                         help="push-to-talk only; skip the wake-word model")
@@ -133,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
                              f"(default: {LOCAL_DEFAULT_MODEL})")
     parser.add_argument("--no-tools", action="store_true",
                         help="Phase 3 behaviour: reasoning without MCP tools")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     logging.basicConfig(

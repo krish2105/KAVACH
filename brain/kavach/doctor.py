@@ -232,20 +232,47 @@ def check_voice_gates() -> list[Check]:
 
 
 def check_wake_word() -> list[Check]:
+    """Report on the backend that actually runs.
+
+    This used to assume ONNX unconditionally, and after the switch to the
+    whisper backend it told the user their working wake word was "trained
+    but not calibrated → not loaded" and sent them to `kavach-waketune` — a
+    calibration tool for a detector they are not using. Same defect as the
+    banner that printed four apps while the file held seven.
+    """
+    import argparse
+
+    from kavach.voice.__main__ import build_parser
+    from kavach.voice.wakewhisper import WAKE_PHRASE, WhisperWakeDetector
+
+    try:
+        backend = build_parser().get_default("wake_backend")
+    except Exception:
+        backend = "whisper"
+
+    if backend == "whisper":
+        # Nothing to calibrate: it matches text rather than scoring audio
+        # against a threshold, which is why `needs_calibration` is False.
+        return [Check("voice", "wake word", PASS,
+                      f'say "{WAKE_PHRASE}" — '
+                      f'{WhisperWakeDetector.DEFAULT_MODEL} transcribes it')]
+
+    # onnx — the trained-model path, which does need a calibration.
     from kavach.voice.loop import find_wake_model
     from kavach.voice.waketune import load_calibration
 
     model = find_wake_model()
     if not model.exists():
-        return [Check("voice", "wake word", WARN, "not trained — push-to-talk only")]
-    from kavach.voice.loop import find_wake_model
+        return [Check("voice", "wake word (onnx)", WARN,
+                      "not trained — push-to-talk only")]
 
-    calibrated = load_calibration(model=find_wake_model())
+    calibrated = load_calibration(model=model)
     if calibrated is None:
-        return [Check("voice", "wake word calibrated", WARN,
-                      "trained but not calibrated on your voice → not loaded. "
-                      "`uv run kavach-waketune`")]
-    return [Check("voice", "wake word calibrated", PASS, f"threshold {calibrated:.3f}")]
+        return [Check("voice", "wake word (onnx) calibrated", WARN,
+                      "trained but not calibrated on your voice → not "
+                      "loaded. `uv run kavach-waketune`")]
+    return [Check("voice", "wake word (onnx) calibrated", PASS,
+                  f"threshold {calibrated:.3f}")]
 
 
 # ─────────────────────────── services ───────────────────────────
@@ -502,11 +529,17 @@ def check_mcp() -> list[Check]:
 
 # ─────────────────────────── manual ───────────────────────────
 
+from kavach.voice.wakewhisper import WAKE_PHRASE as _WAKE_PHRASE
+
+#: Built from the constants, not typed out. This list said `say "KAVACH" —
+#: only after kavach-waketune succeeds` after the wake word had been changed
+#: to a phrase that needs no calibration: two stale facts in one line.
 MANUAL_CHECKS = [
     ("voice", "speak a command",
      "hold Space in the panel and say \"what time is it\""),
     ("voice", "wake word fires on your voice",
-     "say \"KAVACH\" — only after `kavach-waketune` succeeds"),
+     f"say \"{_WAKE_PHRASE}\", pause, then your command — "
+     f"`kavach-wakecheck` shows what it heard"),
     ("presence", "drag the panel",
      "🛡 menu → Move / resize, then drag it"),
     ("guardrails", "spoken confirmation on a destructive action",
