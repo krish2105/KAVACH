@@ -257,7 +257,12 @@ def main(argv: list[str] | None = None) -> int:
     # `gating`, not `is_enrolled`. Reporting "enrolled" while the gate is
     # switched off would be the same lie the allowlist line used to tell.
     _vp = Voiceprint()
-    if _vp.gating:
+    if _vp.shadow:
+        # Shadow is neither on nor off and the banner must not round it to
+        # either. Saying "OFF" would hide that every turn is being scored;
+        # saying "enrolled" would imply something is being enforced.
+        _identity = "SHADOW — scoring every turn, rejecting none"
+    elif _vp.gating:
         # Says what it actually covers. Commands are checked against the
         # voiceprint; a spoken *answer* to a confirmation is not, because one
         # word is too short to verify (see loop.should_verify_speaker). Saying

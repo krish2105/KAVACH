@@ -184,6 +184,7 @@ class ToolGate:
         allowlist: Allowlist | None = None,
         confirmer: Confirmer | None = None,
         servers: set[str] | None = None,
+        tiers=None,
     ):
         self.ks = kill_switch
         #: Retained for `confirm_always` and the iPhone's per-tool policy.
@@ -193,6 +194,10 @@ class ToolGate:
         self.servers = servers if servers is not None else load_configured_servers()
         #: What may run. The app question became a verb question.
         self.policy = Policy(confirm_tokens=frozenset(self.allowlist.confirm_always))
+        #: Phase 30. None means every action is ALWAYS_ASK, which is what
+        #: shipped before tiers existed — so an unconfigured system behaves
+        #: exactly as it did.
+        self.tiers = tiers
 
     # ——— the Agent SDK entry point ———
 
@@ -369,6 +374,29 @@ class ToolGate:
 
         if verdict is Verdict.DENY:
             return ("deny", reason, extra)
+
+        # 4b — Phase 30: an action the user deliberately put on AUTO does
+        # not keep asking. The ceiling is re-checked HERE rather than trusted
+        # from assignment: the config file is the obvious way around a code
+        # rule, and a gate that relies on someone else having validated is a
+        # gate with a second source of truth.
+        if verdict is Verdict.CONFIRM and self.tiers is not None:
+            from ..autonomy.tiers import Tier, is_ceilinged
+
+            bare = self.policy.bare_name(tool)
+            payload = self.policy.action_text(tool, args)
+            # The ceiling is checked against the ARGUMENTS as well as the
+            # name. `execute_script` is not itself a ceilinged word, and its
+            # payload can be `delete note 1` — so checking the name alone
+            # would let an AUTO tier wave a delete through. Exactly the hole
+            # `Policy.action_text` had when it read the name only as a
+            # fallback, one layer up.
+            if (self.tiers.tier_for(bare) is Tier.AUTO
+                    and not is_ceilinged(bare)
+                    and not is_ceilinged(payload)
+                    and not reaches_shell(tool, payload)):
+                return ("allow", f"{reason} — but {bare} is on the AUTO tier",
+                        {**extra, "tier": "auto"})
 
         # 5 — CONFIRM: read it back and wait.
         action_text = self.policy.action_text(tool, args)
