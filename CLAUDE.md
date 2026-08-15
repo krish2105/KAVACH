@@ -313,7 +313,7 @@ expansion numbering. **Do not re-propose anything marked cut or blocked.**
 | 6 — Local API surface | **complete** (tag `reach-6`) — FastAPI on 127.0.0.1:8770, bearer token, pending-confirmation flow |
 | 7 — The phone commands KAVACH | **complete** (tag `reach-7`) — two Apple Shortcuts, `POST /kill`, Tailscale Serve |
 | 8 — Apple Watch | **CUT — the user owns no Apple Watch.** Also: Tailscale has **no watchOS app** (iOS/iPadOS/tvOS/visionOS only), and `Get Contents of URL` is unreliable on watchOS. A Watch app would need the iPhone as a WatchConnectivity relay, hence Xcode |
-| 9 — Remote access | in progress — mostly delivered by Phase 7's transport; needs the tailnet leg proven |
+| 9 — Remote access | **complete** (2026-08-16) — the tailnet leg is proven; see below |
 | 10 — Tiered memory | mostly built (`kavach/memory/store.py`, sqlite-vec). **Never index screen content or ambient audio** — the user cut that explicitly as a privacy/storage liability |
 | 11 — Smart home | **CUT — the user owns no smart-home devices** |
 | 12 — Speaker ID | **complete** — `kavach-speaker on/off`. `Voiceprint.gating` (enrolled AND enabled) is what the loop asks; `is_enrolled` conflated "we know your voice" with "we are checking it", leaving `forget()` as the only way to stop checking. Enrolled defaults to ON so an upgrade cannot silently drop the gate, the setting persists, and both directions are logged. Eagle comparison needs a **paid Picovoice contract — ask before signing up** |
@@ -1092,6 +1092,49 @@ numbering, reach 6–21. The three real dependencies (Phase 6 API, Phase 7 phone
 Phase 4 confirmations) were confirmed present first. Findings route to the
 queue only — inventing a briefing to satisfy a reference is pouring a
 foundation for a wall nobody asked for.
+
+### Phase 9 — the tailnet leg, proven (2026-08-16)
+
+```
+https://krishnas-macbook-pro.tailec3d44.ts.net  →  proxy 127.0.0.1:8770
+```
+
+`tailscale serve --bg 8770`. **Serve needs enabling once on the tailnet**
+through the admin console — the CLI cannot do it and says so, with a
+node-specific URL. That is an account action, not a machine one.
+
+**Serve is not optional here, it is the mechanism.** The API binds
+`127.0.0.1` only (`DEFAULT_HOST`), and the tailnet IP was verified
+unreachable without it. That loopback binding is the point: the API cannot be
+reached from the network even by accident, and Serve is the controlled way
+through — terminating TLS on the tailnet and proxying to loopback.
+
+Verified end to end over TLS, not on loopback:
+
+```
+no token          → {"detail":"Bad or missing token."}
+/status /pending /proposals  → all answer
+/command          → "It's 12:35 a.m."
+queue a write     → "write /tmp/kavach_phone_test.txt"
+reject remotely   → {"decided":1}  ·  file never written
+TLS               → HTTP 200 · ssl_verify_result 0
+```
+
+The last two lines are the ones worth keeping: the queue **held from the
+tailnet** — a proposal rejected remotely never ran — and the description read
+properly rather than "act on something (via write_file)".
+
+**What this changed about the posture.** The API is now reachable from every
+device on the tailnet, and Full Disk Access was granted the same evening. A
+device holding the bearer token can ask KAVACH to read Messages and Mail. The
+token is in `brain/.env`, mode 600. Reverse with
+`tailscale serve --https=443 off`.
+
+**FDA is attributed to the responsible process, and that is visible here.**
+The daemon reads `~/Library/Messages` fine (18 entries, via the gated
+`list_directory` → `file.list`), while the same venv python run from a shell
+is denied — launchd is responsible for one, the terminal's parent for the
+other. Both are correct. Do not "fix" the shell one by granting more.
 
 ### The defect this codebase keeps producing
 
