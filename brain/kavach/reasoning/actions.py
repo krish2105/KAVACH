@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 
+from ..hands.appinfo import canonical_name
 from ..killswitch.core import KillSwitchDisarmed
 
 log = logging.getLogger("kavach.reasoning.actions")
@@ -140,13 +141,35 @@ class OsascriptRunner:
 #: matching swallowed it and asked the allowlist about "Notes app".
 _APP_NAME = r"(?P<app>[A-Za-z][A-Za-z0-9 .&'\-]{0,38}?)"
 
+#: The same charset, applied to a whole candidate name. A quote, a backslash
+#: or a semicolon makes a string **not an app name** — rejected here rather
+#: than escaped and run, so nothing downstream thinks about AppleScript
+#: quoting.
+_SAFE_APP_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9 .&'\-]{0,38}$")
+
+#: Deliberately **not** anchored to the end of the utterance.
+#:
+#: They used to be. "Open notes for me." therefore matched nothing and took
+#: the Claude route at 27,286ms — 109x the 250ms this path exists to provide —
+#: because two words of politeness followed the app name. So did every
+#: compound request: "Open Safari and search Google" is two steps, and
+#: refusing both because the second is not local is the wrong trade.
+#:
+#: What follows the verb is now handed to `_app_from`, which asks Launch
+#: Services which prefix of it is a real application.
 _OPEN_RE = re.compile(
-    rf"\b(?:open|launch|start)\s+(?:up\s+)?(?:the\s+)?{_APP_NAME}"
-    rf"(?:\s+app)?\s*[.!?]?\s*$", re.I,
+    rf"\b(?:open|launch|start)\s+(?:up\s+)?(?:the\s+)?(?P<rest>.+)", re.I,
 )
 _QUIT_RE = re.compile(
-    rf"\b(?:quit|close|exit)\s+(?:the\s+)?{_APP_NAME}"
-    rf"(?:\s+app)?\s*[.!?]?\s*$", re.I,
+    rf"\b(?:quit|close|exit)\s+(?:the\s+)?(?P<rest>.+)", re.I,
+)
+
+#: Trailing courtesy. Stripped before matching rather than tolerated inside
+#: the app-name pattern, so "please" cannot end up as part of a name.
+_POLITENESS_RE = re.compile(
+    r"[\s,]*\b(?:for\s+me|please|now|thanks|thank\s+you|if\s+you\s+can|"
+    r"would\s+you|could\s+you)\b[\s,.!?]*$",
+    re.I,
 )
 
 #: Words that mean the sentence carried on. "open Safari and search for
@@ -180,17 +203,63 @@ _VOLUME_DOWN_RE = re.compile(
 )
 
 
+def _strip_politeness(text: str) -> str:
+    """Remove trailing courtesy, repeatedly — "open notes for me please"."""
+    previous = None
+    while previous != text:
+        previous = text
+        text = _POLITENESS_RE.sub("", text).strip()
+    return text
+
+
 def _app_from(match: re.Match | None) -> str | None:
+    """The longest leading run of words that is a real installed application.
+
+    **Launch Services is the arbiter, not a word list.** The old code guessed
+    with `_CONNECTIVES` and `_NOT_AN_APP`, which meant it both refused real
+    requests ("Open notes for me") and accepted unreal ones — "open up about
+    your feelings" parsed as an app called "up about your", and "open
+    Microsoft Excelsior" would have reached a script for an app that does not
+    exist.
+
+    Asking `canonical_name()` answers all of those with one rule: "the door"
+    is not refused because *door* is on a list, it is refused because no such
+    application is installed. That is also the existence check that stops a
+    mis-transcription becoming an AppleScript target.
+
+    Longest-first so "Visual Studio Code" wins over a hypothetical "Visual".
+    """
     if match is None:
         return None
-    name = " ".join(match.group("app").split())
-    words = name.split()
-    if len(words) > _MAX_APP_WORDS:
+    rest = _strip_politeness(match.group("rest"))
+    rest = re.sub(r"\s+app\b\s*$", "", rest, flags=re.I).strip(" .,!?")
+    words = rest.split()
+    if not words or len(words) > _MAX_APP_WORDS:
+        # **Nothing substantive may follow the app name.**
+        #
+        # "open Safari and search for flights" is a two-step request. Opening
+        # Safari and answering "Opened Safari" would silently drop the search
+        # while reporting success — the one failure this project cannot have.
+        # Declining sends the whole sentence to the agent, which can do both
+        # halves. `test_actions.py::test_a_trailing_clause_is_not_an_app_name`
+        # made this argument first and was right.
+        #
+        # It is also what keeps "open Notes; rm -rf /" from quietly becoming
+        # "open Notes": the request contained something we are not acting on,
+        # so we do not act on half of it.
         return None
+
+    # The charset is the injection defence and must be applied to whatever
+    # this returns, not merely to what the pattern captured. Dropping it
+    # while un-anchoring the regex let `open Notes\` through as an app called
+    # "Notes\" — caught by test_a_name_that_could_escape_the_script_is_not_parsed.
+    if not _SAFE_APP_NAME.match(rest):
+        return None
+
     lowered = {w.casefold() for w in words}
-    if lowered & _CONNECTIVES or name.casefold() in _NOT_AN_APP:
+    if lowered & _CONNECTIVES or rest.casefold() in _NOT_AN_APP:
         return None
-    return name
+    return rest
 
 
 def parse(said: str | None) -> Action | None:
@@ -279,7 +348,16 @@ class MacActions:
     # ——— apps ———
 
     def _app_control(self, action: Action, confirmed: bool) -> ActionResult:
-        name = self.allowlist.canonical_name(action.app)
+        # Launch Services, not the allowlist (spec §9a). `canonical_name` used
+        # to answer None for anything outside the seven approved apps, so with
+        # the allowlist no longer gating, "open Terminal" would still have
+        # been refused here — by the fast path rather than by the gate.
+        #
+        # The guarantee is unchanged and now covers every app: the string that
+        # reaches `tell application "…"` is Launch Services' spelling of a
+        # real application, never the transcript. A name that resolves to
+        # nothing produces no script at all.
+        name = canonical_name(action.app)
         if name is None:
             return self._not_allowed(action, confirmed=confirmed)
 
@@ -301,73 +379,28 @@ class MacActions:
         return ActionResult(f"{'Opened' if opening else 'Quit'} {name}.", ok=True)
 
     def _not_allowed(self, action: Action, confirmed: bool) -> ActionResult:
-        """An app nobody has approved. Ask, then add — never act quietly.
+        """An app that is not installed.
 
-        The user chose "ask to add it" over a flat refusal, which means the
-        allowlist is now widenable by voice. Three things keep §7 intact:
-        the existing confirmation machinery does the asking (no second consent
-        path), speaker verification must be on, and the entry records who asked
-        and when.
+        Was "an app nobody has approved", and it offered to add it to the
+        allowlist by voice. There is no allowlist to add to (spec §9a): every
+        installed app is reachable, so the only way to arrive here is a name
+        Launch Services could not resolve — a mis-transcription, or an app
+        that genuinely is not on this Mac. Neither is fixable by adding it to
+        a file.
+
+        It refuses **out loud** rather than returning None. Falling through to
+        the local model would hand an app request to the tool-less narrator
+        that answers "Opened it" without opening anything.
         """
         app = action.app
         verb = "open" if action.kind is ActionKind.OPEN else "quit"
+        self.log.append("action.refused", app=app, kind=action.kind.value,
+                        reason="not installed")
+        return ActionResult(
+            f"I can't find {app} on this Mac, so there's nothing to {verb}.",
+            ok=False,
+        )
 
-        if not confirmed:
-            self.log.append("action.refused", app=app, kind=action.kind.value,
-                            reason="not on the allowlist")
-            return ActionResult(
-                f"{app} isn't on your allowlist. "
-                f"Say confirm and I'll add it and {verb} it.",
-                ok=False, needs_confirmation=True,
-            )
-
-        return self._add_then_run(action, verb=verb)
-
-    def _add_then_run(self, action: Action, verb: str) -> ActionResult:
-        app = action.app
-
-        # Speaker verification is load-bearing here in a way it is not
-        # elsewhere: without it the allowlist can be widened by anything that
-        # can produce speech in the room — a video, a colleague, a smart
-        # speaker. The §7 confirmation proves *someone* answered; this is what
-        # proves it was you.
-        if self.voiceprint is None or not getattr(self.voiceprint, "gating", False):
-            self.log.append("allowlist.add_refused", app=app,
-                            reason="speaker verification is not gating")
-            return ActionResult(
-                "Adding an app to the allowlist needs speaker verification on. "
-                "Turn it on with kavach-speaker on, then ask me again.",
-                ok=False,
-            )
-
-        # The bundle id is the app's real identity, and looking it up is also
-        # an existence check: a mis-transcribed name must not leave a permanent
-        # grant behind for an app that does not exist.
-        lookup = self.runner(f'id of app "{app}"')
-        if not lookup.ok or not lookup.out:
-            self.log.append("allowlist.add_refused", app=app,
-                            reason="no such app on this Mac")
-            return ActionResult(f"I couldn't find an app called {app}.", ok=False)
-
-        reason = f"added by voice, {date.today().isoformat()}"
-        try:
-            # The stored name is the spoken one; the bundle id, which is what
-            # actually identifies the app, comes from the system. AppleScript
-            # and `is_allowed` both match names case-insensitively, so the
-            # spelling is cosmetic and the identifier is not.
-            entry = self.allowlist.add(app, lookup.out, reason=reason)
-        except (ValueError, OSError) as exc:
-            log.exception("could not write the allowlist")
-            self.log.append("allowlist.add_refused", app=app, reason=repr(exc))
-            return ActionResult(f"I couldn't add {app} to the allowlist.", ok=False)
-
-        self.log.append("allowlist.add", app=entry["name"],
-                        bundle_id=entry["bundle_id"], reason=reason,
-                        via="voice")
-        log.info("allowlist widened by voice: %s (%s)",
-                 entry["name"], entry["bundle_id"])
-
-        return self._app_control(action, confirmed=True)
 
     # ——— system sound ———
 

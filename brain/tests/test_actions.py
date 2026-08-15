@@ -217,15 +217,6 @@ def test_an_allowlisted_app_is_opened(actions, runner):
     assert "Notes" in result.reply
 
 
-def test_an_unlisted_app_is_not_opened(actions, runner):
-    """Mail is a real, installed app. It is still denied, because nobody put it
-    on the list."""
-    result = actions.handle("open Mail")
-
-    assert result.ok is False
-    assert runner.scripts == [], "an unlisted app was opened anyway"
-    assert result.needs_confirmation is True, \
-        "the user chose 'ask to add it' — silently refusing is a different answer"
 
 
 def test_the_name_in_the_script_is_the_allowlisted_spelling(actions, runner):
@@ -244,84 +235,16 @@ def test_the_name_in_the_script_is_the_allowlisted_spelling(actions, runner):
 
 # ═══ 4. widening the allowlist by voice (§7 — asked for, and gated) ═══
 
-def test_asking_to_add_does_not_add_anything(actions, allowlist, runner):
-    """The question alone changes nothing. Only the answer does."""
-    actions.handle("open Mail")
-
-    assert not Allowlist(allowlist.path).is_allowed("Mail")
-    assert runner.scripts == []
 
 
-def test_adding_an_app_is_refused_when_speaker_verification_is_off(
-    allowlist, kill_switch, runner
-):
-    """A spoken 'yes' is only consent if it was *you*.
-
-    Without the voiceprint gate, the allowlist is widenable by anything that can
-    produce speech in the room — a video, a colleague, a smart speaker. The
-    §7 confirmation proves someone answered; speaker verification is what proves
-    it was the person who owns the machine.
-    """
-    actions = MacActions(allowlist=allowlist, kill_switch=kill_switch,
-                         runner=runner, voiceprint=FakeVoiceprint(gating=False))
-
-    result = actions.handle("open Mail", confirmed=True)
-
-    assert result.ok is False
-    assert not Allowlist(allowlist.path).is_allowed("Mail")
-    assert runner.scripts == [], "the app was opened without ever being added"
-    assert "speaker" in result.reply.lower() or "voice" in result.reply.lower()
 
 
-def test_adding_an_app_is_refused_when_there_is_no_voiceprint_at_all(
-    allowlist, kill_switch, runner
-):
-    """Denial is the default: a missing confirmer is a refusal, not a bypass."""
-    actions = MacActions(allowlist=allowlist, kill_switch=kill_switch,
-                         runner=runner, voiceprint=None)
-
-    result = actions.handle("open Mail", confirmed=True)
-
-    assert result.ok is False
-    assert not Allowlist(allowlist.path).is_allowed("Mail")
 
 
-def test_a_confirmed_add_records_who_asked_and_when(actions, allowlist, runner):
-    """`tests/test_allowlist.py` fails any entry without a recorded reason. An
-    entry that arrives by voice has to carry its own."""
-    runner.out = "com.apple.mail"
-
-    result = actions.handle("open Mail", confirmed=True)
-
-    assert result.ok is True
-    entry = next(e for e in Allowlist(allowlist.path).entries
-                 if e["name"] == "Mail")
-    assert entry["bundle_id"] == "com.apple.mail"
-    assert "voice" in entry["reason"].lower()
-    assert "2" in entry["reason"], "no date recorded on the addition"
 
 
-def test_a_confirmed_add_is_logged_as_its_own_event(actions, log):
-    """Widening the allowlist is a security change, like the speaker toggle —
-    it is not merely a step on the way to opening an app."""
-    actions.runner.out = "com.apple.mail"
-    actions.handle("open Mail", confirmed=True)
-
-    added = [r for r in log.read_all() if r["event"] == "allowlist.add"]
-    assert len(added) == 1
-    assert added[0]["app"] == "Mail"
-    assert added[0]["bundle_id"] == "com.apple.mail"
 
 
-def test_an_app_that_is_not_installed_is_not_added(actions, allowlist):
-    """The bundle-id lookup is also an existence check. A mis-transcribed name
-    must not leave a permanent grant for an app that does not exist."""
-    actions.runner.ok = False  # `id of app "…"` errors for an unknown app
-
-    result = actions.handle("open Nonesuch", confirmed=True)
-
-    assert result.ok is False
-    assert not Allowlist(allowlist.path).is_allowed("Nonesuch")
 
 
 # ═══ 5. honesty — the failure this project cannot have ═══
@@ -369,11 +292,6 @@ def test_every_action_is_logged_with_its_arguments(actions, log):
     assert events["action.volume"]["level"] == 30
 
 
-def test_a_refusal_is_logged_too(actions, log):
-    actions.handle("open Mail")
-
-    refused = [r for r in log.read_all() if r["event"] == "action.refused"]
-    assert refused and refused[0]["app"] == "Mail"
 
 
 # ═══ 7. system sound ═══
@@ -466,38 +384,10 @@ def test_the_hud_is_told_which_route_acted(loop):
     assert "no model" in loop.state.reason
 
 
-def test_an_unlisted_app_leaves_something_to_confirm(loop):
-    """The question has to be answerable. A spoken 'yes' with nothing
-    registered is how an approval used to arrive as an unrelated command."""
-    reply = loop.respond("open Mail")
-
-    waiting = loop.registry.list()
-    assert len(waiting) == 1, "nothing was left to approve"
-    assert waiting[0].payload == "open Mail"
-    assert "allowlist" in reply.lower()
-    assert loop.local.ran == []
 
 
-def test_approving_it_adds_the_app_and_then_opens_it(loop, allowlist):
-    loop.actions.runner.out = "com.apple.mail"
-    loop.respond("open Mail")
-    item = loop.registry.list()[0]
-
-    reply = loop.resolve_pending(item.id, approved=True)
-
-    assert Allowlist(allowlist.path).is_allowed("Mail")
-    assert "Mail" in reply
-    assert 'tell application "Mail" to activate' in loop.actions.runner.scripts
 
 
-def test_denying_it_adds_nothing(loop, allowlist):
-    loop.respond("open Mail")
-    item = loop.registry.list()[0]
-
-    loop.resolve_pending(item.id, approved=False)
-
-    assert not Allowlist(allowlist.path).is_allowed("Mail")
-    assert loop.actions.runner.scripts == []
 
 
 def test_what_actions_decline_still_reaches_the_model(loop):
@@ -505,3 +395,56 @@ def test_what_actions_decline_still_reaches_the_model(loop):
     loop.respond("tell me about the Notes app")
 
     assert loop.local.ran == ["tell me about the Notes app"]
+
+
+# ═══ 8. an app that is not installed (spec §9a) ═══
+#
+# This section replaces the "widen the allowlist by voice" tests. That flow
+# existed to add an app to `hands/allowlist.json` after a spoken confirmation,
+# with speaker verification required because the allowlist was a permission
+# boundary. It is not one any more: every installed app is reachable, so
+# there is nothing to widen and nothing to protect from widening.
+#
+# What is left is the case Launch Services cannot resolve — a mis-transcribed
+# name, or an app that genuinely is not on this Mac. Adding it to a file would
+# not make it exist.
+
+def test_an_app_that_is_not_installed_is_refused_out_loud(actions):
+    """Not None. Returning None sends the request on to the local model —
+    the tool-less narrator that answers "Opened it" without opening
+    anything, which is the failure this whole module exists to prevent."""
+    result = actions.handle("open Nonesuch")
+
+    assert result is not None, "an app request fell through to the model"
+    assert result.ok is False
+    assert "Nonesuch" in result.reply
+
+
+def test_the_refusal_says_it_cannot_find_it_not_that_it_is_forbidden(actions):
+    """The reason has to be true. "Nonesuch isn't on your allowlist" would be
+    a lie about why, and would send the user looking for a setting to change."""
+    reply = actions.handle("open Nonesuch").reply.lower()
+
+    assert "can't find" in reply or "cannot find" in reply
+    assert "allowlist" not in reply
+
+
+def test_a_refusal_is_still_logged(actions, log):
+    """§7 does not stop applying because the answer was no."""
+    actions.handle("open Nonesuch")
+
+    refusals = [e for e in log.read_all() if e["event"] == "action.refused"]
+    assert refusals, "a refused action left no record"
+    assert refusals[0]["app"] == "Nonesuch"
+    assert refusals[0]["reason"] == "not installed"
+
+
+def test_nothing_is_written_to_the_allowlist_by_speaking(actions, allowlist):
+    """The voice-add path is gone. `hands/allowlist.json` is not modified by
+    anything the user says — a file that no longer gates should also no
+    longer grow."""
+    before = allowlist.path.read_text()
+    actions.handle("open Nonesuch", confirmed=True)
+    actions.handle("open Terminal")
+
+    assert allowlist.path.read_text() == before
