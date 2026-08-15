@@ -272,3 +272,31 @@ def test_upstream_confirmation_is_still_logged(tmp_path):
 
     events = [e for e in ks.log.read_all() if e["event"] == "file.delete"]
     assert events and events[0]["confirmed_by"] == "gate"
+
+
+def test_a_truncated_search_says_so(tmp_path):
+    """`read()` announces truncation; `search()` did not, and returned exactly
+    `limit` results indistinguishable from "that is all of them".
+
+    Seen live: a search of iCloud Drive returned found=200 against limit=200.
+    An assistant that says "I found 200 tax files" when it found at least 200
+    and stopped counting is confidently wrong in the direction this project
+    cares about most.
+    """
+    for i in range(12):
+        (tmp_path / f"tax-{i}.txt").write_text("x")
+    tools, _ = _tools(tmp_path)
+
+    found = tools.search(str(tmp_path), "tax-*", limit=5)
+
+    assert len(found) == 6, "the marker line is missing"
+    assert "more" in found[-1].lower(), found[-1]
+
+
+def test_an_untruncated_search_adds_no_marker(tmp_path):
+    (tmp_path / "only.txt").write_text("x")
+    tools, _ = _tools(tmp_path)
+
+    found = tools.search(str(tmp_path), "only*", limit=5)
+
+    assert found == [str(tmp_path / "only.txt")]

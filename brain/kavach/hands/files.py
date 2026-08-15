@@ -166,17 +166,27 @@ class FileTools:
         self._guard("search")
         base = resolve_path(root)
         found: list[str] = []
+        truncated = False
         try:
             for p in base.rglob(pattern):
-                found.append(str(p))
                 if len(found) >= limit:
+                    # Say so. `read()` announces its truncation and this did
+                    # not — it returned exactly `limit` results, which is
+                    # indistinguishable from "that is all of them". Seen live:
+                    # an iCloud search returned 200 against a limit of 200, and
+                    # "I found 200 tax files" would have been confidently wrong
+                    # about the one thing the user asked.
+                    truncated = True
                     break
+                found.append(str(p))
         except PermissionError as exc:
             raise self._wrap_permission(exc, base)
         except OSError:
             log.debug("search stopped early under %s", base, exc_info=True)
         self.ks.log.append("file.search", root=str(base), pattern=pattern,
-                           found=len(found))
+                           found=len(found), truncated=truncated)
+        if truncated:
+            found.append(f"[stopped at {limit} matches — there are more]")
         return found
 
     # ——— writing ———
