@@ -126,6 +126,20 @@ _SIMPLE_PATTERNS = [
     (r"^\s*time\s*(please|now)?\s*[?.!]?\s*$", "clock"),
     (r"\bwhat is the time right now\b", "clock"),
     (r"\b(open|launch|start|quit|close)\s+\w+", "app control"),
+    # File operations. Anchored on the OPERATION, never on the bare word
+    # "file" — "file a complaint", "profile" and "I filed my taxes" are all
+    # ordinary speech, and dragging them onto the tool route costs a model
+    # call and a slow turn for every sentence containing four letters.
+    (r"\b(find|search|look)\s+(for\s+)?(my|the|a|an)?\s*[\w\s]{0,20}?"
+     r"\b(file|files|document|documents|folder|pdf|spreadsheet)\b",
+     "file access"),
+    (r"\b(read|open|show|list|delete|save|write)\b[\w\s]{0,24}?"
+     r"\b(file|files|folder|document)\b", "file access"),
+    (r"\bfiles?\s+(in|on|under|inside)\b", "file access"),
+    (r"\bcontents?\s+of\b[\w\s]{0,20}?\b(file|folder|document)\b",
+     "file access"),
+    (r"\bwhat('?s| is| are)\b[\w\s]{0,12}?\b(in|on)\s+(my\s+)?"
+     r"(desktop|documents|downloads|home folder)\b", "file access"),
     (r"\b(volume|sound)\s+(up|down)\b", "system control"),
     (r"\b(mute|unmute)\b", "system control"),
     (r"\bbattery( level| percentage)?\b", "system query"),
@@ -156,6 +170,13 @@ _ACTIONABLE_INTENTS = frozenset({
     "app control",
     "system control",
     "media control",
+    # Added 2026-08-15 after the identical failure the others exist for.
+    # Measured live: "find the KAVACH master prompt file on my desktop"
+    # routed LOCAL and the 3B model replied "I couldn't find any such file"
+    # — having searched nothing. A model with no filesystem does not decline
+    # a file question, it narrates having looked, exactly as it once claimed
+    # to have opened Notes.
+    "file access",
 })
 
 # ——— signals that a request needs judgement ———
