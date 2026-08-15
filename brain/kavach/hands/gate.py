@@ -185,6 +185,7 @@ class ToolGate:
         confirmer: Confirmer | None = None,
         servers: set[str] | None = None,
         tiers=None,
+        queue=None,
     ):
         self.ks = kill_switch
         #: Retained for `confirm_always` and the iPhone's per-tool policy.
@@ -198,6 +199,10 @@ class ToolGate:
         #: shipped before tiers existed — so an unconfigured system behaves
         #: exactly as it did.
         self.tiers = tiers
+        #: Phase 33. Where PROPOSE-tier actions go instead of interrupting.
+        #: Without it, PROPOSE degrades to ALWAYS_ASK rather than to AUTO — a
+        #: missing queue must never make something quieter.
+        self.queue = queue
 
     # ——— the Agent SDK entry point ———
 
@@ -397,6 +402,22 @@ class ToolGate:
                     and not reaches_shell(tool, payload)):
                 return ("allow", f"{reason} — but {bare} is on the AUTO tier",
                         {**extra, "tier": "auto"})
+
+        # 4c — Phase 33: PROPOSE goes to the queue instead of interrupting.
+        # Denied HERE and now: queueing is a promise to ask later, not a
+        # licence to run. Nothing in the queue executes until the user acts.
+        if (verdict is Verdict.CONFIRM and self.tiers is not None
+                and self.queue is not None):
+            from ..autonomy.tiers import Tier
+
+            bare = self.policy.bare_name(tool)
+            if self.tiers.tier_for(bare) is Tier.PROPOSE:
+                what = self._describe(app, match.group("tool"),
+                                      self.policy.action_text(tool, args))
+                item = self.queue.add(bare, what)
+                return ("deny",
+                        f"queued for your review rather than run now: {what}",
+                        {**extra, "tier": "propose", "proposal": item.id})
 
         # 5 — CONFIRM: read it back and wait.
         action_text = self.policy.action_text(tool, args)

@@ -70,9 +70,14 @@ class Proposal:
 class ProposalQueue:
     """Proposals, persisted. Records decisions; executes nothing."""
 
-    def __init__(self, path: Path | str = DEFAULT_PATH, log_=None):
+    def __init__(self, path: Path | str = DEFAULT_PATH, log_=None,
+                 trust=None):
         self.path = Path(path)
         self.log = log_
+        #: Phase 34. Approvals and rejections advance or reset its streaks.
+        #: An EXPIRY teaches it nothing — nobody looked, which is neither a
+        #: yes nor a no, and recording it as either invents a decision.
+        self.trust = trust
         self._items: dict[str, Proposal] = {}
         self._load()
 
@@ -144,6 +149,12 @@ class ProposalQueue:
         item.status = status
         self._save()
         self._record(event, id=item.id, action=item.action)
+        if self.trust is not None:
+            try:
+                self.trust.record(item.action,
+                                  approved=status is Status.APPROVED)
+            except Exception:
+                log.debug("could not record trust", exc_info=True)
         return item
 
     def approve(self, item_id: str) -> Proposal:
