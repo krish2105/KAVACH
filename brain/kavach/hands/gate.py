@@ -490,6 +490,24 @@ class ToolGate:
         long to say, it is truncated at the end rather than the start: the
         command name is the part that matters most.
         """
+        # File tools: the arguments ARE the description. Paraphrasing gave
+        # "act on something (via write_file)" for a real queued proposal —
+        # true, and impossible to review. A queue entry you cannot judge is
+        # one you approve blind.
+        if tool in ("write_file", "delete_file", "read_file", "search_files",
+                    "list_directory"):
+            verb = tool.split("_")[0]
+            # The first token that looks like a path. NOT split()[0] —
+            # `action_text` begins with the tool name since names carry verbs
+            # too, so that returned "write write_file". Two fixes meeting in
+            # one string, which is what a shared helper is for.
+            target = next(
+                (word for word in (action_text or "").split()
+                 if word.startswith(("/", "~"))),
+                "",
+            )
+            return f"{verb} {target}".strip() if target else f"{verb} a file"
+
         if reaches_shell(tool, action_text):
             command = (action_text or "").strip()
             if len(command) > 160:

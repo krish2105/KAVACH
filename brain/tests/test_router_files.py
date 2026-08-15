@@ -70,3 +70,43 @@ def test_the_intent_is_named_so_the_hud_can_show_it():
     """§13 — the reason shown must be the one that acted."""
     decision = Router(local_client=None).route("find my tax document")
     assert decision.intent == "file access"
+
+
+# ═══ a path in the utterance is the strongest signal there is ═══
+
+@pytest.mark.parametrize("said", [
+    "write the text hello kavach to the file /tmp/notes.txt",
+    "read /Users/me/Documents/report.md",
+    "what is in ~/Downloads",
+    "delete /tmp/scratch.txt",
+    "put this in ~/Desktop/todo.txt",
+])
+def test_an_utterance_containing_a_path_reaches_the_tool_route(said):
+    """Measured live 2026-08-15, after the first fix:
+
+        "write the text hello kavach to the file /tmp/kavach_propose_test.txt"
+        → route=local → "kya kiye? nahin ho sakte."
+
+    The pattern allowed 24 characters between the verb and the word "file";
+    that sentence has 29. Tuning the number would fix this sentence and miss
+    the next one.
+
+    A path is not a hint. Nothing that is not a file operation says
+    `/tmp/notes.txt`, and it survives any phrasing wrapped around it — which
+    is what the word-distance patterns cannot do.
+    """
+    decision = Router(local_client=None).route(said)
+    assert decision.route is Route.CLAUDE, f"{said!r} went to {decision.route}"
+
+
+@pytest.mark.parametrize("said", [
+    "what is the time",
+    "and/or something",
+    "the ratio is 3/4",
+    "open Notes",
+])
+def test_ordinary_speech_with_a_slash_is_not_a_path(said):
+    """`3/4` and `and/or` are not filesystem paths. A path starts at the root
+    or at home."""
+    decision = Router(local_client=None).route(said)
+    assert decision.intent != "file access", said

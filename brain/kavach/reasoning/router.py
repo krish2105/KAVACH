@@ -136,6 +136,15 @@ _SIMPLE_PATTERNS = [
     (r"\b(read|open|show|list|delete|save|write)\b[\w\s]{0,24}?"
      r"\b(file|files|folder|document)\b", "file access"),
     (r"\bfiles?\s+(in|on|under|inside)\b", "file access"),
+    # A filesystem path, which is the strongest signal available and the one
+    # the word-distance patterns above cannot see. Measured live: "write the
+    # text hello kavach to the file /tmp/kavach_propose_test.txt" routed
+    # LOCAL because 29 characters sat between "write" and "file" and the
+    # pattern allowed 24. Widening that number would fix one sentence and
+    # miss the next; a path survives any phrasing wrapped around it.
+    #
+    # Anchored at the root or at home, so "3/4" and "and/or" are not paths.
+    (r"(?:^|\s)(?:/[\w.\-]+){2,}|(?:^|\s)~/[\w.\-/]+", "file access"),
     (r"\bcontents?\s+of\b[\w\s]{0,20}?\b(file|folder|document)\b",
      "file access"),
     (r"\bwhat('?s| is| are)\b[\w\s]{0,12}?\b(in|on)\s+(my\s+)?"

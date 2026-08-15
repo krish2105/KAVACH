@@ -162,3 +162,23 @@ async def test_without_tiers_or_a_queue_nothing_changes(ks):
         SCRIPT, {"script_content": 'tell application "Notes" to delete note 1'})
 
     assert gate.confirmer.asked
+
+
+@pytest.mark.asyncio
+async def test_a_queued_proposal_names_the_file_it_would_touch(stack):
+    """Measured live 2026-08-15. The first real PROPOSE landed in the queue
+    as "act on something (via write_file)" — true, and useless to review.
+
+    `_describe` paraphrases because the verb is not in the arguments; for a
+    file tool the arguments ARE the point. A queue entry you cannot judge is
+    one you approve blind, which is the failure confirmations exist to avoid.
+    """
+    gate, tiers, queue = stack
+    tiers.set_tier("write_file", Tier.PROPOSE)
+
+    await gate._decide("mcp__kavach-files__write_file",
+                       {"path": "/tmp/report.txt", "content": "hello"})
+
+    description = queue.pending()[0].description
+    assert "/tmp/report.txt" in description, description
+    assert "write" in description.lower()

@@ -59,6 +59,10 @@ LOGS = Path.home() / ".kavach" / "logs"
 AGENTS = (
     "com.krishna.kavach.overlay",
     "com.krishna.kavach",
+    # Phases 31-32. Observation only; it holds no device and can reach no
+    # action path, which is why it is KeepAlive-true where the voice agent
+    # is KeepAlive-on-crash-only.
+    "com.krishna.kavach.observe",
 )
 
 

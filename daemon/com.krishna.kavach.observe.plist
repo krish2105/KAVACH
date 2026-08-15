@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KAVACH observer — launchd agent (Phases 31 and 32).
+
+  Watches the newest Claude Code session and narrates test results, and runs
+  the scheduled health checks every five minutes. Observation only: nothing
+  this process can do reaches an action path. Tier AUTO under Phase 30,
+  because there is nothing to approve about looking.
+
+  Install:    uv run kavach-daemons install (installs every agent)
+  Remove:     launchctl bootout gui/$UID/com.krishna.kavach.observe
+  Status:     launchctl print gui/$UID/com.krishna.kavach.observe
+
+  **Install with `kavach-daemons`, never `cp`.** This file is a template: the
+  double-underscored tokens below are substituted at install time. SETUP.md
+  used to say cp, so the installed copies were hand-edited and drifted from
+  git, and `kavach-daemons status` reporting "stale" was the only symptom that
+  failure ever had.
+
+  (The word for those tokens is deliberately not written out here — the
+  installer greps the rendered file for anything still matching that shape and
+  refuses to install it, and a comment mentioning one counts.)
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.krishna.kavach.observe</string>
+
+    <!--
+      The venv's console script directly — no `uv run` in front of it.
+
+      TCC attributes to the *responsible* process, and with `uv run` the
+      binary launchd starts is uv, so a grant given to python3.12 is never
+      consulted. Measured from inside a launchd job:
+
+          uv run python      → CGPreflightListenEventAccess() False
+          venv python direct → CGPreflightListenEventAccess() True
+
+      This process needs no TCC grant of its own today — it reads its own
+      logs and shells out to pmset and launchctl. It follows the rule anyway,
+      because the day it needs one is not the day to discover this.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__VENVBIN__/kavach-observe</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__BRAIN__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+      KeepAlive true, unlike the voice agent.
+
+      The voice loop is `{SuccessfulExit: False}` so that a deliberate
+      `launchctl bootout` stays booted out — that matters for a process
+      holding the microphone. This one holds nothing: it reads files and
+      speaks through the API. Bringing it back unconditionally is right, and
+      the throttle keeps a crash loop from spinning the CPU.
+    -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!--
+      Its own file. The overlay agent once shared `overlay.log` with a
+      FileHandler the process had already opened on the same path, and every
+      line was written twice.
+    -->
+    <key>StandardOutPath</key>
+    <string>__LOGS__/observe.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGS__/observe.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!--
+      Background, not Interactive. This must never compete with the voice
+      loop for CPU — a narration is worth less than the turn it would slow
+      down, and TTS is already 60-75% of every turn's latency here.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
