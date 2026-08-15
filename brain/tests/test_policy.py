@@ -238,3 +238,54 @@ def test_the_capability_text_still_names_no_tool():
     text = Policy().describe_capabilities(file_tools=True)
     assert "mcp__" not in text
     assert "read_file" not in text
+
+
+# ═══ found by the hardening pass, 2026-08-15 ═══
+
+def test_writing_a_file_is_never_silent():
+    """**A real hole.** `write_file` with `{"path": ..., "content": ...}`
+    produced action_text "write_file /tmp/x y" — no English destructive verb,
+    nothing in confirm_always — so it was ALLOWED.
+
+    Worse in context: the agent's FileTools is built with
+    `confirmed_upstream=True`, on the premise that the gate does the asking.
+    The gate did not ask for this one, so the file was overwritten with no
+    consent anywhere in the chain.
+
+    And an overwrite is worse than a delete here — `delete` moves to the
+    Trash and is recoverable; an overwrite is gone.
+    """
+    verdict, _ = Policy().decide(
+        "mcp__kavach-files__write_file",
+        {"path": "/Users/me/thesis.txt", "content": "x"})
+    assert verdict is Verdict.CONFIRM
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("mcp__macos-accessibility__Type", {"text": "hunter2"}),
+    ("mcp__macos-accessibility__Click", {"x": 10, "y": 10}),
+    ("mcp__macos-accessibility__Key", {"key": "return"}),
+])
+def test_synthesised_input_is_never_silent(tool, args):
+    """Also a real hole, and inconsistent with the browser.
+
+    `Type` can fill a password field. `Key` can press Return on a system
+    dialog the user never saw. `Click` can click anything on screen. These are
+    the same danger as `click_text`/`fill_field`, which always confirm — the
+    only difference was which server they came from.
+    """
+    verdict, _ = Policy().decide(tool, args)
+    assert verdict is Verdict.CONFIRM, f"{tool} synthesised input silently"
+
+
+def test_reading_stays_silent():
+    """The counterweight. If everything confirms, nothing does — the user
+    stops reading the prompts and the guardrail becomes a keystroke."""
+    for tool, args in [
+        ("mcp__kavach-files__read_file", {"path": "/tmp/x"}),
+        ("mcp__kavach-files__list_directory", {"path": "/tmp"}),
+        ("mcp__kavach-browser__read_page_text", {}),
+        ("mcp__kavach-browser__navigate_to", {"url": "https://x.com"}),
+    ]:
+        verdict, _ = Policy().decide(tool, args)
+        assert verdict is Verdict.ALLOW, f"{tool} should not need confirming"
