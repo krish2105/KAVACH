@@ -157,11 +157,18 @@ class Policy:
     def action_text(tool: str, args: dict) -> str:
         """Everything the call carries, as one string to be matched.
 
-        Falls back to the tool name so a call with no string arguments is
-        still checked against something rather than trivially allowed.
+        **The tool name is included, not used as a fallback.** It was a
+        fallback, and that let `mcp__kavach-files__delete_file` through with
+        `{"path": "/tmp/x"}`: the arguments are a path, they contain no English
+        verb, so nothing matched and a delete was classed reversible. The verb
+        was in the name the whole time.
+
+        `execute_script` carries its verb in the argument and `delete_file`
+        carries it in the name; matching both costs nothing and missing either
+        is a destructive action that never gets read back.
         """
         joined = " ".join(v for v in (args or {}).values() if isinstance(v, str))
-        return joined or Policy.bare_name(tool)
+        return f"{Policy.bare_name(tool)} {joined}".strip()
 
     def _token_hit(self, text: str) -> bool:
         low = (text or "").casefold()

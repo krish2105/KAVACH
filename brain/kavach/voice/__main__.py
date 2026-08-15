@@ -25,6 +25,7 @@ from ..killswitch.log import ActionLog
 from ..reasoning.agent import ClaudeAgent
 from ..reasoning.local import DEFAULT_MODEL as LOCAL_DEFAULT_MODEL
 from ..reasoning.local import LocalModel
+from ..hands.files import FileTools
 from ..reasoning.actions import MacActions
 from ..hands.allowlist import Allowlist
 from ..hands.confirm import VoiceConfirmer
@@ -185,7 +186,12 @@ def main(argv: list[str] | None = None) -> int:
                 ApiConfirmer(pending_registry),
             ),
         )
-        voice.agent = ClaudeAgent(gate=gate)
+        # File tools share the gate's confirmer, so a spoken "yes" answers
+        # both a shell command and a file delete — one consent path, and the
+        # same one the phone can answer.
+        file_tools = FileTools(kill_switch=ks,
+                               confirmed_upstream=True)
+        voice.agent = ClaudeAgent(gate=gate, file_tools=file_tools)
 
     # §15: watch for calls and stop listening for the wake word during them.
     # Given the ghost and the switch so it can never resume a microphone that

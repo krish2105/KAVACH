@@ -80,10 +80,16 @@ class ClaudeAgent:
         max_turns: int = 6,
         gate=None,
         enable_tools: bool = True,
+        file_tools=None,
     ):
         self.system_prompt = system_prompt
         self.max_turns = max_turns
         self.gate = gate
+        #: `hands/files.py`, exposed as an in-process MCP server so file
+        #: requests reach real tools through the SAME PreToolUse hook as
+        #: everything else — see `hands/file_server.py` for why that shape
+        #: rather than regex intents. None means no file access at all.
+        self.file_tools = file_tools
         # No gate means no hands. An ungated agent with MCP servers attached
         # would be exactly the thing §7 exists to prevent.
         self.enable_tools = enable_tools and gate is not None
@@ -92,6 +98,14 @@ class ClaudeAgent:
         from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
         servers = load_mcp_servers() if self.enable_tools else {}
+
+        # In-process, and gated identically: the tools arrive named
+        # `mcp__kavach-files__*`, so the hook below sees them exactly as it
+        # sees a subprocess server's. No second permission path.
+        if self.enable_tools and self.file_tools is not None:
+            from ..hands.file_server import FILE_SERVER_NAME, build_file_server
+
+            servers[FILE_SERVER_NAME] = build_file_server(self.file_tools)
 
         # Two independent enforcement points, both wired to the same gate.
         # The PreToolUse hook is the one that reliably fires; can_use_tool is

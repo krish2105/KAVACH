@@ -83,6 +83,10 @@ SAFE_META_TOOLS = frozenset({"ToolSearch"})
 #: Which physical device each MCP server reaches. A server that is not listed
 #: here is denied: unmapped means ungovernable.
 SERVER_DEVICES = {
+    # In-process, but mapped like any other: `device_for_server` returns None
+    # for anything unlisted and the gate denies that outright. A new server
+    # that forgets this line is refused, not waved through.
+    "kavach-files": "mac",
     "macos-automator": "mac",
     "macos-accessibility": "mac",
     "peekaboo": "mac",

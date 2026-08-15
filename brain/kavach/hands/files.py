@@ -77,11 +77,24 @@ class FileTools:
     tool path; the same `VoiceConfirmer` answer reaches both.
     """
 
-    def __init__(self, kill_switch, confirmer=None):
+    def __init__(self, kill_switch, confirmer=None, confirmed_upstream=False):
         self.ks = kill_switch
         self.confirmer = confirmer
+        #: The caller's gate already asked, so do not ask again.
+        #:
+        #: `ToolGate` confirms `mcp__kavach-files__delete_file` at the
+        #: PreToolUse hook — that is the §7 enforcement point. Asking a second
+        #: time here would mean two prompts for one delete, and a user asked
+        #: twice learns to say yes twice, which is the failure confirmations
+        #: exist to avoid.
+        #:
+        #: **Not the default.** A FileTools with neither a confirmer nor this
+        #: flag refuses every write and delete: silence is not consent, and an
+        #: unattended caller is silence.
+        self.confirmed_upstream = confirmed_upstream
         #: Where the last delete went, so a caller can say so out loud.
         self.last_trashed: Path | None = None
+        self._confirmed_by = "user"
 
     # ——— gates ———
 
@@ -95,6 +108,11 @@ class FileTools:
 
     def _ask(self, prompt: str, event: str, **fields) -> None:
         """Confirm or raise. Denial is the default at every branch."""
+        if self.confirmed_upstream:
+            # Consent was given at the gate. Recorded here anyway: the consent
+            # happened somewhere else, the record still belongs with the act.
+            self._confirmed_by = "gate"
+            return
         if self.confirmer is None:
             self.ks.log.append("file.refused", reason="no confirmer", **fields)
             raise PermissionError(
@@ -182,7 +200,7 @@ class FileTools:
             raise self._wrap_permission(exc, target)
 
         self.ks.log.append("file.write", path=str(target), bytes=len(content),
-                           overwrite=exists)
+                           overwrite=exists, confirmed_by=self._confirmed_by)
         return target
 
     def delete(self, path: str) -> Path:
@@ -205,7 +223,8 @@ class FileTools:
         trashed = self._to_trash(target)
         self.last_trashed = trashed
         self.ks.log.append("file.delete", path=str(target),
-                           trashed_to=str(trashed))
+                           trashed_to=str(trashed),
+                           confirmed_by=self._confirmed_by)
         return trashed
 
     def _to_trash(self, target: Path) -> Path:

@@ -217,3 +217,58 @@ def _tools(tmp_path, answer=True):
     ks = KillSwitch(log=ActionLog(tmp_path / "actions.jsonl"))
     confirmer = Confirmer(answer)
     return FileTools(kill_switch=ks, confirmer=confirmer), confirmer
+
+
+# ═══ one consent, not two ═══
+
+def test_the_agent_path_does_not_ask_twice(tmp_path):
+    """`ToolGate` already confirms `mcp__kavach-files__delete_file` at the
+    PreToolUse hook — that is the §7 enforcement point and it is tested in
+    test_file_server.py. FileTools asking again would mean two prompts for one
+    delete, and a user who is asked twice learns to say yes twice.
+
+    `confirmed_upstream=True` says the caller's gate has the consent. It is
+    NOT the default: a FileTools built without a confirmer and without this
+    flag refuses, because silence is not consent.
+    """
+    target = tmp_path / "x.txt"
+    target.write_text("x")
+    from kavach.hands.files import FileTools
+    from kavach.killswitch.core import KillSwitch
+    from kavach.killswitch.log import ActionLog
+
+    ks = KillSwitch(log=ActionLog(tmp_path / "a.jsonl"))
+    tools = FileTools(kill_switch=ks, confirmed_upstream=True)
+
+    tools.delete(str(target))          # must not raise for want of a confirmer
+    assert not target.exists()
+
+
+def test_without_a_confirmer_and_without_the_flag_it_refuses(tmp_path):
+    target = tmp_path / "y.txt"
+    target.write_text("x")
+    from kavach.hands.files import FileTools
+    from kavach.killswitch.core import KillSwitch
+    from kavach.killswitch.log import ActionLog
+
+    ks = KillSwitch(log=ActionLog(tmp_path / "a.jsonl"))
+    tools = FileTools(kill_switch=ks)
+
+    with pytest.raises(PermissionError):
+        tools.delete(str(target))
+    assert target.exists()
+
+
+def test_upstream_confirmation_is_still_logged(tmp_path):
+    """The consent happened somewhere else; the record still belongs here."""
+    target = tmp_path / "z.txt"
+    target.write_text("x")
+    from kavach.hands.files import FileTools
+    from kavach.killswitch.core import KillSwitch
+    from kavach.killswitch.log import ActionLog
+
+    ks = KillSwitch(log=ActionLog(tmp_path / "a.jsonl"))
+    FileTools(kill_switch=ks, confirmed_upstream=True).delete(str(target))
+
+    events = [e for e in ks.log.read_all() if e["event"] == "file.delete"]
+    assert events and events[0]["confirmed_by"] == "gate"
