@@ -947,6 +947,38 @@ confirmer nor the flag refuses.
 paths raise `PermissionError` carrying the Settings path, because "no mail
 found" would be a lie about the cause.
 
+### Wake word, attempt seven — one hypothesis refuted, no number earned
+
+**Do not report a recall figure from `/tmp/variance.py`-style harnesses without
+checking the transcripts first.** A 30-trial run returned `RECALL 0/30`, and
+**27 of the 30 transcripts were empty** — while the *same* harness had cleanly
+produced `"Kavak, what time is it?"` twenty minutes earlier. That is a
+measurement of the harness, not of the wake word.
+
+One signal is consistent across every run, though: **when a transcript appears
+at all, the first word is missing.**
+
+```
+"Kavach, open Notes."          → "Open news."
+"Jarvis, what time is it?"     → "What time is it?"
+"Sentinel, what time is it?"   → "What time is it?"
+```
+
+**Hypothesis tested and REFUTED: the segmenter is not eating it.** `Segmenter`
+keeps the onset block at every offset — word starting 10%, 30%, 50%, 70% or
+90% into a block all yield the same 1.4s burst. There is no pre-roll gap. Do
+not re-investigate this.
+
+So the missing first word comes from whisper itself or from the capture path,
+and which of those it is remains **unknown**. Also unresolved: playing `say`
+through the speakers puts audio through **two** channels where a human voice
+goes through one, so every one of these numbers is a lower bound.
+
+**Never stop the voice daemon for a measurement without a guaranteed restart.**
+It was stopped to avoid two whisper instances competing (a real contamination
+recorded above), the measurement outlived its wrapper, and the user's assistant
+sat down while they were out. Bootstrap it back *before* diagnosing anything.
+
 ### The defect this codebase keeps producing
 
 **A fact written in two places, where one copy quietly stops being true.**
