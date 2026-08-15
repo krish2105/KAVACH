@@ -855,8 +855,117 @@ what produced this. It needs `uv run kavach-enrol` from a second session —
 different distance, different time of day — and then `choose_threshold` against
 at least one other voice.
 
-**Still not done:** the gate is off, so any voice in the room is acted on, and
-that matters more now than it did — the app allowlist is gone and shell is
+#### The speaker gate: three diagnoses, and only the third was right
+
+Worth reading as a sequence, because the first two were confident and wrong.
+
+**1. "The threshold is miscalibrated."** True but not the cause. 0.803 rejected
+42 of 42 real recordings.
+
+**2. "One second of audio is too short."** Also true, also not the cause. The
+same audio scored 0.423 at 0.8s and 0.816 at 13.8s, and strangers plateaued at
+0.53 — which looked decisive.
+
+**3. The encoder was the fault.** Same data, same held-out split:
+
+| audio | resemblyzer: you / **strangers** | ECAPA: you / **strangers** |
+|---|---|---|
+| 1s | 0.741–0.954 / **0.559** | 0.220–0.728 / **0.107** |
+| 3s | 0.563–0.587 / **0.586** ← overlap | 0.314–0.406 / **0.136** |
+| 7s | 0.562–0.618 / **0.552** | 0.334–0.403 / **0.102** |
+
+resemblyzer's worst genuine (0.542) sits **below** its best stranger (0.586).
+**No threshold existed at any duration** — which is exactly why two rounds of
+tuning could not find one, and why both earlier diagnoses looked so good.
+
+Now `speechbrain/spkrec-ecapa-voxceleb` (Apache-2.0; torch was already a dep).
+`ENCODER` is stored in the profile and **a profile from a different encoder is
+refused, not migrated** — embeddings are not portable, and accepting one gives
+you a gate that "works" and verifies nothing.
+
+Caveat on those numbers: enrolment and test came from the *same* recording
+session, so genuine scores are optimistic for both. The comparison between
+encoders is fair; the absolutes are not a field estimate.
+
+`test_an_imposter_is_rejected` is **xfail-flagged, not fixed** — `synth_voice`
+is a sum of sine waves, resemblyzer separated two tones, ECAPA does not. The
+honest fix is real audio from gitignored dirs, which makes the test
+machine-dependent. **The user's call.**
+
+**The gate is still OFF.** It needs `uv run kavach-enrol` from a second session.
+
+### Files — and the three-link chain that made them reachable (2026-08-15)
+
+`hands/files.py` + `hands/file_server.py`. Read/list/search free; **writes and
+deletes confirm**; deletes go to the **Trash, never `unlink`**; paths resolve
+*before* anything checks them (`~/Documents/../../etc` is `/etc`).
+
+**The shape matters more than the code.** Regex intents in `MacActions` is what
+app control does and is wrong here — `open Notes` is a pattern, "find my tax
+document from last year" is not. An in-process SDK MCP server gives the agent
+real tools that arrive as `mcp__kavach-files__*` and therefore pass through the
+**same `PreToolUse` hook**. Kill switch, §7 confirmation and the action log all
+applied with **no new permission code**. A second permission path is how one of
+them goes stale — this repo has now found that defect four times.
+
+Wiring it exposed a real hole: `Policy.action_text` used the tool name only as
+a **fallback**, so `delete_file` with `{"path": "/tmp/x"}` matched nothing —
+the arguments are a path with no English verb — and **a delete was classed
+reversible.** Any tool naming its verb would have slipped through.
+
+Three fixes were needed, and each was only revealed by the previous one
+working:
+
+```
+1. nothing told the model file tools existed → it reached for built-in Read
+2. the denial said only "not a recognised MCP tool name"
+                                             → it gave up, never searched
+3. the gate did not trust the in-process server
+                                             → it searched, found, called,
+                                               and was refused at the door
+```
+
+**A denial the model cannot recover from is a dead end wearing a reason.**
+Built-in file tools (`Read`, `Write`, `Glob`…) stay denied — they bypass
+`FileTools`' gates and the §7 log — but the message now names the alternative.
+
+Verified live:
+
+```
+Read                          deny   'use the kavach-files tools instead'
+ToolSearch                    allow
+mcp__kavach-files__read_file  allow  reversible
+file.read  /private/tmp/kavach_read_test.txt  28 bytes
+```
+
+`confirmed_upstream=True` exists because the gate already confirms
+`delete_file`; asking again is two prompts for one delete, and **a user asked
+twice learns to say yes twice.** Not the default — a `FileTools` with neither a
+confirmer nor the flag refuses.
+
+**Full Disk Access is not granted.** File tools work everywhere else; protected
+paths raise `PermissionError` carrying the Settings path, because "no mail
+found" would be a lie about the cause.
+
+### The defect this codebase keeps producing
+
+**A fact written in two places, where one copy quietly stops being true.**
+Found five times now, each time as a different-looking bug:
+
+| where | symptom |
+|---|---|
+| startup banner | printed 4 apps while the file held 7 |
+| `voice/__main__.py` | hardcoded model name overrode the switch to llama3.2 |
+| `agent.py:34` | refused Chrome for two days after it was permitted |
+| `voiceprint.py` | two `MIN_VERIFY_SECONDS` (0.8 and 3.0); the later won |
+| gate ↔ agent | server lists disagreed; a found tool was refused at the door |
+
+`tests/_sourcecheck.py` parses with `ast` so a module can **explain** a literal
+it must not **contain** — grep cannot tell prose from code, and the modules
+that must not hold a fact are exactly the ones whose comments must say why.
+
+**Still not done:** the speaker gate is off, so any voice in the room is acted
+on — and that matters more now than it did, with no app allowlist and shell
 reachable. The unconditional shell confirmation is what stands in for it.
 
 ### The clock must never reach a language model
