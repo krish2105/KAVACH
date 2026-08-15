@@ -1365,3 +1365,60 @@ html.kv-overlay.kv-fullscreen .talk-btn {
   border-color: color-mix(in srgb, #ff9c4d 60%, transparent);
   color: #ffb84d;
 }
+
+/* ─── Phase 33: the proposal queue ───────────────────────────────
+   Amber, not red. These are waiting, not wrong — red is the kill
+   switch's colour and borrowing it would make a halted assistant and
+   a pending file write look alike. */
+.proposal-panel {
+  border-left: 2px solid var(--kv-warn, #e0a33e);
+}
+.proposal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.proposal-count {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--kv-warn, #e0a33e);
+  font-variant-numeric: tabular-nums;
+}
+.proposal-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.proposal-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.proposal-item {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+.proposal-action {
+  font-family: var(--kv-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  opacity: 0.6;
+}
+.proposal-description {
+  /* Long paths are the common case and must not push the panel wide. */
+  overflow-wrap: anywhere;
+}
+.proposal-more,
+.proposal-how {
+  margin: 0.45rem 0 0;
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+.proposal-how code {
+  font-family: var(--kv-mono, ui-monospace, monospace);
+}

@@ -211,6 +211,10 @@ def main(argv: list[str] | None = None) -> int:
             from ..hands.browser import Browser
             return Browser(app)
 
+        # The orb reads this to show what is waiting (Phase 33). Without
+        # it the HUD panel renders nothing forever, which is the same as not
+        # having built it.
+        voice.proposal_queue = queue
         voice.agent = ClaudeAgent(gate=gate, file_tools=file_tools,
                                   browser_factory=browser_factory)
 

@@ -32,6 +32,27 @@ export interface ToolCall {
 
 export type KillSwitchState = "armed" | "disarmed";
 
+/**
+ * A PROPOSE-tier action waiting for batch review (Phase 33).
+ *
+ * Nothing here has run or will run on its own. An unreviewed proposal sits,
+ * or expires unexecuted — there is deliberately no auto-execute timeout,
+ * because the §7 confirmation already treats a timeout as a denial and two
+ * rules disagreeing about what silence means is how one of them quietly
+ * becomes the one that matters.
+ */
+export interface Proposal {
+  id: string;
+  /** The action type, e.g. "write_file". Drives the tier it was queued by. */
+  action: string;
+  /** What it would do, in words worth judging — "write /tmp/report.txt".
+   *  A queue entry you cannot judge is one you approve blind. */
+  description: string;
+  created_at: number;
+  ttl_seconds: number;
+  status: "pending" | "approved" | "rejected" | "expired";
+}
+
 export interface KavachSnapshot {
   state: AgentState;
   /** Finalised transcript of the current turn. */
@@ -46,6 +67,17 @@ export interface KavachSnapshot {
   /** Newest first. */
   toolCalls: ToolCall[];
   killSwitch: KillSwitchState;
+  /**
+   * Phase 33 — what is waiting for your review.
+   *
+   * The API and the CLI could both show this before the orb could, and the
+   * orb is the thing actually on screen. A queue you have to remember to go
+   * and check is a queue that fills up.
+   *
+   * Always an array, never null: the two render differently here and one of
+   * them is a crash.
+   */
+  proposals: Proposal[];
   /**
    * Ghost mode (§14): every input suspended — mic, camera, action logging.
    *
@@ -110,6 +142,7 @@ export const INITIAL_SNAPSHOT: KavachSnapshot = {
   ghost: false,
   reason: "",
   intent: "",
+  proposals: [],
 };
 
 // ───────────────────────────────────────────────────────────────

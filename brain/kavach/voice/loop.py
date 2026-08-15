@@ -121,6 +121,12 @@ class VoiceState:
     #: to the one place you actually look.
     reason: str = ""
     intent: str = ""
+    #: Phase 33. What is waiting for batch review, so the orb can show it.
+    #: A queue you have to remember to go and check is a queue that fills up
+    #: — the API and the CLI both existed before this and neither is on
+    #: screen. Empty list rather than None: `null` and `[]` render
+    #: differently in TypeScript and one of them is a crash.
+    proposals: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -135,6 +141,7 @@ class VoiceState:
             "ghost": self.ghost,
             "reason": self.reason,
             "intent": self.intent,
+            "proposals": self.proposals,
         }
 
 
@@ -283,11 +290,27 @@ class VoiceLoop:
         self.state.killSwitch = "armed" if self.ks.is_armed else "disarmed"
         self.publish_fn(self.state.as_dict())
 
+    def _refresh_proposals(self) -> None:
+        """Put the pending queue on the snapshot the orb receives.
+
+        Read here rather than pushed from the queue, because the queue is
+        written by the gate (a different thread) and by the API (a different
+        one again). One reader beats three writers remembering to publish.
+        """
+        queue = getattr(self, "proposal_queue", None)
+        if queue is None:
+            return
+        try:
+            self.state.proposals = [p.as_dict() for p in queue.pending()]
+        except Exception:
+            log.debug("could not read the proposal queue", exc_info=True)
+
     def set_state(self, state: str, **fields) -> None:
         # Ghost is read from the source of truth on every publish rather than
         # tracked separately — two places holding "is the mic off" is how they
         # end up disagreeing, and this is the one flag that must not lie.
         fields.setdefault("ghost", self.ghost.is_active)
+        self._refresh_proposals()
         self.state.state = state
         for key, value in fields.items():
             setattr(self.state, key, value)

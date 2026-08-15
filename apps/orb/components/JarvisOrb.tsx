@@ -12,6 +12,7 @@ import {
 } from "@/lib/kavachState";
 import { createLiveSource } from "@/lib/liveSource";
 import { ControlPanel } from "@/components/hud/ControlPanel";
+import { ProposalPanel } from "@/components/hud/ProposalPanel";
 import { StatusPanel } from "@/components/hud/StatusPanel";
 import { TranscriptPanel } from "@/components/hud/TranscriptPanel";
 import { ToolCallLog } from "@/components/hud/ToolCallLog";
@@ -510,6 +511,10 @@ export default function JarvisOrb() {
       )}
 
       <div className="hud hud-stack hud-stack-left">
+        {/* Above the status panel deliberately: a queued destructive action
+            is the most important thing on this screen when there is one, and
+            nothing below the fold gets reviewed. */}
+        <ProposalPanel proposals={snapshot.proposals ?? []} />
         <StatusPanel
           state={snapshot.state}
           route={snapshot.route}
