@@ -54,7 +54,9 @@ def test_the_module_never_opens_anything_for_writing():
 
     from kavach.observe import claudecode
 
-    source = inspect.getsource(claudecode)
+    from ._sourcecheck import code_text
+
+    source = code_text(inspect.getmodule(claudecode))
     for forbidden in ('"w"', "'w'", '"a"', "'a'", '"r+"', "write_text",
                       "unlink", "rename", "mkdir", "os.remove", "rmtree"):
         assert forbidden not in source, (
