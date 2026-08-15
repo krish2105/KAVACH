@@ -390,6 +390,49 @@ heard  'Kavach, what time is it?'            ✓ WAKE  (2.1s)
 heard  'That was too short for me to check.' ✗ closest: 'that'→'kavatch' 0.36
 ```
 
+#### The pause after "Kavach," was ending the burst (2026-08-16)
+
+The user's own `kavach-wakecheck` run, saying "Kavach, what time is it?":
+
+```
+heard  'What time is it?'    ✗ closest 'what'→'kawach' 0.40  (1.1s)
+heard  'cabbage, cabbage'    ✗ closest 'cabbage'→'gavaj' 0.33 (1.9s)
+heard  'What time is it?'    ✗                             (1.0s)
+0/8 burst(s) woke it.
+```
+
+**The wake word is missing from the front and the bursts are 1.0–1.2s** —
+too short to hold both the word and the sentence. `HANG_S` was 0.35s and a
+natural comma pause is longer, so "Kavach," closed its own burst and the
+command opened a new one. An isolated one-second word is whisper's worst
+case, which is the same reason 20 of 42 one-second recordings transcribed
+to nothing. **The matcher was being handed audio with the word removed.**
+
+`HANG_S = 0.7`. Verified on a file, which isolates it from the microphone:
+one burst of 2.56s → `'Kavach, what time is it?'` → match.
+
+This is the **third** explanation offered for a missing first word here, and
+the first with a measurement behind it. The earlier note — "the segmenter
+keeps the onset block at every offset, do not re-investigate" — was true and
+about something else: the onset of a burst is kept, and the burst started
+too late.
+
+`cabbage` is an **exact** target, not a fuzzy one: it is what this
+microphone writes for an isolated "Kavach" (seen in wakecheck and in the 42
+recordings), and it is also an English word, so at 0.70 it would drag in
+`garbage` (0.714) and sit near `carriage` (0.667). `EXACT_TARGETS` exists
+for spellings that are real words.
+
+A test in `test_wake_model_choice.py` had asserted `"Cabbage."` must **not**
+wake it, written on the belief that it was `small.en` failing. The user's
+run overturned that. Recorded in place rather than deleted: the test was not
+wrong to exist, it was wrong about the world.
+
+**Do not measure this with `say` through the speakers while `kavach-wakecheck`
+is also running** — that is two processes on one microphone plus a
+two-channel path, and it produced `'I know.'` for a phrase the same detector
+reads perfectly from a file. Judge it on the user's voice.
+
 One trap worth not repeating: a live `say` test that "did not fire" was the
 **speaker volume**, not the wake word. At 80% it fires; quieter, no burst
 reaches the segmenter at all. Check `Transcribing` counts before concluding

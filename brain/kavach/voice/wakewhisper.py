@@ -65,6 +65,20 @@ SAMPLE_RATE = 16_000
 #: ordinary speech. The variants are not a nicety here; they are the feature.
 WAKE_TARGETS = ("kavach", "kawach", "kavatch", "gavaj", "gauj", "vajah")
 
+#: Spellings matched **exactly**, never fuzzily.
+#:
+#: `cabbage` is what this microphone writes for an isolated "Kavach" —
+#: observed twice, in `kavach-wakecheck` ('cabbage, cabbage') and in the 42
+#: recordings ('Cabbage.'). It is also an ordinary English word, and fuzzy
+#: matching it at 0.70 would drag in `garbage` (0.714) and sit uncomfortably
+#: near `carriage` (0.667). Those are words people say.
+#:
+#: So the rule differs by the kind of spelling: the *kavach* family is
+#: fuzzy-matched because whisper mangles it unpredictably and its neighbours
+#: are nonsense words; a real English word is matched exactly, because its
+#: neighbours are real too.
+EXACT_TARGETS = frozenset({"cabbage"})
+
 #: How close a word must be to count. Chosen from measurement, not taste —
 #: against the targets above::
 #:
@@ -93,6 +107,8 @@ def matches_wake(text: str | None) -> bool:
             # Too short to be this word, and short words are where fuzzy
             # matching produces nonsense.
             continue
+        if word in EXACT_TARGETS:
+            return True
         if any(SequenceMatcher(None, word, target).ratio() >= MATCH_RATIO
                for target in WAKE_TARGETS):
             return True
@@ -134,9 +150,27 @@ class Segmenter:
     #: Longer than this and it is cut and scored anyway, so someone talking on
     #: a call cannot accumulate audio in memory waiting for a pause.
     MAX_UTTERANCE_S = 3.0
-    #: Silence this long ends a burst. Long enough to survive the stop in
-    #: "kav-ACH", short enough not to add a wait to every wake.
-    HANG_S = 0.35
+    #: Silence this long ends a burst.
+    #:
+    #: **0.35s was too short, and it cost the wake word entirely.** Measured
+    #: from the user's own `kavach-wakecheck` run, saying "Kavach, what time
+    #: is it?"::
+    #:
+    #:     heard  'What time is it?'   ✗  (1.1s)
+    #:     heard  'What time is it?'   ✗  (1.0s)
+    #:     heard  'What time is it?'   ✗  (1.2s)
+    #:
+    #: The wake word is missing from the front and the bursts are 1.0–1.2s —
+    #: too short to hold both. The natural pause after "Kavach," is longer
+    #: than 0.35s, so it closed its own burst and the command opened a new
+    #: one. An isolated one-second word is whisper's worst case, which is
+    #: also why 20 of 42 one-second recordings transcribed to nothing.
+    #:
+    #: Bursts that did fire in testing were 2.0–2.1s: the whole phrase.
+    #:
+    #: The cost is 350ms more before a wake fires. That is the right trade
+    #: for a detector whose failure mode was not firing at all.
+    HANG_S = 0.7
 
     def __init__(self) -> None:
         #: Running estimate of the room, seeded pessimistically and pulled

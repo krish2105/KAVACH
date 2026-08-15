@@ -96,7 +96,22 @@ def test_what_the_chosen_model_produces_is_recognised(said):
     "Available on Amazon, a YouTube channel.",
     "I'll call you back in a moment.",
     "Can you catch the ball please?",
-    "Cabbage.",                          # small.en's failure must not wake it
+    # "Cabbage." was here, asserted as a NON-wake, on the belief that it was
+    # `small.en` mishearing a word it had no representation for.
+    #
+    # **The user's own `kavach-wakecheck` run overturned that.** Saying
+    # "Kavach, Kavach" into the microphone produced 'cabbage, cabbage', and
+    # 'Cabbage.' appears in the 42 recordings too. It is not a failure
+    # spelling — it is what this microphone writes for this user's wake
+    # word, and refusing it means refusing them.
+    #
+    # Moved to EXACT_TARGETS rather than the fuzzy list, so `garbage` (0.714)
+    # and `carriage` (0.667) still stay silent —
+    # `test_wake_burst_splitting.py` asserts exactly that.
+    #
+    # Recorded rather than quietly deleted: this test was not wrong to
+    # exist, it was wrong about the world, and the evidence that changed it
+    # came from the user rather than from me.
 ])
 def test_ordinary_speech_still_does_not_wake_it(said):
     """A false wake starts a turn nobody asked for, and with the speaker gate

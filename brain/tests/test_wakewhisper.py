@@ -101,6 +101,20 @@ def test_silence_alone_produces_nothing():
         assert seg.push(block(0.1, 0.0005)) is None
 
 
+#: Enough 100ms silent blocks to close a burst, derived from the constant
+#: rather than written out.
+#:
+#: These said `range(6)` — 0.6s — which was "comfortably more than
+#: HANG_S=0.35". Raising the hang to 0.7s (a comma pause was splitting
+#: "Kavach, what time is it?" into two bursts) made 0.6s no longer enough
+#: and three tests went red on their fixture rather than on their claim.
+#: Every assertion below is unchanged; only the number of blocks is, and it
+#: is now computed so the next change to HANG_S cannot break them again.
+def _closing_silence() -> int:
+    from kavach.voice.wakewhisper import Segmenter as _S
+    return int(_S.HANG_S / 0.1) + 2
+
+
 def test_a_burst_is_returned_once_it_ends():
     seg = Segmenter()
     for _ in range(3):
@@ -108,7 +122,7 @@ def test_a_burst_is_returned_once_it_ends():
     for _ in range(8):                      # ~0.8s of speech
         assert seg.push(block(0.1, 0.08)) is None
     utterance = None
-    for _ in range(6):                      # trailing silence closes it
+    for _ in range(_closing_silence()):                      # trailing silence closes it
         if utterance is None:
             utterance = seg.push(block(0.1, 0.0005))
 
@@ -122,12 +136,12 @@ def test_a_burst_is_only_returned_once():
     for _ in range(8):
         seg.push(block(0.1, 0.08))
     first = None
-    for _ in range(6):
+    for _ in range(_closing_silence()):
         if first is None:
             first = seg.push(block(0.1, 0.0005))
     assert first is not None
 
-    for _ in range(6):
+    for _ in range(_closing_silence()):
         assert seg.push(block(0.1, 0.0005)) is None, "the same burst came back"
 
 
@@ -135,7 +149,7 @@ def test_a_very_short_sound_is_not_a_burst():
     """A key click or a cough should not cost a transcription."""
     seg = Segmenter()
     seg.push(block(0.05, 0.09))
-    for _ in range(6):
+    for _ in range(_closing_silence()):
         assert seg.push(block(0.1, 0.0005)) is None
 
 
