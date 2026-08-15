@@ -152,31 +152,45 @@ class Segmenter:
     MAX_UTTERANCE_S = 3.0
     #: Silence this long ends a burst.
     #:
-    #: **0.35s was too short, and it cost the wake word entirely.** Measured
-    #: from the user's own `kavach-wakecheck` run, saying "Kavach, what time
-    #: is it?"::
+    #: **0.35 → 0.7 → 0.35.** The middle value was justified and wrong, and
+    #: the reversal is worth reading rather than hiding.
     #:
-    #:     heard  'What time is it?'   ✗  (1.1s)
-    #:     heard  'What time is it?'   ✗  (1.0s)
-    #:     heard  'What time is it?'   ✗  (1.2s)
+    #: 0.7 was set because the user's wake-word bursts arrived at 1.0–1.2s
+    #: with the word missing from the front: the comma pause after "Kavach,"
+    #: was closing its own burst. Merging them worked — the next run showed
+    #: 1.9–2.1s bursts, the whole phrase — **and whisper still wrote only
+    #: "What time is it?"**. Split by case, for this voice:
     #:
-    #: The wake word is missing from the front and the bursts are 1.0–1.2s —
-    #: too short to hold both. The natural pause after "Kavach," is longer
-    #: than 0.35s, so it closed its own burst and the command opened a new
-    #: one. An isolated one-second word is whisper's worst case, which is
-    #: also why 20 of 42 one-second recordings transcribed to nothing.
+    #:     "Kavach" inside a sentence   dropped 7/7, at both settings
+    #:     "Kavach" on its own          'cabbage, cabbage' ✓, 17–24 of 42
     #:
-    #: Bursts that did fire in testing were 2.0–2.1s: the whole phrase.
+    #: Isolated is the only case that works here, so merging the phrase
+    #: works against it. Short again, deliberately.
     #:
-    #: The cost is 350ms more before a wake fires. That is the right trade
-    #: for a detector whose failure mode was not firing at all.
-    HANG_S = 0.7
+    #: Long enough to survive the stop inside "kav-ACH", which is what the
+    #: original comment said and remains true.
+    HANG_S = 0.35
+    #: Blocks of audio kept from before a burst opens, and prepended to it.
+    #:
+    #: `push` only retained a block once it was **loud**, so every quiet
+    #: block before the first loud one was discarded — and a word starting
+    #: with a soft consonant begins below the floor. The burst then started
+    #: partway into "kav-ACH", a fragment whisper drops or renders as
+    #: 'coverage'.
+    #:
+    #: `MicStream.preroll(500)` exists and the main turn path already uses it
+    #: for exactly this. The wake segmenter had none.
+    PREROLL_BLOCKS = 3
 
     def __init__(self) -> None:
         #: Running estimate of the room, seeded pessimistically and pulled
         #: down by the first quiet blocks.
         self._floor = 0.01
         self._parts: list[np.ndarray] = []
+        #: Recent quiet blocks, so a soft word onset is not lost. Bounded, and
+        #: cleared by `reset()` — audio not acted on must not linger (§7).
+        from collections import deque
+        self._preroll: deque = deque(maxlen=self.PREROLL_BLOCKS)
         self._silence = 0.0
         #: Seconds of *speech*, not of tape. The minimum has to be measured
         #: against this: the buffer also holds the trailing silence that ends
@@ -191,6 +205,9 @@ class Segmenter:
 
     def reset(self) -> None:
         self._parts.clear()
+        # §7: the pre-roll is microphone audio too, and audio that was not
+        # acted on must not linger past the turn that dropped it.
+        self._preroll.clear()
         self._silence = 0.0
         self._speech = 0.0
         self._speaking = False
@@ -208,8 +225,15 @@ class Segmenter:
             # Only quiet blocks update the floor, or a long utterance teaches
             # the gate that speech is the new silence.
             self._floor += self.FLOOR_ALPHA * (level - self._floor)
+            if not self._speaking:
+                self._preroll.append(block.astype(np.float32))
 
         if loud:
+            if not self._speaking:
+                # Opening a burst: carry the blocks just before it, which
+                # hold the quiet start of the word.
+                self._parts.extend(self._preroll)
+                self._preroll.clear()
             self._speaking = True
             self._silence = 0.0
             self._speech += seconds

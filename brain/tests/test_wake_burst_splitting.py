@@ -21,6 +21,13 @@ bursts that *did* fire in testing were 2.0–2.1s — the whole phrase together.
 So this was never a matching problem. The matcher was being handed audio
 with the word already removed.
 
+**The fix in this file was then reversed by the next measurement.** Merging
+the bursts worked and did not help: whisper drops a leading rare word inside
+a sentence for this voice (7/7) and transcribes it in isolation (17–24 of
+42). `HANG_S` is short again and the assertions below now require the
+separation they originally forbade. Kept as one story rather than rewritten,
+because the sequence is the useful part.
+
 **This is the third explanation for a missing first word in this project**,
 and the first one supported by a measurement. The earlier note recorded that
 the segmenter "keeps the onset block at every offset" and told the next
@@ -48,12 +55,24 @@ import numpy as np
 
 # ═══ the burst must survive a comma ═══
 
-def test_the_hang_bridges_a_natural_pause():
-    """0.35s does not. Measured from the user's own run: the wake word and
-    the command arrived as separate bursts."""
-    assert Segmenter.HANG_S >= 0.6, (
-        f"HANG_S={Segmenter.HANG_S} closes on the pause after 'Kavach,' and "
-        f"the command becomes a different burst"
+def test_the_hang_keeps_the_wake_word_on_its_own():
+    """**This asserted the opposite one commit ago, and was wrong.**
+
+    It required `HANG_S >= 0.6` so the pause after "Kavach," could not split
+    the phrase. The merge worked — the user's next run showed 1.9–2.1s
+    bursts, the whole phrase — and whisper still wrote only "What time is
+    it?". Split by case, for this voice::
+
+        "Kavach" inside a sentence   dropped 7/7, at both settings
+        "Kavach" on its own          'cabbage, cabbage' ✓, 17–24 of 42 clips
+
+    Isolated is the only case that works here, so a hang long enough to glue
+    the wake word to the command loses it. The earlier reasoning was sound
+    and the measurement outranked it.
+    """
+    assert Segmenter.HANG_S <= 0.45, (
+        f"HANG_S={Segmenter.HANG_S} merges 'Kavach,' with the command, and "
+        f"whisper drops the leading rare word 7/7 for this voice"
     )
 
 
@@ -68,8 +87,10 @@ def test_there_is_room_for_the_word_plus_the_pause():
     assert Segmenter.MAX_UTTERANCE_S >= Segmenter.HANG_S * 3
 
 
-def test_speech_with_a_pause_in_it_stays_one_burst():
-    """The behaviour, not the constant."""
+def test_a_pause_separates_the_wake_word_from_the_command():
+    """The behaviour, not the constant — and the opposite of what this file
+    asserted a commit ago. See the docstring above: merging them is what
+    loses the word for this voice."""
     seg = Segmenter()
     rng = np.random.default_rng(0)
     loud = lambda n: (rng.normal(0, 0.25, n)).astype(np.float32)
@@ -85,11 +106,11 @@ def test_speech_with_a_pause_in_it_stays_one_burst():
         if out is not None:
             bursts.append(out)
 
-    assert len(bursts) == 1, (
-        f"{len(bursts)} bursts — the pause split the phrase, which is how the "
-        f"wake word got separated from the command"
+    assert len(bursts) == 2, (
+        f"{len(bursts)} burst(s) — the pause must separate 'Kavach,' from the "
+        f"command, because whisper transcribes it in isolation and drops it "
+        f"inside a sentence"
     )
-    assert len(bursts[0]) / 16_000 >= 1.0
 
 
 def test_a_long_gap_still_ends_the_burst():
