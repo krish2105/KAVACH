@@ -229,7 +229,13 @@ def main(argv: list[str] | None = None) -> int:
     # private protocol and nothing that works today changes shape.
     api = None
     if not args.no_api:
-        api = ApiServer(voice, ks, registry=pending_registry, port=args.api_port)
+        api = ApiServer(voice, ks, registry=pending_registry,
+                        port=args.api_port,
+                        # Phase 33: without this /proposals answers with an
+                        # empty list forever, and a review surface that shows
+                        # nothing is the same as no review surface.
+                        queue=queue if not args.no_reasoning and not args.no_tools
+                        else None)
         api.start()
 
     bridge = Bridge(voice, ks)

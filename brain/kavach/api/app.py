@@ -32,6 +32,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ..killswitch.core import KillSwitch, KillSwitchDisarmed
 from .confirm import PendingRegistry
 from .models import (
+    ProposalDecision,
+    SayRequest,
     CommandRequest,
     GhostRequest,
     GhostResponse,
@@ -53,7 +55,8 @@ MAX_LOG_LIMIT = 500
 
 
 def create_app(loop, kill_switch: KillSwitch, token: str,
-               registry: PendingRegistry | None = None) -> FastAPI:
+               registry: PendingRegistry | None = None,
+               queue=None) -> FastAPI:
     """Build the app.
 
     Takes its dependencies rather than importing them, so tests drive it with
@@ -141,6 +144,67 @@ def create_app(loop, kill_switch: KillSwitch, token: str,
         return PendingResponse(pending=[p.as_dict() for p in registry.list()])
 
     # ——— acting ———
+
+    @app.post("/say", dependencies=guard)
+    def say(request: SayRequest) -> dict:
+        """Speak some text. **Does not act on it.**
+
+        `kavach-observe` narrates through here rather than opening Kokoro
+        itself — a second process holding the TTS engine means two audio
+        devices, and two Whisper instances competing already cost this
+        project an evening.
+
+        The text reaches `loop.speak` and nothing else. An endpoint that
+        turned text into commands would be a way to drive the machine from
+        outside it, which is what the gate exists to stop.
+        """
+        text = (request.text or "").strip()
+        if not text:
+            return {"spoken": False}
+        kill_switch.log.append("api.say", text=text)
+        loop.speak(text)
+        return {"spoken": True}
+
+    # ——— Phase 33: the proposal queue, reviewable from the phone ———
+    #
+    # A queue with no review surface is a queue that only ever fills up.
+    # Phase 7 already reaches this API over Tailscale Serve, so this is three
+    # endpoints rather than a new transport.
+    #
+    # Approving here executes nothing. It marks a proposal approved; the tool
+    # gate still runs when it is attempted — kill switch, confirmation, log.
+    # The queue is not a second permission system.
+
+    @app.get("/proposals", dependencies=guard)
+    def proposals() -> dict:
+        if queue is None:
+            return {"proposals": []}
+        queue.sweep()
+        return {"proposals": [p.as_dict() for p in queue.pending()]}
+
+    def _decide_many(ids, decide) -> dict:
+        decided, failed = 0, []
+        for item_id in ids or []:
+            try:
+                decide(item_id)
+                decided += 1
+            except (KeyError, ValueError) as exc:
+                # Reported, never swallowed: silently succeeding would let
+                # the phone believe it approved something it did not.
+                failed.append({"id": item_id, "error": str(exc)})
+        return {"decided": decided, "failed": failed}
+
+    @app.post("/proposals/approve", dependencies=guard)
+    def approve_proposals(request: ProposalDecision) -> dict:
+        if queue is None:
+            return {"decided": 0, "failed": []}
+        return _decide_many(request.ids, queue.approve)
+
+    @app.post("/proposals/reject", dependencies=guard)
+    def reject_proposals(request: ProposalDecision) -> dict:
+        if queue is None:
+            return {"decided": 0, "failed": []}
+        return _decide_many(request.ids, queue.reject)
 
     @app.post("/command", response_model=CommandResponse, dependencies=guard)
     async def command(request: CommandRequest,

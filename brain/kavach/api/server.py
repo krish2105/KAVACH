@@ -57,11 +57,14 @@ class ApiServer(threading.Thread):
     daemon = True
 
     def __init__(self, loop, kill_switch, registry=None,
-                 host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
+                 host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
+                 queue=None):
         super().__init__(name="kavach-api")
         self.loop = loop
         self.kill_switch = kill_switch
         self.registry = registry
+        #: Phase 33's queue, so /proposals has something to show.
+        self.queue = queue
         self.host = host
         self.port = port
         self.token = load_or_create_token()
@@ -77,6 +80,10 @@ class ApiServer(threading.Thread):
             kill_switch=self.kill_switch,
             token=self.token,
             registry=self.registry,
+            # Phase 33. Without this the /proposals routes answer with an
+            # empty list forever — a review surface that shows nothing is
+            # the same as no review surface.
+            queue=self.queue,
         )
         config = uvicorn.Config(
             app,

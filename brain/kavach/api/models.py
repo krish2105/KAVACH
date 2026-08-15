@@ -109,3 +109,15 @@ class StatusResponse(BaseModel):
     #: the action log records, so a phone and the orb never disagree.
     reason: str = ""
     intent: str = ""
+
+
+class ProposalDecision(BaseModel):
+    """Approve or reject queued proposals, in a batch (Phase 33)."""
+
+    ids: list[str]
+
+
+class SayRequest(BaseModel):
+    """Text for KAVACH to speak. Never routed, never acted on."""
+
+    text: str
