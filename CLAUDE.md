@@ -1636,7 +1636,52 @@ Found five times now, each time as a different-looking bug:
 it must not **contain** — grep cannot tell prose from code, and the modules
 that must not hold a fact are exactly the ones whose comments must say why.
 
-**The speaker gate is ON as of 2026-08-16** (threshold 0.300, enrolled from
+#### The gate is OFF again — this time on measured evidence, not a guess
+
+Turned on 2026-08-16 at 0.300, then **off the same day at the user's
+decision**, after 39 real turns and 400 imposter clips finally made the
+trade visible:
+
+| threshold | user accepted | imposters admitted |
+|---|---|---|
+| 0.20 | 85% | 4.8% |
+| 0.25 | 79% | 1.5% |
+| **0.30 (what shipped)** | **69%** | 1.2% |
+| 0.35 | 44% | 1.2% |
+
+**It was refusing 31% of the user's speech**, plus six more turns rejected
+outright for falling under `MIN_VERIFY_SECONDS` (2.16–3.0s). And the
+distributions genuinely overlap: the imposter corpus reaches **+0.419**,
+above the user's own median of +0.334. **No threshold separates this voice
+from strangers with this profile** — every value on that curve is a choice
+about which failure you prefer, and the user chose neither.
+
+Two measurement bugs found on the way, both of which had been hiding this:
+
+* **`kavach-speaker scores` counted turns that were never scored.** A clip
+  under `MIN_VERIFY_SECONDS` is logged with `similarity: 0.0`, and those
+  zeros were in the distribution — reporting `min -0.042, p05 +0.000` for a
+  set whose real p05 is +0.008. The tool built to answer this question was
+  answering it wrong.
+* **`load_other_voices()` returns 400 clips and `calibrate()` scores 8 of
+  them.** `blocks_of(clips, SECONDS_PER_SENTENCE)` wants 4s blocks and the
+  corpus is 2s clips, so 392 are discarded. The negative side — the half
+  that decides whether the gate is safe to enable at all — was measured on
+  **2% of the available data**.
+
+Neither is fixed yet; both are why the numbers above had to be computed by
+hand rather than read off the tool.
+
+**What this leaves:** any voice in the room can command KAVACH, and with
+Full Disk Access granted and Tailscale Serve on, that includes asking it to
+read Messages. The unconditional shell confirmation and the §7 gate on every
+irreversible action are what stand in for it — as they did before the gate
+was ever switched on.
+
+**The voiceprint is kept.** `kavach-speaker on` restores it, and 39 scored
+turns are in the action log for whoever revisits this.
+
+**Historical, for context:** the speaker gate is ON as of 2026-08-16 (threshold 0.300, enrolled from
 the 42 real-microphone recordings — see above). Until then any voice in the
 room was acted on, which mattered a great deal with no app allowlist and the
 shell reachable; the unconditional shell confirmation was what stood in for

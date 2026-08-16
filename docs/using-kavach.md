@@ -243,35 +243,32 @@ uv run kavach-export        # what it has heard recently
 Ghost mode suppresses what KAVACH **saw**, never what it **did** — every action
 stays in the log.
 
-### The speaker gate is ON (2026-08-16)
+### The speaker gate is OFF — and why
 
-Only your voice is acted on. Threshold **0.300**, enrolled from the 42
-recordings of you made for the wake word — real audio through this exact
-microphone, which is what the three earlier attempts were missing.
+It was on at 0.300 for part of 2026-08-16 and **it was refusing about a
+third of your turns.** Measured against 39 of your real turns and 400 other
+voices:
 
-Measured before switching it on: your voice **0.345–0.634**, sixteen other
-voices **−0.182 … +0.097**. Nothing but you gets in, with a 0.239 margin.
+| threshold | you accepted | imposters admitted |
+|---|---|---|
+| 0.20 | 85% | 4.8% |
+| 0.25 | 79% | 1.5% |
+| 0.30 | 69% | 1.2% |
+
+The two distributions overlap — some imposter clips score higher than your
+own quieter turns — so no setting accepts you reliably and refuses everyone
+else. You chose to turn it off rather than pick which failure to live with.
+
+**So any voice in the room can command KAVACH**, and with Full Disk Access
+granted and the tailnet route on, that includes asking it to read your
+Messages. What still protects you is the §7 confirmation: nothing gets
+deleted, sent, bought, or run in a shell without KAVACH reading the action
+back and waiting for a yes.
 
 ```bash
-uv run kavach-speaker status    # threshold and state
-uv run kavach-speaker off       # reverse it; the voiceprint is kept
+uv run kavach-speaker on       # restore it; the voiceprint was kept
+uv run kavach-speaker scores   # what your real turns score
 ```
-
-**The one thing to watch.** A clip under 3 seconds cannot be speaker-verified,
-and with the gate on such a turn is discarded rather than guessed at. If short
-commands start vanishing, that is the cause:
-
-```bash
-grep voice.rejected ~/.kavach/logs/actions.jsonl | tail -5
-```
-
-A `clip too short to verify` reason means the gate, not the microphone. Tell
-me if you see it — the fix is a design decision, not a knob.
-
-Spoken **confirmations** are deliberately not speaker-checked: a one-word
-"confirm" is too short to verify at any threshold. So someone else in the room
-could answer a confirmation prompt within its 120-second window, though they
-could not start the action.
 
 ---
 
