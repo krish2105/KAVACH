@@ -28,7 +28,8 @@ your command:
 
 It also works in one breath: *"Hey there, what time is it?"*
 
-Measured 5/5 recognised and 0 false wakes across eight sentences built to
+Confirmed working on your voice, 2026-08-16. Measured 5/5 recognised
+and 0 false wakes across eight sentences built to
 trip it ("hey, are you there?", "is there anything else", "they were there
 yesterday"). Both words must be **adjacent and in order**, which is what
 keeps ordinary speech quiet.

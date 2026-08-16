@@ -328,6 +328,12 @@ Measured with the new phrase, same rig, same room:
 | false wakes | 0 | **0/8** |
 | median transcribe | 272ms | **179ms** |
 
+**Confirmed working on the user's own voice, 2026-08-16.** That was the last
+open claim — every number below came from macOS `say` voices through the
+speakers, which is a harsher two-channel path but not a human. Seven
+attempts at "Kavach" never once fired for them; "hey there" worked on the
+first try.
+
 The negatives were built to trip it — *"hey, are you there?"*, *"is there
 anything else"*, *"they were there yesterday"*, *"put it over there"*, *"hey
 Sam, how are you"*. Zero fired, on file and again through the speakers.
