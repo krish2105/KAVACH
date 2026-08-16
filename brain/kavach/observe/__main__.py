@@ -31,6 +31,7 @@ import time
 
 from ..autonomy.monitors import (
     check_battery,
+    check_calendar_conflicts,
     check_self_health,
     check_shadow_readiness,
     run_all,
@@ -130,6 +131,74 @@ def speak(text: str) -> bool:
 SAY_ONCE = frozenset({"voiceprint"})
 
 
+#: Today's events, as Calendar.app reports them.
+#:
+#: **A fixed script with nothing interpolated into it**, the same rule
+#: `MacActions` follows. Tab-separated so a title containing a comma cannot
+#: shift the columns.
+_CALENDAR_SCRIPT = """
+set out to ""
+set dayStart to (current date)
+set hours of dayStart to 0
+set minutes of dayStart to 0
+set seconds of dayStart to 0
+set dayEnd to dayStart + (1 * days)
+tell application "Calendar"
+  repeat with c in calendars
+    repeat with e in (every event of c whose start date is greater than or ¬
+        equal to dayStart and start date is less than dayEnd)
+      set out to out & (summary of e) & tab & ¬
+        ((start date of e) as string) & tab & ((end date of e) as string) & linefeed
+    end repeat
+  end repeat
+end tell
+return out
+"""
+
+
+def _calendar_events() -> list[dict] | None:
+    """Today's events, or **None if the calendar could not be read**.
+
+    `None` and `[]` are different facts and the monitor already treats them
+    differently: it reports "could not read the calendar" for the first and
+    stays silent for the second. Returning `[]` on failure would report "no
+    conflicts" for a calendar that was never opened — the same rule that
+    makes a missing Full Disk Access grant an explicit refusal rather than
+    an empty listing.
+
+    Reading Calendar.app needs an Automation grant per source→target pair,
+    and this daemon has never sent it an AppleEvent. **The first run may be
+    refused once before the grant exists** — that is TCC, not this code.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(["osascript", "-e", _CALENDAR_SCRIPT],
+                                capture_output=True, text=True, timeout=20)
+    except Exception:
+        log.debug("could not run osascript for the calendar", exc_info=True)
+        return None
+
+    if result.returncode != 0:
+        log.info("calendar unreadable (%s)",
+                 (result.stderr or "").strip()[:120] or "no reason given")
+        return None
+
+    events = []
+    for line in (result.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            # One bad row must not lose the rest. A calendar with a strange
+            # entry is still worth checking for clashes.
+            continue
+        title, start, end = (p.strip() for p in parts)
+        if not start or not end:
+            continue
+        events.append({"title": title or "(untitled)",
+                       "start": start, "end": end})
+    return events
+
+
 def _shadow_samples(action_log: ActionLog):
     """Every scored turn as `(similarity, timestamp_seconds)`.
 
@@ -168,6 +237,9 @@ def run_checks(queue: ProposalQueue, action_log: ActionLog) -> int:
         lambda: check_battery(percent, charging),
         lambda: check_self_health(_processes()),
         lambda: check_shadow_readiness(_shadow_samples(action_log)),
+        # Written, exported, and never called until 2026-08-16 — the
+        # eleventh built-but-unwired thing found in this project.
+        lambda: check_calendar_conflicts(_calendar_events()),
     ])
     for finding in findings:
         if finding.source in SAY_ONCE:

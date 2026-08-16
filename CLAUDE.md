@@ -1546,6 +1546,30 @@ Phase 4 confirmations) were confirmed present first. Findings route to the
 queue only — inventing a briefing to satisfy a reference is pouring a
 foundation for a wall nobody asked for.
 
+### The calendar monitor, wired (2026-08-16)
+
+`check_calendar_conflicts` was defined in `autonomy/monitors.py`, named in
+`__all__`, and **never called** — `observe/__main__.py` ran battery,
+self-health and shadow-readiness and not this one. Eleventh
+built-but-unwired instance here.
+
+The reader is `_calendar_events()` in `observe/__main__.py`, matching
+`_battery` and `_processes`: the monitor takes events and cannot fetch them,
+so nothing in `monitors.py` can reach the calendar even by accident. Fixed
+AppleScript, nothing interpolated, tab-separated so a comma in a title
+cannot shift the columns.
+
+**`None` for unreadable, `[]` for no events.** The monitor already
+distinguishes them — "could not read the calendar" versus silence — and a
+reader returning `[]` on failure would report "no conflicts" for a calendar
+it never opened. Same rule as a missing FDA grant being an explicit refusal
+rather than an empty listing.
+
+Verified live: 1 event today, no conflicts, 0 findings. Reading Calendar.app
+needs an Automation grant per source→target pair, so **the first run from
+the daemon may be refused once before the grant exists** — that is TCC, and
+the refusal reads as "unreadable" rather than "free afternoon".
+
 ### Phase 9 — the tailnet leg, proven (2026-08-16)
 
 ```
