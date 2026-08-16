@@ -78,3 +78,25 @@ def test_a_broken_registry_does_not_disable_the_check():
             raise RuntimeError("registry unavailable")
 
     assert should_verify_speaker(gating=True, pending=Broken())
+
+
+def test_lowering_the_duration_floor_did_not_re_enable_this():
+    """`MIN_VERIFY_SECONDS` moved 3.0 → 2.0 when it was re-measured against
+    ECAPA, so a 2.4s "confirm" clip now clears the duration check.
+
+    The exemption must remain unconditional. It was justified by the clip
+    being mostly silence — 0.5s of voice in 2.4s — not by the floor, and the
+    re-measurement supports it: at 1.0s and under, the enrolled speaker and
+    strangers overlap. The skip is now doing the work the floor used to do
+    incidentally, so removing it would add a wrong check rather than restore
+    a right one.
+    """
+    from kavach.identity.voiceprint import MIN_VERIFY_SECONDS
+
+    assert MIN_VERIFY_SECONDS <= 2.4, "the premise of this test has lapsed"
+
+    class Pending:
+        def list(self):
+            return [type("P", (), {"payload": {"tool": "delete_file"}})()]
+
+    assert should_verify_speaker(gating=True, pending=Pending()) is False

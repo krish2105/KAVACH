@@ -88,31 +88,37 @@ MIN_SAMPLES = 2
 
 #: **Below this, speaker verification is not possible — not merely unreliable.**
 #:
-#: Measured 2026-08-15. The same audio from the same speaker, scored at
-#: increasing durations::
+#: **3.0 was measured with resemblyzer, which is no longer the encoder.**
+#: The old note said in its own words that "resemblyzer cannot embed a
+#: one-second clip stably" and put strangers on a ~0.53 plateau while the
+#: enrolled speaker climbed. All true, and all about a component that was
+#: replaced by ECAPA-TDNN on 2026-08-15 because resemblyzer could not
+#: separate this user at *any* duration.
 #:
-#:     0.8s → 0.423     7.2s → 0.774    27.5s → 0.807
-#:     2.7s → 0.579    13.8s → 0.816
+#: The floor was never re-measured against the replacement. It cost six real
+#: turns (2.16–3.0s) refused before they were ever scored.
 #:
-#: Resemblyzer cannot embed a one-second clip stably. The control that makes
-#: this decisive is scoring 400 clips of *other* speakers the same way: they
-#: plateau at ~0.53 while the enrolled speaker climbs::
+#: Re-measured 2026-08-16 on ECAPA — the user's own 42 real-microphone
+#: recordings against 400 clips of other speakers, imposters scored as
+#: single clips because concatenating two speakers blends them::
 #:
-#:     duration    you     strangers (max)   margin
-#:         1s     0.581        0.543         +0.038   ← noise
-#:         3s     0.698        0.561         +0.138
-#:         7s     0.774        0.540         +0.234
-#:        14s     0.811        0.552         +0.258
+#:     duration   you (worst..best)   others (max)   margin
+#:       0.8s      +0.063 .. +0.648      +0.425      -0.361   overlap
+#:       1.0s      +0.064 .. +0.650      +0.247      -0.184   overlap
+#:       1.5s      +0.333 .. +0.633      +0.211      +0.122   separated
+#:       2.0s      +0.406 .. +0.687      +0.352      +0.054   separated
 #:
-#: So the voiceprint is fine and the threshold was never the real fault. A
-#: voice command — "open Notes" — is about a second, where the enrolled user
-#: and a total stranger are 0.038 apart. **No threshold separates those.** It
-#: is not a tuning problem; the embedding has nothing to work with.
+#: **Separation first appears at 1.5s, not 3.0s.** Below 1.0s the two
+#: distributions genuinely overlap and the honest answer stays "I cannot
+#: tell" — `tests/test_voiceprint_duration.py` exists so that answer cannot
+#: quietly become "yes".
 #:
-#: 3.0s is where a usable margin first appears. Below it the honest answer is
-#: "I cannot tell", and `tests/test_voiceprint_duration.py` exists so that
-#: answer cannot quietly become "yes".
-MIN_VERIFY_SECONDS = 3.0
+#: 2.0 rather than 1.5, deliberately: it clears every turn that was being
+#: refused (the shortest was 2.16s) without claiming reliability at a
+#: duration where the margin is one noisy tail away from nothing. The
+#: measurement supports 1.5; the choice is the conservative end of what it
+#: supports.
+MIN_VERIFY_SECONDS = 2.0
 
 
 def is_long_enough_to_verify(wav, sample_rate: int) -> bool:

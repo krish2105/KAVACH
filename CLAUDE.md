@@ -1704,6 +1704,42 @@ for four seconds, and this corpus contains none.** The higher figure is the
 honest floor, because underestimating a stranger is the error that lets one
 in — and at 0.42 the gate accepts 18% of the user's own turns.
 
+#### `MIN_VERIFY_SECONDS` was set for an encoder that no longer exists
+
+3.0 was measured with **resemblyzer**, and the note said so in its own
+words — *"resemblyzer cannot embed a one-second clip stably"*, strangers on
+a ~0.53 plateau. All true, and all about a component replaced by ECAPA on
+2026-08-15 because resemblyzer could not separate this user at any duration.
+**The floor was never re-measured against the replacement**, and it cost six
+real turns (2.16–3.0s) refused before they were ever scored.
+
+Re-measured on ECAPA — the user's 42 real recordings against 400 other
+speakers, imposters scored as single clips because concatenating two
+speakers blends them:
+
+| duration | you (worst..best) | others (max) | margin |
+|---|---|---|---|
+| 0.8s | +0.063 .. +0.648 | +0.425 | −0.361 overlap |
+| 1.0s | +0.064 .. +0.650 | +0.247 | −0.184 overlap |
+| **1.5s** | +0.333 .. +0.633 | +0.211 | **+0.122** |
+| 2.0s | +0.406 .. +0.687 | +0.352 | +0.054 |
+
+**Separation first appears at 1.5s, not 3.0s.** Set to **2.0**: it clears
+every turn that was being refused (shortest 2.16s) without claiming
+reliability where the margin is one noisy tail from nothing. The measurement
+supports 1.5; 2.0 is the conservative end of what it supports.
+
+Twelfth stale-fact instance, and a new shape — not a fact copied into two
+places, but **a constant that outlived the measurement justifying it**.
+
+**Second-order effect, checked rather than assumed:** the confirmation path
+skips speaker verification because "confirm" is ~0.5s of voice in a 2.4s
+clip. That clip now clears the duration check, so the skip is doing the work
+the floor used to do incidentally. It is unconditional and stays that way —
+the re-measurement shows ≤1.0s overlaps, so removing the skip would add a
+wrong check rather than restore a right one. `test_confirm_speaker.py`
+asserts it.
+
 So the conclusion is unchanged and now properly evidenced: **no usable
 threshold exists with this voiceprint and this corpus.** The gate stays off
 by measurement rather than by frustration.

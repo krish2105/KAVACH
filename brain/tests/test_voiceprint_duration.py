@@ -57,3 +57,38 @@ def test_the_sample_rate_is_respected_not_assumed():
     samples = np.zeros(int(3.5 * 16_000))
     assert is_long_enough_to_verify(samples, 16_000)
     assert not is_long_enough_to_verify(samples, 48_000)
+
+
+# ═══ the floor was set for an encoder that no longer exists ═══
+
+def test_the_floor_was_re_measured_against_the_current_encoder():
+    """3.0 came from resemblyzer, which was replaced by ECAPA because it
+    could not separate this user at any duration. The constant outlived the
+    measurement that justified it, and cost six real turns (2.16–3.0s)
+    refused before they were ever scored.
+
+    Re-measured on ECAPA with the user's own recordings against 400 other
+    speakers, separation first appears at 1.5s:
+
+        1.0s   you +0.064..+0.650   others +0.247   -0.184  overlap
+        1.5s   you +0.333..+0.633   others +0.211   +0.122  separated
+    """
+    assert MIN_VERIFY_SECONDS <= 2.0, (
+        f"MIN_VERIFY_SECONDS={MIN_VERIFY_SECONDS} still reflects the "
+        f"resemblyzer measurement; ECAPA separates from 1.5s"
+    )
+
+
+def test_the_turns_that_were_being_refused_now_score():
+    """The six real turns lost to the old floor: 2.16, 2.16, 2.58, 2.71,
+    2.77 and 3.00 seconds."""
+    for seconds in (2.16, 2.58, 2.77, 3.00):
+        assert is_long_enough_to_verify(
+            np.zeros(int(seconds * 16_000)), 16_000), seconds
+
+
+def test_a_one_second_clip_is_still_refused():
+    """The floor moved on evidence, and the evidence says 1.0s overlaps.
+    Lowering it further would be a guess in the direction that lets a
+    stranger in."""
+    assert not is_long_enough_to_verify(np.zeros(16_000), 16_000)

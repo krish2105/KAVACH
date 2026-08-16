@@ -258,7 +258,16 @@ def should_verify_speaker(gating: bool, pending) -> bool:
     A one-word answer cannot be speaker-verified: "confirm" is roughly 0.5s of
     voiced sound in a 2.4s clip, and an embedding built mostly from silence is
     unreliable at any clip length — lowering `MIN_VERIFY_SECONDS` would not
-    fix it. Measured live 2026-08-15, with a correctly calibrated threshold
+    fix it.
+
+    **The floor did later move, 3.0 → 2.0, and this exemption is unchanged.**
+    A 2.4s clip now clears the duration check, so the skip here is what still
+    prevents a confirmation being judged on half a second of speech — and the
+    re-measurement is what says that would fail: on ECAPA, clips of 1.0s and
+    under put the enrolled speaker and strangers in overlapping ranges
+    (+0.064..+0.650 against a stranger maximum of +0.247). The skip is now
+    doing the work the floor used to do incidentally, so removing it would
+    not restore a check, it would add a wrong one. Measured live 2026-08-15, with a correctly calibrated threshold
     and everything else working::
 
         voice.rejected  similarity 0.0  threshold 0.3825
