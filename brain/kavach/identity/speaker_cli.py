@@ -19,7 +19,7 @@ import argparse
 import sys
 
 from ..killswitch.log import ActionLog
-from .voiceprint import Voiceprint
+from .voiceprint import MIN_VERIFY_SECONDS, Voiceprint
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +70,44 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+#: What `verify()` writes when it declined to look rather than judged.
+#:
+#: A clip under `MIN_VERIFY_SECONDS` is logged as a `voice.score` with
+#: `similarity: 0.0`. Those are not measurements and must not reach a
+#: distribution — six of them in thirty-six real scores dragged the reported
+#: p05 from +0.008 to +0.000 and made every threshold look unreachable.
+_NOT_A_SCORE = "too short"
+
+
+def scored_similarities(entries) -> list[float]:
+    """Every genuine similarity in a run of log entries.
+
+    A `0.0` is only a placeholder when the reason says the clip was never
+    judged. A real similarity of exactly zero is a measurement and is kept.
+    """
+    out = []
+    for entry in entries:
+        if entry.get("event") != "voice.score":
+            continue
+        if _NOT_A_SCORE in (entry.get("reason") or ""):
+            continue
+        value = entry.get("similarity")
+        if isinstance(value, (int, float)):
+            out.append(float(value))
+    return out
+
+
+def count_unscored(entries) -> int:
+    """Turns refused before they were judged.
+
+    Reported rather than silently dropped: a turn lost to the duration floor
+    is still a turn the user lost, and hiding it hides half the problem.
+    """
+    return sum(1 for entry in entries
+               if entry.get("event") == "voice.score"
+               and _NOT_A_SCORE in (entry.get("reason") or ""))
+
+
 def _report_scores(vp) -> int:
     """What real turns actually scored, and what threshold that implies.
 
@@ -80,12 +118,9 @@ def _report_scores(vp) -> int:
 
     from ..killswitch.log import ActionLog
 
-    scores = []
-    for entry in ActionLog().read_all():
-        if entry.get("event") == "voice.score":
-            value = entry.get("similarity")
-            if isinstance(value, (int, float)):
-                scores.append(float(value))
+    entries = list(ActionLog().read_all())
+    scores = scored_similarities(entries)
+    unscored = count_unscored(entries)
 
     print()
     if len(scores) < 10:
@@ -101,6 +136,11 @@ def _report_scores(vp) -> int:
     print(f"  {len(scores)} scored turns")
     print(f"    min {scores[0]:+.3f}   p05 {p05:+.3f}   "
           f"median {scores[len(scores)//2]:+.3f}   max {scores[-1]:+.3f}")
+    if unscored:
+        # Reported, not dropped. These were refused before they were judged,
+        # and they are turns the user lost just as surely as a low score.
+        print(f"    plus {unscored} turn(s) refused before scoring — under "
+              f"the {MIN_VERIFY_SECONDS}s floor")
     print()
     print("  These are YOUR turns — every one of them should be accepted, so")
     print("  a threshold has to sit below the minimum, not below the median.")

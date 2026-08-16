@@ -94,15 +94,44 @@ def load_other_voices(limit: int = 400) -> list[np.ndarray]:
 
 
 def blocks_of(clips: list[np.ndarray], seconds: float,
-              count: int = 8) -> list[np.ndarray]:
-    """Concatenate `clips` into `count` chunks of about `seconds` each.
+              count: int | None = None) -> list[np.ndarray]:
+    """Concatenate `clips` into chunks of about `seconds` each.
 
     Short clips are joined because an embedding needs several seconds to be
     stable — measured: the same speaker scores 0.42 at 0.8s and 0.82 at 14s.
+
+    **`count` used to default to 8, and that cap was a real defect.** The
+    imposter corpus is 400 clips of ~2s — 800 seconds of non-user speech,
+    enough for roughly 200 four-second blocks — and `calibrate()` scored
+    eight of them. The negative side decides whether the gate is safe to
+    enable at all, and it was measured on 2% of the available data.
+
+    Eight samples cannot show a tail, and the tail is the only part that
+    matters. Including the rest moved the measured imposter maximum from
+    **+0.135 to +0.419**, above the user's own median — which is the fact
+    that decided the gate could not be enabled.
+
+    `None` means use everything. A caller wanting a quick answer can still
+    ask for a cap, explicitly.
+
+    **A caveat this corpus cannot escape, and it points the dangerous way.**
+    The clips are ~2s each and come from different speakers, so a 4s block
+    is two people blended. That embedding sits between them and scores
+    *lower* than either would alone — measured on the same corpus and the
+    same profile::
+
+        400 clips scored individually (2s, one speaker)   max +0.419
+        128 blocks of 4s (two speakers concatenated)      max +0.254
+
+    Neither is a realistic imposter: one is a real voice measured too
+    briefly to be stable, the other is a chimera. **A real imposter is one
+    person speaking for four seconds, and this corpus contains none.** Treat
+    the higher figure as the honest floor, because underestimating what a
+    stranger scores is the error that lets one in.
     """
     need = int(seconds * SAMPLE_RATE)
     out, index = [], 0
-    while len(out) < count and index < len(clips):
+    while (count is None or len(out) < count) and index < len(clips):
         piece, taken = [], index
         while sum(len(c) for c in piece) < need and taken < len(clips):
             piece.append(clips[taken])

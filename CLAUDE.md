@@ -1669,8 +1669,44 @@ Two measurement bugs found on the way, both of which had been hiding this:
   that decides whether the gate is safe to enable at all — was measured on
   **2% of the available data**.
 
-Neither is fixed yet; both are why the numbers above had to be computed by
-hand rather than read off the tool.
+**Both are fixed (2026-08-16), and the re-derivation confirms the decision.**
+`blocks_of` uses the whole corpus (8 → 128 blocks), and `scores` excludes
+placeholders while reporting them separately:
+
+```
+39 scored turns
+  min -0.042   p05 +0.017   median +0.334   max +0.615
+  plus 6 turn(s) refused before scoring — under the 3.0s floor
+```
+
+With 16x more negative data, `choose_threshold` **still refuses**: the
+user's quietest turn is −0.042 and an imposter reaches +0.254.
+
+| threshold | user accepted | imposters admitted |
+|---|---|---|
+| 0.20 | 85% | 3.1% |
+| 0.25 | 79% | 0.8% |
+| 0.30 | 69% | 0.0% |
+
+**And a third problem, which the fix exposed rather than solved.** The
+corpus is 2s clips from different speakers, so a 4s block is two people
+blended — an embedding that sits between them and scores lower than either
+alone:
+
+```
+400 clips scored individually (2s, one speaker)   max +0.419
+128 blocks of 4s (two speakers concatenated)      max +0.254
+```
+
+Neither is a realistic imposter. One is a real voice measured too briefly to
+be stable; the other is a chimera. **A real imposter is one person speaking
+for four seconds, and this corpus contains none.** The higher figure is the
+honest floor, because underestimating a stranger is the error that lets one
+in — and at 0.42 the gate accepts 18% of the user's own turns.
+
+So the conclusion is unchanged and now properly evidenced: **no usable
+threshold exists with this voiceprint and this corpus.** The gate stays off
+by measurement rather than by frustration.
 
 **What this leaves:** any voice in the room can command KAVACH, and with
 Full Disk Access granted and Tailscale Serve on, that includes asking it to
