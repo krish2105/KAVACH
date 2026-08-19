@@ -80,6 +80,21 @@ WORD_ALTERNATIVES = {
     "there": ("there", "their", "they're", "theres", "there's"),
 }
 
+#: Whole-phrase mishearings, matched as **exact adjacent pairs**.
+#:
+#: `"Hey there."` spoken **alone** transcribes as `"Heed Elm."` — measured
+#: on three of four voices, including an American one, so this is not an
+#: accent effect. A ~0.6s two-word burst gives whisper nothing to work with
+#: and it guesses; with a command attached it is right every time.
+#:
+#: A pair rather than two entries in `WORD_ALTERNATIVES`: adding `heed` to
+#: the "hey" list and `elm` to the "there" list would also match *"heed
+#: their advice"*, which people say. `("heed", "elm")` matches nothing else
+#: in English.
+PHRASE_ALTERNATIVES = (
+    ("heed", "elm"),
+)
+
 #: How close a word must be to count, per position.
 #:
 #: **Higher than the 0.70 used for the old single rare word.** "kavach" had
@@ -110,8 +125,14 @@ def matches_wake(text: str | None) -> bool:
     words = _WORD_RE.findall(text.lower())
     span = len(WAKE_WORDS)
     for start in range(len(words) - span + 1):
-        if all(_word_matches(words[start + offset], WAKE_WORDS[offset])
+        window = words[start:start + span]
+        if all(_word_matches(window[offset], WAKE_WORDS[offset])
                for offset in range(span)):
+            return True
+        # Observed whole-phrase mishearings, matched exactly. Adjacency and
+        # order still required, so these cannot spread the way a fuzzy
+        # per-word entry would.
+        if tuple(window) in PHRASE_ALTERNATIVES:
             return True
     return False
 
@@ -173,24 +194,31 @@ class Segmenter:
     MAX_UTTERANCE_S = 3.0
     #: Silence this long ends a burst.
     #:
-    #: **0.35 → 0.7 → 0.35.** The middle value was justified and wrong, and
-    #: the reversal is worth reading rather than hiding.
+    #: **0.35 → 0.7 → 0.35 → 0.7.** The value has moved twice in each
+    #: direction and every move was measured. What changed is the wake
+    #: phrase, and the right hang is a property of the phrase:
     #:
-    #: 0.7 was set because the user's wake-word bursts arrived at 1.0–1.2s
-    #: with the word missing from the front: the comma pause after "Kavach,"
-    #: was closing its own burst. Merging them worked — the next run showed
-    #: 1.9–2.1s bursts, the whole phrase — **and whisper still wrote only
-    #: "What time is it?"**. Split by case, for this voice:
+    #: * **"Kavach"** — a rare word — is *dropped* when a sentence follows
+    #:   it, because whisper has better candidates for that audio. It
+    #:   needed **isolation**, so 0.35.
+    #: * **"hey there"** — two common words — is *mangled* when it stands
+    #:   alone, because 0.6s of speech carries no context. It needs the
+    #:   **sentence**, so 0.7.
     #:
-    #:     "Kavach" inside a sentence   dropped 7/7, at both settings
-    #:     "Kavach" on its own          'cabbage, cabbage' ✓, 17–24 of 42
+    #: Measured, the same phrase with and without a command after it::
     #:
-    #: Isolated is the only case that works here, so merging the phrase
-    #: works against it. Short again, deliberately.
+    #:     voice     "Hey there."        "Hey there, open Notes."
+    #:     Rishi     'Heed Elm.'    x    'Hey there, open notes.'  ok
+    #:     Veena     'Heed Elm.'    x    'Hey there, open notes.'  ok
+    #:     Alex      'Heed Elm.'    x    'Hey there, open notes.'  ok
+    #:     Daniel    'Hey there.'   ok   'Hey there, open notes.'  ok
     #:
-    #: Long enough to survive the stop inside "kav-ACH", which is what the
-    #: original comment said and remains true.
-    HANG_S = 0.35
+    #: Three of four, including an American voice, so it is not accent.
+    #:
+    #: `PHRASE_ALTERNATIVES` covers the isolated case as well, so saying the
+    #: phrase on its own still works — this makes the common case reliable
+    #: rather than making the other one impossible.
+    HANG_S = 0.7
     #: Blocks of audio kept from before a burst opens, and prepended to it.
     #:
     #: `push` only retained a block once it was **loud**, so every quiet

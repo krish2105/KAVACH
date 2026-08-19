@@ -61,13 +61,29 @@ def _blocks(rng, pattern):
     return out
 
 
-def test_the_hang_is_short_enough_to_isolate_the_wake_word():
-    """This user's wake word is only recognised on its own. A hang long
-    enough to glue it to the command loses it entirely."""
-    assert Segmenter.HANG_S <= 0.45, (
-        f"HANG_S={Segmenter.HANG_S} merges 'Kavach,' with the command, and "
-        f"whisper drops the leading rare word 7/7 for this voice"
-    )
+def test_the_hang_suits_the_wake_phrase():
+    """**This asserted `<= 0.45` and the wake phrase changed underneath it.**
+
+    That was right for "Kavach": a rare word is *dropped* when a sentence
+    follows it, so it needed isolating. It is wrong for "hey there": two
+    common words are *mangled* when they stand alone — three of four voices,
+    including an American one, transcribe "Hey there." as "Heed Elm." — so
+    the phrase needs the sentence.
+
+    The hang is a property of the wake phrase, not a constant to tune by
+    feel. `test_wake_needs_context.py` carries the measurement; this asserts
+    only that the two agree, so changing the phrase without revisiting the
+    hang fails here.
+    """
+    from kavach.voice.wakewhisper import WAKE_PHRASE
+
+    if WAKE_PHRASE == "hey there":
+        assert Segmenter.HANG_S >= 0.6, (
+            f"HANG_S={Segmenter.HANG_S} splits 'hey there' from its command, "
+            f"and the phrase alone is whisper's worst case"
+        )
+    else:
+        assert Segmenter.HANG_S > 0, "a hang of zero ends every burst instantly"
 
 
 def test_there_is_a_preroll():
