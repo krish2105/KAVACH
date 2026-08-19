@@ -538,8 +538,9 @@ MANUAL_CHECKS = [
     ("voice", "speak a command",
      "hold Space in the panel and say \"what time is it\""),
     ("voice", "wake word fires on your voice",
-     f"say \"{_WAKE_PHRASE}\", pause, then your command — "
-     f"`kavach-wakecheck` shows what it heard"),
+     f"say \"{_WAKE_PHRASE}, what time is it?\" in one breath — the "
+     f"phrase alone is whisper's worst case; `kavach-wakecheck` shows "
+     f"what it heard"),
     ("presence", "drag the panel",
      "🛡 menu → Move / resize, then drag it"),
     ("guardrails", "spoken confirmation on a destructive action",
