@@ -21,8 +21,8 @@ you press — that lead-in exists because the turn used to close after 1.05s and
 you would be mid-breath. Once you *have* spoken, 700ms of quiet ends the turn,
 so it does not feel slow.
 
-**Or just say "hey there".** The wake word works now — say it, pause, then
-your command:
+**Or just say "hey there".** The wake word works — say it and your command
+together:
 
 > **"Hey there, what time is it?"** — in one breath
 
@@ -34,11 +34,10 @@ command attached it is correct every time.
 The isolated form is handled too, so it will still wake — but the one-breath
 version is the reliable one.
 
-Confirmed working on your voice, 2026-08-16. Measured 5/5 recognised
-and 0 false wakes across eight sentences built to
-trip it ("hey, are you there?", "is there anything else", "they were there
-yesterday"). Both words must be **adjacent and in order**, which is what
-keeps ordinary speech quiet.
+Measured 0 false wakes across sentences built to trip it — *"hey, are you
+there?"*, *"is there anything else"*, *"they were there yesterday"*, *"you
+should heed their advice"*. Both words must be **adjacent and in order**,
+which is what keeps ordinary speech quiet.
 
 If it stops firing, this shows exactly what it heard and stores nothing:
 
