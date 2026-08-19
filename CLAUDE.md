@@ -334,6 +334,46 @@ speakers, which is a harsher two-channel path but not a human. Seven
 attempts at "Kavach" never once fired for them; "hey there" worked on the
 first try.
 
+#### It stopped firing, and the reason was the opposite of last time (2026-08-19)
+
+Eight wake bursts transcribed at 11:14, none matched, then push-to-talk at
+11:15. The machinery was fine — a `say` test fired first attempt, and the
+phrase transcribes 10/10 across ten voices. **The difference is whether a
+command follows it:**
+
+```
+voice     "Hey there."        "Hey there, open Notes."
+Rishi     'Heed Elm.'    x    'Hey there, open notes.'  ok
+Veena     'Heed Elm.'    x    'Hey there, open notes.'  ok
+Alex      'Heed Elm.'    x    'Hey there, open notes.'  ok
+Daniel    'Hey there.'   ok   'Hey there, open notes.'  ok
+```
+
+Three of four, including an American voice, so **not accent**. A ~0.6s
+two-word burst gives whisper nothing to work with and it guesses.
+`HANG_S = 0.35` was closing on the pause after "hey there" and handing the
+matcher the isolated phrase.
+
+**`HANG_S` has now moved 0.35 → 0.7 → 0.35 → 0.7, and every move was
+measured.** What changed each time is the wake phrase, and the right hang is
+a property of the phrase, not a number to tune by feel:
+
+* a **rare** word is *dropped* when a sentence follows it — whisper has
+  better candidates for that audio — so "Kavach" needed **isolation**;
+* **common** words are *mangled* when they stand alone — two short words
+  carry no context — so "hey there" needs the **sentence**.
+
+Both directions were right for their phrase. The constant only looks like it
+has been flip-flopping; the input changed under it.
+
+`PHRASE_ALTERNATIVES = (("heed", "elm"),)` covers the isolated case too, as
+an **exact adjacent pair**. Adding `heed` to the "hey" list and `elm` to the
+"there" list would have matched *"heed their advice"*, which people say.
+
+Verified live after the change: phrase-with-command **woke**, phrase-alone
+**woke**, and five negatives including *"you should heed their advice"* gave
+**0 false wakes**.
+
 The negatives were built to trip it — *"hey, are you there?"*, *"is there
 anything else"*, *"they were there yesterday"*, *"put it over there"*, *"hey
 Sam, how are you"*. Zero fired, on file and again through the speakers.

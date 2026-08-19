@@ -24,9 +24,15 @@ so it does not feel slow.
 **Or just say "hey there".** The wake word works now — say it, pause, then
 your command:
 
-> **"Hey there."** … *"what time is it?"*
+> **"Hey there, what time is it?"** — in one breath
 
-It also works in one breath: *"Hey there, what time is it?"*
+**Say the command in the same breath**, not as a separate sentence after a
+pause. "Hey there." on its own is only ~0.6 seconds, and whisper transcribes
+short two-word bursts as *"Heed Elm."* about three times in four. With the
+command attached it is correct every time.
+
+The isolated form is handled too, so it will still wake — but the one-breath
+version is the reliable one.
 
 Confirmed working on your voice, 2026-08-16. Measured 5/5 recognised
 and 0 false wakes across eight sentences built to
