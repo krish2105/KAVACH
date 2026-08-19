@@ -372,7 +372,8 @@ an **exact adjacent pair**. Adding `heed` to the "hey" list and `elm` to the
 
 Verified live after the change: phrase-with-command **woke**, phrase-alone
 **woke**, and five negatives including *"you should heed their advice"* gave
-**0 false wakes**.
+**0 false wakes**. **Confirmed on the user's own voice, 2026-08-19**, in the
+one-breath form.
 
 The negatives were built to trip it — *"hey, are you there?"*, *"is there
 anything else"*, *"they were there yesterday"*, *"put it over there"*, *"hey
